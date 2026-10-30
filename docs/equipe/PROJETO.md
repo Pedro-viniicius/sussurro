@@ -131,11 +131,11 @@ Lista completa: `arquitetura.md` §16, `infra.md` §10 e `testes.md` §11.
 | A-08 | Feed da Fase 2 demonstrado com dados de seed | Sim | Fase 2 |
 | A-04 | Busca pelo @ de conta pessoal | Dica genérica sempre que não houver criador (não confirma que a conta existe) | Fase 3 |
 | D5 | Denunciar e bloquear | Incluir; bloquear até a Fase 3 | Fase 3 |
-| D3 | Seletor "NFC / Bluetooth" | **"Bluetooth / QR code"**: rotular "NFC" o que não usa NFC engana o usuário, e o QR precisa de lugar na tela | Fase 4 |
+| D3 | Seletor "NFC / Bluetooth" | **"Bluetooth / QR code"**: rotular "NFC" o que não usa NFC engana o usuário, e o QR precisa de lugar na tela. **Revisado pelo PO em 2026-10-30:** "encostar os celulares" (Bluetooth de curtíssimo alcance, só com a tela Conectar aberta nos dois), com o QR de reserva. O NFC foi descartado porque o iPhone não deixa um app social emular cartão NFC (iPhone ↔ iPhone não funcionaria). Motivo: quem está a alguns metros não deve nem enxergar a pessoa. O desenho está em andamento (ADR nova) | Fase 4 (revisão pós-MVP) |
 | D1 | BLE: `react-native-ble-plx` não anuncia | Módulo Expo próprio, com token num UUID de 128 bits | Fase 4 |
 | D7 | QR cruzado | B lê o QR de A (garante presença) | Fase 4 |
 | D8 | Desfazer conexão | Permitido | Fase 4 |
-| D13 | "a ~1 m" | Faixas: "bem perto" / "por perto" | Fase 4 |
+| D13 | "a ~1 m" | Faixas: "bem perto" / "por perto". **Substituído pela revisão do D3 (2026-10-30):** só aparece quem está com o celular encostado | Fase 4 |
 | A-03 / A-36 | Aparelhos e SO mínimo | Confirmar o inventário; SO mínimo do Expo SDK 58 | Fase 4 |
 | D10 | Limites de reel | 90 s e 200 MB | Fase 5 |
 | A-21 | GPS em vídeo só verificável depois do `apply` | Aceitar como "verificação pós-apply" | Fase 5 |
