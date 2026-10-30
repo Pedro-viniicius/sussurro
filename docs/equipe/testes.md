@@ -82,6 +82,7 @@ supertest chama o servidor HTTP do Nest em memória (porta efêmera), sem precis
 ### 3.3 Tempo
 - `Clock` injetável na API e no worker (`now(): Date`). Regras que dependem de tempo (`expires_at`, `since` do feed, bucket de notificação por dia) usam o `Clock`, **não** `now()` do Postgres. Sem isso, FEED-03 e PROX-15 não são testáveis de forma determinística (ver A-27).
 - TTLs do Redis vêm de config: `PROX_TOKEN_TTL_S` (30), `PROX_RECENT_TTL_S` (120), `PROX_SCREEN_TTL_S` (30), `PRESIGN_PUT_TTL_S` (600). Nos testes de expiração, usar `PEXPIRE` na chave para forçar a expiração, ou TTL de 1 s.
+- Rate limit nos e2e (2026-10-30, falha do CI do PR #1): o teste avança o `FakeClock` e espera a janela reiniciar. No modo real a janela vive no TTL do Valkey (relógio de verdade), então o `test-app` usa o store de produção dentro do `ClockSyncedRateLimitStore` (`apps/api/src/testing`), que desconta do TTL das chaves `rl:*` o tempo que o `FakeClock` andou. No PGlite vale o fake em memória; `TEST_RATE_LIMIT_STORE=valkey-sim` reproduz o caminho do modo real sem Docker (dublê `WallClockRedis`).
 - `TZ=UTC` nos testes do Node (setado no `vitest.config.ts` e no `jest.setup.ts`). Testes de "dia em America/Sao_Paulo" passam o fuso explicitamente.
 - Atenção: os testes do app rodam no Node, e o app roda no Hermes. Formatação de data e `Intl` podem divergir. Conferir "Há 18 minutos", "ontem" e "27 out" no aparelho (roteiro manual).
 
@@ -175,6 +176,7 @@ Legenda da coluna Camada: **U** unidade, **I** integração com banco/Redis, **E
 | PERM-15 | Curtidas | nenhuma rota devolve quem curtiu; item tem só `likeCount` e `likedByMe` | E | 2 |
 | PERM-16 | URL de mídia de conta pessoal | só é emitida para quem passa no `AccessPolicyService`; URL com assinatura adulterada ou sem assinatura → 403 no S3/CloudFront | E + M | 2 |
 | PERM-17 | Logs e Sentry | requisição com `Authorization`, `password`, `token`, `observedToken`, `targetToken`: nenhum aparece no log (teste do `redact` do pino) nem no evento do Sentry (teste do `beforeSend`) | U | 1 (log), 6 (Sentry) |
+| PERM-17b | Erro do banco no log e no Sentry (`DrizzleQueryError`) | o banco falha de verdade (PGlite: CHECK violada no cadastro e no `PATCH /me`, coluna fora no login, banco derrubado) numa rota com e-mail, senha, nome e bio: o 500 é o de sempre e nem o log (pino de produção, nível `trace`) nem o envelope do Sentry (opções de produção, transporte falso) contêm e-mail, senha, hash, nome, bio, `params:` ou o `detail` (`Failing row contains`); o SQLSTATE e os frames da aplicação continuam. Unitários: `sanitizeError`/`describeSafeError` (cadeia de `cause`, `AggregateError`, não-`Error`, `detail`, frame imitado), filtro, consumidor da fila, manutenção, recibos do push e desligamento | E + U | 6 |
 | PERM-18 | Rotas sem autenticação | todas as rotas, exceto `/health*`, `/auth/register`, `/auth/login`, `/auth/refresh` e, desde a Fase 1 (D6), `/auth/password/forgot`, `/auth/password/reset` e `/auth/email/verify`, respondem 401 sem token (enumeradas pelo `DiscoveryService`) | E | 1 |
 
 ### 6.2 Contadores (CNT)

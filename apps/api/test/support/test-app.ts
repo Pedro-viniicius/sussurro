@@ -6,21 +6,29 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { createTestDatabase, type TestDatabase } from '@sussurro/db/testing';
 import type { Redis } from 'ioredis';
+import { PARAMS_PROVIDER_TOKEN } from 'nestjs-pino';
+import type { DestinationStream } from 'pino';
+import type { Options as PinoHttpOptions } from 'pino-http';
 import request from 'supertest';
 
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/app.setup.js';
 import { CounterCache } from '../../src/common/cache/counter-cache.js';
 import { Clock } from '../../src/common/clock/clock.js';
-import { RateLimitStore } from '../../src/common/rate-limit/rate-limit.store.js';
+import {
+  RateLimitStore,
+  RedisRateLimitStore,
+} from '../../src/common/rate-limit/rate-limit.store.js';
 import { DATABASE } from '../../src/infra/database/database.providers.js';
 import { EmailSender } from '../../src/infra/email/email-sender.js';
+import { buildLoggerParams } from '../../src/infra/observability/logger.options.js';
 import { REDIS } from '../../src/infra/redis/redis.providers.js';
 import { MediaJobsQueue } from '../../src/infra/storage/media-jobs-queue.js';
 import { ObjectStorage } from '../../src/infra/storage/object-storage.js';
 import { PushQueue } from '../../src/infra/storage/push-queue.js';
 import { ProximityStore } from '../../src/modules/proximity/proximity.store.js';
 import { CapturingEmailSender } from '../../src/testing/capturing-email-sender.js';
+import { ClockSyncedRateLimitStore } from '../../src/testing/clock-synced-rate-limit.store.js';
 import { FakeClock } from '../../src/testing/fake-clock.js';
 import { InMemoryCounterCache } from '../../src/testing/in-memory-counter-cache.js';
 import { InMemoryMediaJobsQueue } from '../../src/testing/in-memory-media-jobs-queue.js';
@@ -29,6 +37,7 @@ import { InMemoryPushQueue } from '../../src/testing/in-memory-push-queue.js';
 import { InMemoryRateLimitStore } from '../../src/testing/in-memory-rate-limit.store.js';
 import { cloudFrontTestEnv, testEnv } from '../../src/testing/test-env.js';
 import { TestProximityStore } from '../../src/testing/test-proximity.store.js';
+import { WallClockRedis } from '../../src/testing/wall-clock-redis.js';
 
 export interface TestApp {
   app: NestExpressApplication;
@@ -64,6 +73,12 @@ export interface TestAppOptions {
    * testes que precisam do comportamento real (pulados no modo PGlite).
    */
   realStorage?: boolean;
+  /**
+   * PERM-17: o pino de produção (`buildLoggerParams`, com o `redact` e os serializers) escreve
+   * neste stream em vez do stdout, para o teste ler cada linha do log. O nível vem de `LOG_LEVEL`
+   * em `env` (o padrão dos testes é `silent`).
+   */
+  logStream?: DestinationStream;
 }
 
 /** Um índice do Redis por worker do Vitest (testes.md §3.1). */
@@ -146,6 +161,13 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     .overrideProvider(PushQueue)
     .useValue(push);
 
+  if (options.logStream !== undefined) {
+    const { pinoHttp } = buildLoggerParams(env);
+    builder = builder
+      .overrideProvider(PARAMS_PROVIDER_TOKEN)
+      .useValue({ pinoHttp: [pinoHttp as PinoHttpOptions, options.logStream] });
+  }
+
   if (options.realStorage !== true) {
     builder = builder
       .overrideProvider(ObjectStorage)
@@ -154,14 +176,42 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
       .useValue(queue);
   }
 
-  // Sem Docker não há Valkey: o rate limit usa o fake em memória (mesma porta) e o health, um dublê.
-  const memoryRateLimits = database.mode === 'pglite' ? new InMemoryRateLimitStore(clock) : null;
-  if (memoryRateLimits !== null) {
-    builder = builder
-      .overrideProvider(RateLimitStore)
-      .useValue(memoryRateLimits)
-      .overrideProvider(REDIS)
-      .useValue(fakeRedis());
+  // Rate limit: o teste avança o relógio e espera a janela reiniciar (A-27), nos dois modos.
+  // - Modo real: o store de produção (script Lua no Valkey do compose/CI), com o TTL das chaves
+  //   `rl:*` descontado do tempo que o FakeClock andou (`ClockSyncedRateLimitStore`). Sem isso a
+  //   janela só vence pelo relógio do Valkey e todo teste "429 → avança → passa" falha no CI.
+  // - PGlite (sem Docker não há Valkey): o fake em memória sobre o relógio, e o health com um
+  //   dublê do Redis. Com `TEST_RATE_LIMIT_STORE=valkey-sim`, o mesmo caminho do modo real sobre um
+  //   dublê do Valkey com TTL pelo relógio de verdade (`WallClockRedis`), para reproduzi-lo aqui.
+  let memoryRateLimits: InMemoryRateLimitStore | null = null;
+  let simulatedValkey: WallClockRedis | null = null;
+  let syncedRateLimits: ClockSyncedRateLimitStore | null = null;
+  if (database.mode === 'pglite') {
+    builder = builder.overrideProvider(REDIS).useValue(fakeRedis());
+    if (process.env.TEST_RATE_LIMIT_STORE?.trim() === 'valkey-sim') {
+      simulatedValkey = new WallClockRedis();
+      syncedRateLimits = new ClockSyncedRateLimitStore(
+        new RedisRateLimitStore(simulatedValkey),
+        simulatedValkey,
+        clock,
+      );
+      builder = builder.overrideProvider(RateLimitStore).useValue(syncedRateLimits);
+    } else {
+      memoryRateLimits = new InMemoryRateLimitStore(clock);
+      builder = builder.overrideProvider(RateLimitStore).useValue(memoryRateLimits);
+    }
+  } else {
+    builder = builder.overrideProvider(RateLimitStore).useFactory({
+      inject: [REDIS],
+      factory: (redis: Redis) => {
+        syncedRateLimits = new ClockSyncedRateLimitStore(
+          new RedisRateLimitStore(redis),
+          redis,
+          clock,
+        );
+        return syncedRateLimits;
+      },
+    });
   }
 
   const moduleRef = await builder.compile();
@@ -182,10 +232,12 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     proximity,
     reset: async () => {
       await database.truncate();
-      if (memoryRateLimits === null) {
-        await app.get<Redis>(REDIS).flushdb();
-      } else {
+      if (memoryRateLimits !== null) {
         memoryRateLimits.clear();
+      } else if (simulatedValkey !== null) {
+        await simulatedValkey.flushdb();
+      } else {
+        await app.get<Redis>(REDIS).flushdb();
       }
       outbox.clear();
       storage.clear();
@@ -194,6 +246,8 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
       counters.clear();
       proximity.clear();
       clock.reset();
+      // O relógio voltou ao início: o próximo avanço conta a partir daqui.
+      syncedRateLimits?.resync();
     },
     close: async () => {
       await app.close();
