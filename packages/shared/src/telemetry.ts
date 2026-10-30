@@ -90,8 +90,27 @@ export function isPersonalKey(key: string): boolean {
   );
 }
 
-/** Padrões redigidos dentro de qualquer texto (mensagens de erro, breadcrumbs, URLs). */
+/**
+ * Padrões redigidos dentro de qualquer texto (mensagens de erro, breadcrumbs, URLs). Sem `\p{…}` nem
+ * lookbehind, para valer igual no Hermes do app; os quantificadores têm limite onde um texto longo
+ * sem separadores poderia custar caro.
+ */
 const TEXT_PATTERNS: readonly (readonly [RegExp, string])[] = [
+  // PERM-17: a mensagem do `DrizzleQueryError` é `Failed query: <sql>\nparams: <valores>`. Os
+  // valores (e-mail, hash da senha, nome, bio, textos) podem ter quebra de linha: sai tudo até o fim.
+  [/(^|\r?\n|\\n)params:[\s\S]*/g, `$1params: ${TELEMETRY_REDACTED}`],
+  // Hash de senha no formato PHC (`$argon2id$v=19$m=…,t=…,p=…$sal$hash`), com as vírgulas.
+  [/\$argon2(?:id|i|d)\$[\w$=,+/.-]*/g, TELEMETRY_REDACTED],
+  // E-mail (parte local de até 64 caracteres, domínio com TLD de letras: `pacote@1.2.3` fica).
+  [
+    /[\w\u00C0-\u024F.!#$%&'*+=?^`{|}~-]{1,64}@(?:[A-Za-z0-9\u00C0-\u024F-]{1,63}\.)+[A-Za-z\u00C0-\u024F]{2,63}/g,
+    TELEMETRY_REDACTED,
+  ],
+  // Valor recusado pelo Postgres: `invalid input syntax for type uuid: "…"`.
+  [
+    /((?:invalid input (?:syntax|value) for|out of range)[^:\n]{0,200}: )"[^"\n]*"/gi,
+    `$1"${TELEMETRY_REDACTED}"`,
+  ],
   [/\bBearer\s+[\w.~+/=-]+/gi, `Bearer ${TELEMETRY_REDACTED}`],
   // JWT (três partes base64url).
   [/\beyJ[\w-]{4,}\.[\w-]{4,}\.[\w-]{4,}/g, TELEMETRY_REDACTED],
@@ -219,7 +238,10 @@ function scrubRequest(request: TelemetryRequest): TelemetryRequest {
  *   chaves sensíveis viram `[Filtered]`, chaves de relacionamento somem e listas de contas (objetos
  *   com `handle`) viram `[Filtered]`;
  * - em qualquer texto (mensagens de erro e de breadcrumbs): `Bearer …`, JWT, push token do Expo, o
- *   detalhe `Key (…)=(…)` do Postgres e parâmetros como `token=` e `cursor=`.
+ *   detalhe `Key (…)=(…)` do Postgres, parâmetros como `token=` e `cursor=` e, desde a correção do
+ *   PERM-17, os `params:` de uma consulta que falhou, e-mails e hashes `$argon2…$…`.
+ *
+ * É a segunda barreira: o erro já sai limpo do código (`sanitizeError`, em `safe-error.ts`).
  */
 export function scrubTelemetryEvent<T extends object>(event: T): T {
   const { request, user: _user, ...rest } = event as Record<string, unknown>;

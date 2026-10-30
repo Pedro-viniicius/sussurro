@@ -116,12 +116,22 @@ describe('AllExceptionsFilter', () => {
     expect(Sentry.captureException).not.toHaveBeenCalled();
   });
 
-  it('envia ao Sentry só os erros 5xx', () => {
+  /** O último erro mandado ao Sentry (PERM-17: sempre a versão limpa, nunca o original). */
+  function sentToSentry(): Error & { code?: string } {
+    const [captured] = vi.mocked(Sentry.captureException).mock.calls.at(-1) ?? [];
+    expect(captured).toBeInstanceOf(Error);
+    return captured as Error & { code?: string };
+  }
+
+  it('envia ao Sentry só os erros 5xx, na versão limpa (PERM-17)', () => {
     const { host, status } = fakeHost();
     const error = new Error('boom');
     new AllExceptionsFilter().catch(error, host);
     expect(status).toHaveBeenCalledWith(500);
-    expect(Sentry.captureException).toHaveBeenCalledWith(error);
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1);
+    const sent = sentToSentry();
+    expect(sent).not.toBe(error);
+    expect(sent.message).toBe('boom');
   });
 
   it('[6.7] 503 PROXIMITY_UNAVAILABLE é esperado: fica fora do Sentry, mas vai para o log com o código (a métrica)', () => {
@@ -141,6 +151,11 @@ describe('AllExceptionsFilter', () => {
     // Outro 503 (fila fora no publish) continua indo para o Sentry.
     const other = new DomainError(ErrorCode.SERVICE_UNAVAILABLE, 503, 'fila fora');
     new AllExceptionsFilter().catch(other, fakeHost().host);
-    expect(Sentry.captureException).toHaveBeenCalledWith(other);
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1);
+    const sent = sentToSentry();
+    expect(sent).not.toBe(other);
+    expect(sent.name).toBe('DomainError');
+    expect(sent.code).toBe('SERVICE_UNAVAILABLE');
+    expect(sent.message).toBe('fila fora [SERVICE_UNAVAILABLE]');
   });
 });

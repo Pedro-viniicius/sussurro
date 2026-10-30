@@ -1,16 +1,11 @@
+import { describeSafeError } from '@sussurro/shared';
+
 /**
- * Texto curto para log a partir de qualquer erro. Segue a cadeia de `cause` (o Drizzle
- * embrulha o erro do `pg`) e usa o `code` quando a mensagem vem vazia (ECONNREFUSED no
- * Windows chega como AggregateError sem mensagem).
+ * Texto curto e limpo para log a partir de qualquer erro (PERM-17). Segue a cadeia de `cause` (o
+ * Drizzle embrulha o erro do `pg`) e usa o `code` quando a mensagem vem vazia (ECONNREFUSED no
+ * Windows chega como AggregateError sem mensagem). Do `DrizzleQueryError` sai só o SQL, nunca os
+ * `params` (e-mail, hash da senha, nome, textos); do erro do driver, a mensagem e o SQLSTATE.
  */
-export function describeError(error: unknown, depth = 0): string {
-  if (!(error instanceof Error)) {
-    return String(error);
-  }
-  const { code } = error as { code?: unknown };
-  const own = error.message.trim() || (typeof code === 'string' ? code : '') || error.name;
-  if (error.cause !== undefined && depth < 3) {
-    return `${own} <- ${describeError(error.cause, depth + 1)}`;
-  }
-  return own;
+export function describeError(error: unknown): string {
+  return describeSafeError(error);
 }

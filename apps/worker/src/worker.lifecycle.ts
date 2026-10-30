@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
 import type { DbHandle } from '@sussurro/db';
+import { sanitizeError } from '@sussurro/shared';
 import type { Redis } from 'ioredis';
 
 import { WorkerConfig } from './config/config.module.js';
@@ -156,7 +157,8 @@ export class WorkerLifecycle implements OnApplicationBootstrap, OnApplicationShu
       })
       .catch((error: unknown) => {
         this.logger.error(`Falha na manutenção: ${describeError(error)}`);
-        Sentry.captureException(error, { tags: { job: 'maintenance' } });
+        // PERM-17: ao Sentry vai a versão limpa (sem os `params` de uma consulta que falhou).
+        Sentry.captureException(sanitizeError(error), { tags: { job: 'maintenance' } });
       })
       .finally(() => {
         this.inFlight = undefined;
@@ -178,7 +180,7 @@ export class WorkerLifecycle implements OnApplicationBootstrap, OnApplicationShu
       })
       .catch((error: unknown) => {
         this.logger.warn(`Falha ao consultar os recibos do push: ${describeError(error)}`);
-        Sentry.captureException(error, { tags: { job: 'push-receipts' } });
+        Sentry.captureException(sanitizeError(error), { tags: { job: 'push-receipts' } });
       })
       .finally(() => {
         this.receiptsInFlight = undefined;

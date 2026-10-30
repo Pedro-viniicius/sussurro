@@ -16,6 +16,21 @@ const SECRETS = {
   ip: '203.0.113.7',
 };
 
+/** Valores de uma consulta que falhou (fictícios; PERM-17). */
+const DB_VALUES = {
+  email: 'ana.souza+teste@exemplo.com.br',
+  hash: '$argon2id$v=19$m=19456,t=2,p=1$c2FsLWZpY3RpY2lv$aGFzaC1maWN0aWNpby1kZS10ZXN0ZQ', // gitleaks:allow
+  name: 'Ana Souza Fictícia',
+  bio: 'bio com quebra\n    at frame-falso (bio.js:1:1)',
+};
+
+function leakedDbValues(value: unknown): string[] {
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return Object.entries({ ...DB_VALUES, bio: 'frame-falso', salt: 'c2FsLWZpY3RpY2lv' })
+    .filter(([, secret]) => text.includes(secret))
+    .map(([name]) => name);
+}
+
 function leaked(event: unknown): string[] {
   const text = JSON.stringify(event);
   return Object.entries(SECRETS)
@@ -154,6 +169,69 @@ describe('scrubTelemetryEvent (6.7, PERM-17)', () => {
     expect(scrubText('?password=1&x=2')).toBe(`?password=${TELEMETRY_REDACTED}&x=2`);
     expect(stripQuery('/v1/feed?type=photo#x')).toBe('/v1/feed');
     expect(stripQuery('/v1/feed')).toBe('/v1/feed');
+  });
+
+  it('[PERM-17] scrubText: os params de uma consulta que falhou saem até o fim do texto', () => {
+    const message =
+      'Failed query: update "users" set "email" = $1, "password_hash" = $2 where "id" = $3\n' +
+      `params: ${DB_VALUES.email},${DB_VALUES.hash},${DB_VALUES.bio}`;
+    const scrubbed = scrubText(message);
+    expect(scrubbed).toBe(
+      'Failed query: update "users" set "email" = $1, "password_hash" = $2 where "id" = $3\n' +
+        `params: ${TELEMETRY_REDACTED}`,
+    );
+    expect(leakedDbValues(scrubbed)).toEqual([]);
+    // Já escapado (linha de log em JSON) e no começo do texto.
+    expect(scrubText(`Failed query: select 1\\nparams: ${DB_VALUES.email}`)).toBe(
+      `Failed query: select 1\\nparams: ${TELEMETRY_REDACTED}`,
+    );
+    expect(scrubText(`params: ${DB_VALUES.name}`)).toBe(`params: ${TELEMETRY_REDACTED}`);
+  });
+
+  it('[PERM-17] scrubText: e-mail solto vira [Filtered]; versão de pacote no caminho fica', () => {
+    expect(scrubText(`login de ${DB_VALUES.email} falhou`)).toBe(
+      `login de ${TELEMETRY_REDACTED} falhou`,
+    );
+    expect(scrubText('Key (email)=(Joao.Silva@Exemplo.COM) already exists')).toBe(
+      `Key (email)=(${TELEMETRY_REDACTED}) already exists`,
+    );
+    expect(scrubText('contato: joão@exemplo.com.br.')).toBe(`contato: ${TELEMETRY_REDACTED}.`);
+    const frame = '    at f (/app/node_modules/.pnpm/drizzle-orm@0.45.4_x/node_modules/a.js:1:2)';
+    expect(scrubText(frame)).toBe(frame);
+  });
+
+  it('[PERM-17] scrubText: hash argon2 vira [Filtered], inclusive as vírgulas dos parâmetros', () => {
+    expect(scrubText(`hash=${DB_VALUES.hash} fim`)).toBe(`hash=${TELEMETRY_REDACTED} fim`);
+    expect(scrubText('$argon2i$v=19$m=4096,t=3,p=1$c2Fs$aGFzaA')).toBe(TELEMETRY_REDACTED); // gitleaks:allow
+    expect(leakedDbValues(scrubText(`a ${DB_VALUES.hash}`))).toEqual([]);
+  });
+
+  it('[PERM-17] scrubText: valor recusado pelo Postgres não sai', () => {
+    expect(scrubText(`invalid input syntax for type uuid: "${DB_VALUES.name}"`)).toBe(
+      `invalid input syntax for type uuid: "${TELEMETRY_REDACTED}"`,
+    );
+    expect(scrubText('invalid input value for enum account_type: "x"')).toBe(
+      `invalid input value for enum account_type: "${TELEMETRY_REDACTED}"`,
+    );
+  });
+
+  it('[PERM-17] evento com a mensagem de um DrizzleQueryError: e-mail, hash e nome não saem', () => {
+    const message = `Failed query: insert into "users" values ($1, $2, $3)\nparams: ${DB_VALUES.email},${DB_VALUES.hash},${DB_VALUES.name}`;
+    const event = {
+      message,
+      exception: {
+        values: [
+          { type: 'error', value: 'canceling statement due to statement timeout' },
+          { type: 'Error', value: message },
+        ],
+      },
+      breadcrumbs: [{ message: `query falhou: ${message}` }],
+    };
+    const scrubbed = scrubTelemetryEvent(event);
+    expect(leakedDbValues(scrubbed)).toEqual([]);
+    expect(scrubbed.exception.values[1]?.value).toBe(
+      `Failed query: insert into "users" values ($1, $2, $3)\nparams: ${TELEMETRY_REDACTED}`,
+    );
   });
 
   it('span do tracing: URL sem query, query string fora, rota e método mantidos', () => {

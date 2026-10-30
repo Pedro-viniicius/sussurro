@@ -12,6 +12,7 @@ export * from './posts.ts';
 export * from './proximity.ts';
 export * from './relations.ts';
 export * from './reports.ts';
+export * from './safe-error.ts';
 export * from './search.ts';
 export * from './telemetry.ts';
 export * from './text.ts';

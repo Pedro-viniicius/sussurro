@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
+import { sanitizeError } from '@sussurro/shared';
 
 import { describeError } from './describe-error.js';
 import type { MessageQueue, QueueMessage } from './queue.js';
@@ -71,10 +72,14 @@ export abstract class QueueConsumer {
     await this.queue.delete(message.receiptHandle);
   }
 
-  /** Erro fora do previsto (ex.: banco fora): vai para o log e o Sentry (no-op sem DSN). */
+  /**
+   * Erro fora do previsto (ex.: banco fora): vai para o log e o Sentry (no-op sem DSN). PERM-17:
+   * os dois recebem a versão limpa (`sanitizeError`), nunca o erro original, que num
+   * `DrizzleQueryError` traz os valores da consulta.
+   */
   protected reportFailure(message: QueueMessage, error: unknown): void {
     this.logger.error(`Falha ao processar a mensagem ${message.id}: ${describeError(error)}`);
-    Sentry.captureException(error, { tags: { queue: this.queueLabel } });
+    Sentry.captureException(sanitizeError(error), { tags: { queue: this.queueLabel } });
   }
 
   private async processAndAck(message: QueueMessage): Promise<void> {

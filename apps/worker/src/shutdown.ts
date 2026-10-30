@@ -1,4 +1,5 @@
 import type { INestApplicationContext, LoggerService } from '@nestjs/common';
+import { describeSafeError } from '@sussurro/shared';
 
 type Exit = (code: number) => void;
 
@@ -25,7 +26,8 @@ export function registerShutdownSignals(
         exit(0);
       },
       (error: unknown) => {
-        logger.error(error instanceof Error ? error.stack : String(error));
+        // PERM-17: a versão limpa (sem os `params` de uma consulta que falhou), com os frames.
+        logger.error(describeSafeError(error, { withStack: true }));
         exit(1);
       },
     );

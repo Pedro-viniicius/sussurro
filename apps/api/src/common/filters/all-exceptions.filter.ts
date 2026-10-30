@@ -9,9 +9,11 @@ import {
 import * as Sentry from '@sentry/nestjs';
 import { findPgError, PgErrorCode } from '@sussurro/db';
 import {
+  describeSafeError,
   ErrorCode,
   errorCodeFromHttpStatus,
   type ErrorResponse,
+  sanitizeError,
   type ValidationIssue,
 } from '@sussurro/shared';
 import type { Response } from 'express';
@@ -147,9 +149,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
       // métrica (filtro do CloudWatch por `code`). Fora do Sentry (pendência da Fase 4a).
       this.logger.warn({ code: body.code, status, expected: true }, 'Indisponível (esperado)');
     } else if (status >= 500) {
-      this.logger.error(exception instanceof Error ? exception.stack : String(exception));
+      // PERM-17: nunca o erro original. O `DrizzleQueryError` traz os valores da consulta (e-mail,
+      // hash da senha, nome, textos) na mensagem, no stack e nos `params`. Log e Sentry recebem a
+      // versão limpa: o SQL, a mensagem e o SQLSTATE do driver e o stack só com os frames.
+      const safe = sanitizeError(exception);
+      this.logger.error(describeSafeError(safe, { withStack: true }));
       // Sem DSN o Sentry não foi inicializado e isto não faz nada (decisão D4).
-      Sentry.captureException(exception);
+      Sentry.captureException(safe);
     }
     const response = host.switchToHttp().getResponse<Response>();
     if (headers !== undefined) {
