@@ -3,6 +3,7 @@ import {
   type AppVariant,
   buildAppConfig,
   CAMERA_PERMISSION_TEXT,
+  EAS_PROJECT_ID,
   PHOTOS_PERMISSION_TEXT,
   PROXIMITY_PLUGIN,
   resolveVariant,
@@ -176,9 +177,10 @@ describe('app.config', () => {
     expect(JSON.stringify(buildAppConfig('production'))).not.toMatch(/UIBackgroundModes/);
   });
 
-  it('Fase 6: projectId do EAS e google-services.json só pelo ambiente do build', () => {
+  it('Fase 6: projectId do EAS fixo (o ambiente pode trocar); google-services.json só pelo ambiente', () => {
     const bare = buildAppConfig('production');
-    expect(bare.extra).toEqual({ appVariant: 'production' });
+    expect(bare.extra).toEqual({ appVariant: 'production', eas: { projectId: EAS_PROJECT_ID } });
+    expect(EAS_PROJECT_ID).toBe('d52fca2b-c3b1-4623-9191-0987ddf8ab1f');
     expect(bare.android).not.toHaveProperty('googleServicesFile');
     const withEnv = buildAppConfig(
       'production',

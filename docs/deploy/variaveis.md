@@ -110,7 +110,7 @@ Nada disso fica no `eas.json` nem no repositório.
 | `EXPO_PUBLIC_SENTRY_TRACES_SAMPLE_RATE` | 0.05 | plain text |
 | `EXPO_PUBLIC_DEV_TOOLS` | nunca no `production` | não definir |
 | `APP_VARIANT` | vem do `eas.json` (`preview` ou `production`) | já no `eas.json` |
-| `EAS_PROJECT_ID` | id do projeto no expo.dev | plain text (só no build) |
+| `EAS_PROJECT_ID` | opcional: troca o projeto do expo.dev (padrão fixo no `app.config.ts`) | plain text (só no build) |
 | `GOOGLE_SERVICES_JSON` | `google-services.json` do Firebase | arquivo, secret |
 | `SENTRY_ORG`, `SENTRY_PROJECT` | organização e projeto do Sentry | plain text (só no build) |
 | `SENTRY_AUTH_TOKEN` | token de upload dos source maps | **secret** |

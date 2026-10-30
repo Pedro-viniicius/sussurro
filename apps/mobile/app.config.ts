@@ -46,8 +46,16 @@ export const VIDEO_PLUGIN_OPTIONS = {
 export const PROXIMITY_PLUGIN = './modules/sussurro-proximity/app.plugin.js';
 
 /**
- * Variáveis do build (EAS ou shell). Nenhuma é segredo, mas nenhuma fica no repositório:
- * - `EAS_PROJECT_ID`: projeto do EAS; sem ele o app não pede o token de push (Fase 6);
+ * Projeto do EAS (expo.dev, slug `sussurro`), criado pelo PO com `eas init` em 2026-10-30. Não é
+ * segredo: fica no repositório para o `eas build` funcionar sem configurar variável. O
+ * `EAS_PROJECT_ID` do ambiente, se preenchido, tem precedência.
+ */
+export const EAS_PROJECT_ID = 'd52fca2b-c3b1-4623-9191-0987ddf8ab1f';
+
+/**
+ * Variáveis do build (EAS ou shell). Nenhuma é segredo e nenhuma fica no repositório:
+ * - `EAS_PROJECT_ID`: troca o projeto do EAS (o padrão é a constante acima); sem projeto, o app não
+ *   pede o token de push (Fase 6);
  * - `GOOGLE_SERVICES_JSON`: caminho do `google-services.json` do Firebase (FCM do Android), como
  *   variável de arquivo do EAS;
  * - `SENTRY_ORG` e `SENTRY_PROJECT`: upload dos source maps no EAS Build, junto do
@@ -105,7 +113,7 @@ export function buildAppConfig(
   env: BuildEnv = {},
 ): ExpoConfig {
   const { name, id } = VARIANTS[variant];
-  const projectId = filled(env.EAS_PROJECT_ID);
+  const projectId = filled(env.EAS_PROJECT_ID) ?? EAS_PROJECT_ID;
   const googleServicesFile = filled(env.GOOGLE_SERVICES_JSON);
   const sentryOrg = filled(env.SENTRY_ORG);
   const sentryProject = filled(env.SENTRY_PROJECT);
@@ -190,7 +198,7 @@ export function buildAppConfig(
     experiments: { typedRoutes: true },
     extra: {
       appVariant: variant,
-      ...(projectId === undefined ? {} : { eas: { projectId } }),
+      eas: { projectId },
     },
   };
 }
