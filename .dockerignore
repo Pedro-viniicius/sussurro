@@ -1,0 +1,52 @@
+# Contexto das imagens da API e do worker (Fase 7): a raiz do monorepo, sem segredos, sem artefatos
+# locais e sem o app (só o package.json dele, que o pnpm confere contra o lockfile).
+
+# segredos e configuração local: nunca entram na imagem
+.env
+.env.*
+**/.env
+**/.env.*
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
+**/google-services.json
+**/GoogleService-Info.plist
+**/sentry.properties
+**/*.tfvars
+**/backend.hcl
+
+# Git, CI e editores
+.git
+.github
+.vscode
+.idea
+**/.DS_Store
+
+# artefatos e caches (o build acontece dentro da imagem)
+**/node_modules
+**/dist
+**/coverage
+**/.turbo
+**/.expo
+**/*.tsbuildinfo
+**/*.log
+
+# documentação, protótipo e infraestrutura
+docs
+infra
+docker-compose.yml
+README.md
+
+# app: só o manifesto (o resto não entra no build da API nem do worker)
+apps/mobile/*
+!apps/mobile/package.json
+packages/ui/*
+!packages/ui/package.json
+
+# testes e configs de teste das apps e pacotes de servidor
+apps/*/test
+**/*.spec.ts
+**/*.test.ts
+**/vitest*.config.ts

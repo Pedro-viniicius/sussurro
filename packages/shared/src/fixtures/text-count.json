@@ -1,0 +1,21 @@
+{
+  "description": "Casos de contagem do texto de post (testes.md §6.9, TXT-01 e TXT-02). Lidos pelos testes do packages/shared, da API (e2e de POST /posts) e do app (contador da tela Criar). O texto de cada caso é a concatenação de parts[i].text repetido parts[i].times vezes (1 se ausente). count = code points depois de NFC e \\r\\n → \\n, contando espaços nas pontas; valid = a API aceita como texto de post (1 a 280, não vazio).",
+  "cases": [
+    { "id": "TXT-01a", "label": "280 letras", "parts": [{ "text": "a", "times": 280 }], "count": 280, "valid": true },
+    { "id": "TXT-01a", "label": "281 letras", "parts": [{ "text": "a", "times": 281 }], "count": 281, "valid": false },
+    { "id": "TXT-01b", "label": "280 emojis (JS .length = 560)", "parts": [{ "text": "\ud83d\ude00", "times": 280 }], "count": 280, "valid": true },
+    { "id": "TXT-01c", "label": "281 emojis", "parts": [{ "text": "\ud83d\ude00", "times": 281 }], "count": 281, "valid": false },
+    { "id": "TXT-01d", "label": "família com ZWJ (1 grafema, 5 code points)", "parts": [{ "text": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67" }], "count": 5, "valid": true },
+    { "id": "TXT-01e", "label": "bandeira do Brasil (2 indicadores regionais)", "parts": [{ "text": "\ud83c\udde7\ud83c\uddf7" }], "count": 2, "valid": true },
+    { "id": "TXT-01f", "label": "é decomposto (e + U+0301) vira 1 após NFC", "parts": [{ "text": "e\u0301" }], "count": 1, "valid": true },
+    { "id": "TXT-01f", "label": "280 é decompostos (560 code points antes do NFC)", "parts": [{ "text": "e\u0301", "times": 280 }], "count": 280, "valid": true },
+    { "id": "TXT-01g", "label": "279 letras + 1 emoji", "parts": [{ "text": "a", "times": 279 }, { "text": "\ud83d\ude00" }], "count": 280, "valid": true },
+    { "id": "TXT-01h", "label": "vazio", "parts": [], "count": 0, "valid": false },
+    { "id": "TXT-01h", "label": "só espaços", "parts": [{ "text": " ", "times": 5 }], "count": 5, "valid": false },
+    { "id": "TXT-01h", "label": "só quebras de linha", "parts": [{ "text": "\r\n", "times": 3 }], "count": 3, "valid": false },
+    { "id": "TXT-01h", "label": "só U+200B (espaço de largura zero)", "parts": [{ "text": "\u200b", "times": 3 }], "count": 3, "valid": false },
+    { "id": "TXT-01h", "label": "só invisíveis misturados (ZWJ, U+FEFF, U+2060, hangul filler)", "parts": [{ "text": "\u200d\ufeff\u2060\u3164\u00a0" }], "count": 5, "valid": false },
+    { "id": "TXT-01i", "label": "\\r\\n vira \\n", "parts": [{ "text": "linha1\r\nlinha2" }], "count": 13, "valid": true },
+    { "id": "TXT-01j", "label": "280 letras + 1 espaço no fim (o espaço conta, como no contador)", "parts": [{ "text": "a", "times": 280 }, { "text": " " }], "count": 281, "valid": false }
+  ]
+}

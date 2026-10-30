@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Sussurro: scripts TypeScript de infra/ (rodam direto no Node, sem build)",
+  "extends": "../packages/config/tsconfig/node-library.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "erasableSyntaxOnly": true
+  },
+  "include": ["**/*.ts", "**/*.mts"]
+}

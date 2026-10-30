@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1793315153612,
+      "tag": "0000_users_and_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793315157154,
+      "tag": "0001_users_account_type_immutable",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793320171736,
+      "tag": "0002_posts_media_likes_comments",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793329385435,
+      "tag": "0003_blocks_reports_creator_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793335108640,
+      "tag": "0004_connection_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793342549252,
+      "tag": "0005_reels",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793348677968,
+      "tag": "0006_notifications_push",
+      "breakpoints": true
+    }
+  ]
+}

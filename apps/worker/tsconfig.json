@@ -1,0 +1,9 @@
+{
+  "extends": "@sussurro/config/tsconfig/nest-app.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": ["src", "test", "*.ts"]
+}

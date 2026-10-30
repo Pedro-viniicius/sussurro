@@ -1,0 +1,55 @@
+{
+  "name": "@sussurro/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Schema Drizzle, migrations e cliente PostgreSQL (usado pela API e pelo worker).",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sussurro/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "@sussurro/source": "./src/testing/index.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "migrations"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage",
+    "test:e2e": "vitest run -c vitest.int.config.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "node src/seed/cli.ts",
+    "db:studio": "drizzle-kit studio",
+    "db:pglite": "node scripts/pglite-server.mjs",
+    "clean": "rimraf dist coverage .turbo"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13",
+    "@electric-sql/pglite-socket": "^0.2.16",
+    "@node-rs/argon2": "^2.2.2",
+    "@sussurro/config": "workspace:*",
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "@vitest/coverage-v8": "^5.0.5",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^10.13.0",
+    "rimraf": "^6.1.3",
+    "typescript": "6.0.3",
+    "vitest": "^5.0.5"
+  }
+}

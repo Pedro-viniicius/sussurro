@@ -1,0 +1,65 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "globalDependencies": [".nvmrc", "packages/config/tsconfig/*.json"],
+  "globalEnv": ["NODE_ENV"],
+  "tasks": {
+    "transit": {
+      "dependsOn": ["^transit"]
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["transit", "//#typecheck:root"]
+    },
+    "lint": {
+      "dependsOn": ["transit", "//#lint:root"]
+    },
+    "//#typecheck:root": {
+      "inputs": ["infra/**/*.ts", "infra/**/*.mts", "infra/tsconfig.json"]
+    },
+    "//#lint:root": {
+      "inputs": [
+        "infra/**/*.ts",
+        "infra/**/*.mts",
+        "infra/tsconfig.json",
+        "scripts/**",
+        "eslint.config.mjs",
+        "packages/config/eslint/*.mjs"
+      ]
+    },
+    "test": {
+      "dependsOn": ["transit"],
+      "outputs": []
+    },
+    "test:cov": {
+      "dependsOn": ["transit"],
+      "outputs": ["coverage/**"]
+    },
+    "test:e2e": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "env": [
+        "DATABASE_URL",
+        "REDIS_URL",
+        "TEST_DB",
+        "AWS_REGION",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_ENDPOINT_URL_S3",
+        "AWS_ENDPOINT_URL_SQS",
+        "S3_FORCE_PATH_STYLE",
+        "S3_BUCKET_MEDIA"
+      ]
+    },
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}

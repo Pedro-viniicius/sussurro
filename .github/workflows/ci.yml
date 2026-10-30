@@ -1,0 +1,230 @@
+# CI da Fase 0 (infra.md §4.1; testes.md §3.5 e §10.7, casos F0-CI-01 a F0-CI-05).
+# Actions fixadas por SHA (a tag fica no comentário); o Dependabot propõe as atualizações.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Auditoria semanal de dependências (segunda, 06:00 UTC). Só o job "audit" roda nesse gatilho.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # O evento entra no grupo para o agendamento não cancelar um push pendente na main (e vice-versa).
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+  EXPO_NO_TELEMETRY: '1'
+
+jobs:
+  secrets:
+    name: secrets (gitleaks)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          # O token não fica no .git/config, que é montado no container abaixo.
+          persist-credentials: false
+      # CLI do gitleaks (MIT) em vez da gitleaks-action, que exige licença em organizações.
+      # Imagem fixada por digest: é ela que lê todo o histórico do repositório.
+      - name: gitleaks (histórico completo)
+        run: >-
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" -w /repo
+          ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          git --config .gitleaks.toml --redact --verbose --no-banner .
+
+  quality:
+    name: quality (lint, typecheck, format)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Sem o input "version": lê o packageManager (pnpm@12.13.0) do package.json. Sem corepack.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: turbo-quality-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-quality-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile
+      - name: Título do PR em Conventional Commits (vira a mensagem do squash merge)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | pnpm exec commitlint
+      - run: pnpm format:check
+      - run: pnpm turbo run lint typecheck
+      - name: expo-doctor (informativo na Fase 0)
+        continue-on-error: true
+        run: pnpm --filter @sussurro/mobile exec expo-doctor
+
+  test:
+    name: test (unitários + e2e com Postgres e Valkey)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      # Mesmas imagens e tags do docker-compose.yml (paridade com o ambiente local).
+      postgres:
+        image: postgres:18.6-bookworm
+        env:
+          POSTGRES_USER: sussurro
+          POSTGRES_PASSWORD: sussurro
+          POSTGRES_DB: sussurro
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U sussurro -d sussurro"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      valkey:
+        image: valkey/valkey:8.1-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      # Credencial descartável do container de teste (a mesma do .env.example), não é segredo.
+      # O turbo só repassa ao test:e2e as variáveis listadas em turbo.json → tasks.test:e2e.env.
+      DATABASE_URL: postgres://sussurro:sussurro@localhost:5432/sussurro
+      REDIS_URL: redis://localhost:6379
+      TZ: UTC
+      # Fase 2: emuladores S3/SQS do compose (credencial local de infra/local/s3.json).
+      AWS_REGION: sa-east-1
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      AWS_ENDPOINT_URL_S3: http://localhost:8333
+      AWS_ENDPOINT_URL_SQS: http://localhost:9324
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_BUCKET_MEDIA: sussurro-media
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: turbo-test-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-test-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile
+      - name: Unitários (shared, db, api, worker, ui, mobile)
+        run: pnpm test
+      # Fase 1 (A-24): o drizzle-kit aplica as migrations no banco do service. Os testes criam
+      # bancos próprios (sussurro_test_*) com as mesmas migrations.
+      - name: Migrations (drizzle-kit)
+        run: pnpm db:migrate
+      # Fase 2: SQS e S3 (ElasticMQ e SeaweedFS do compose, com as filas, DLQs e o bucket). Os e2e
+      # que só valem com S3/SQS de verdade (Content-Length, URL vencida, DLQ) usam estes serviços.
+      - name: Emuladores S3/SQS (compose)
+        run: docker compose up -d --wait elasticmq seaweedfs s3-init
+      - name: Integração e e2e (Postgres, Valkey, S3 e SQS reais)
+        run: pnpm test:e2e
+
+  build:
+    name: build (pacotes, API e worker)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: turbo-build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-build-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile
+      # O app não tem build no turbo: os binários saem do EAS.
+      - run: pnpm turbo run build --filter=!@sussurro/mobile
+      - name: Confere a saída da API e do worker (F0-GATE-06)
+        run: test -f apps/api/dist/main.js && test -f apps/worker/dist/main.js
+
+  # Fase 7 (infra.md §4.2, backlog E7 CA0): validação só estática do Terraform e dos Dockerfiles.
+  # Sem credencial da AWS, sem plan e sem apply. Versões fixadas: Terraform 1.16.6, TFLint v0.64.0
+  # (binário conferido por SHA-256), ruleset da AWS 0.49.0 (.tflint.hcl) e Trivy 0.76.0 (imagem
+  # fixada por digest). Achados aceitos ficam no próprio código, com #trivy:ignore e a justificativa.
+  infra:
+    name: infra (terraform fmt, validate, tflint, trivy)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff infra/terraform
+      - name: terraform validate (sem backend e sem credenciais)
+        run: |
+          for dir in infra/terraform/bootstrap infra/terraform/envs/prod; do
+            terraform -chdir="$dir" init -backend=false -input=false -no-color
+            terraform -chdir="$dir" validate -no-color
+          done
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: v0.64.0
+          checksums: cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537
+      - name: tflint
+        working-directory: infra/terraform
+        env:
+          # Só para baixar o plugin da AWS sem o limite anônimo da API do GitHub.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tflint --init --config="$PWD/.tflint.hcl"
+          tflint --recursive --config="$PWD/.tflint.hcl" --minimum-failure-severity=warning
+      - name: trivy config (Terraform e Dockerfiles)
+        run: >-
+          docker run --rm -v "$GITHUB_WORKSPACE:/src:ro" -w /src
+          aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222
+          config --exit-code 1 --severity HIGH,CRITICAL
+          --skip-dirs node_modules --skip-dirs docs .
+
+  audit:
+    name: audit (dependências de produção)
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Fase 0: só informa (infra.md §4.1).
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm audit --prod --audit-level high

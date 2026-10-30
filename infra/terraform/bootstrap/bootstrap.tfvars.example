@@ -1,0 +1,19 @@
+# Modelo do bootstrap.tfvars (o arquivo real fica fora do Git). Valores fictícios.
+
+aws_account_id   = "123456789012"
+region           = "sa-east-1"
+cost_alert_email = "custos@example.com"
+
+# P7: 200 no porte enxuto, 350 no completo.
+monthly_budget_usd = 200
+media_budget_usd   = 40
+
+# Zona do Route 53 do domínio (recomendado). Depois do apply, configure os servidores de nome da
+# saída route53_name_servers no registrador.
+create_dns_zone = true
+domain_name     = "example.com"
+
+github_oidc_enabled = true
+
+# Se a conta já tiver o monitor padrão do Cost Anomaly Detection, informe o ARN dele aqui.
+anomaly_monitor_arn = ""

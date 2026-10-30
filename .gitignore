@@ -1,0 +1,54 @@
+# dependências
+node_modules/
+
+# builds e caches
+dist/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# ambiente (nunca commitar segredos)
+.env
+.env.*
+!.env.example
+
+# Expo / React Native (Continuous Native Generation: android/ e ios/ são gerados)
+.expo/
+expo-env.d.ts
+apps/mobile/android/
+apps/mobile/ios/
+apps/mobile/.smoke-export/
+apps/mobile/dist/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+# Fase 6: credenciais de push (FCM) e do Sentry ficam no EAS, nunca no repositório
+google-services.json
+GoogleService-Info.plist
+sentry.properties
+
+# Fase 7: Terraform. O state (tem as senhas geradas) fica só no bucket do bootstrap; os tfvars e o
+# backend.hcl reais têm a conta, o domínio e os e-mails. Só os modelos *.example entram no Git.
+# O .terraform.lock.hcl é versionado (fixa os providers).
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+infra/terraform/**/backend.hcl
+
+# sistema e editores
+.DS_Store
+Thumbs.db
+*.log
+.idea/

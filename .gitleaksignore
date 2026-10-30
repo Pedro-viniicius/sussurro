@@ -1,0 +1,9 @@
+# Falsos positivos já revisados (formato commit:arquivo:regra:linha), só do commit 475cabf.
+# São valores fictícios de teste, hoje marcados na própria linha com `gitleaks:allow`. Este arquivo só
+# cobre o commit em que eles entraram sem a marca. Segredo de verdade nunca entra aqui: revogue/rotacione
+# primeiro (ver .gitleaks.toml).
+475cabf8c095db0a8ce7f017624853e0d5b2ec31:apps/api/src/infra/observability/sentry.spec.ts:generic-api-key:17
+475cabf8c095db0a8ce7f017624853e0d5b2ec31:apps/api/src/infra/observability/sentry.spec.ts:generic-api-key:18
+475cabf8c095db0a8ce7f017624853e0d5b2ec31:apps/api/src/modules/auth/access-token.service.spec.ts:generic-api-key:67
+475cabf8c095db0a8ce7f017624853e0d5b2ec31:apps/api/src/testing/test-env.ts:generic-api-key:8
+475cabf8c095db0a8ce7f017624853e0d5b2ec31:apps/mobile/src/lib/sentry.test.ts:jwt:26

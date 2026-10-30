@@ -1,0 +1,409 @@
+import { userEvent } from '@testing-library/react-native';
+import { act, screen, waitFor, within } from 'expo-router/testing-library';
+import { Alert, type AlertButton } from 'react-native';
+
+import { creatorMe, type FakeApi, personalMe } from '../../test-utils/fake-api';
+import {
+  AUTHORS,
+  feedPage,
+  pendingVideo,
+  reelPost,
+  videoMedia,
+} from '../../test-utils/post-fixtures';
+import { renderApp } from '../../test-utils/render-app';
+import { fakeVideo } from '../../test-utils/video-mock';
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
+beforeEach(() => {
+  fakeVideo.reset();
+});
+
+/** Feed com estes reels na aba Reels (as outras abas vazias). */
+function reelFeed(fake: FakeApi, reels: ReturnType<typeof reelPost>[]) {
+  fake.on('GET /v1/feed', ({ query }) => ({
+    status: 200,
+    body: feedPage(query.type === 'reel' ? reels : []),
+  }));
+  for (const reel of reels) {
+    fake.on(`GET /v1/posts/${reel.id}`, { status: 200, body: reel });
+  }
+}
+
+async function openReelsTab() {
+  await screen.findByTestId('caught-up-photo');
+  await userEvent.press(screen.getByRole('tab', { name: 'Reels' }));
+}
+
+/** Responde ao Alert apertando o botão com este texto. */
+function answerAlerts(...texts: string[]) {
+  return jest
+    .spyOn(Alert, 'alert')
+    .mockImplementation((_title, _message, buttons?: AlertButton[]) => {
+      buttons
+        ?.find((button) => button.text !== undefined && texts.includes(button.text))
+        ?.onPress?.();
+    });
+}
+
+describe('grade de reels (história 5.4, p08)', () => {
+  it('5.4 CA1/FEED-05: a aba Reels do feed mostra a grade 3 colunas 9:16 com a duração sobre a miniatura', async () => {
+    const first = reelPost({ media: [videoMedia({ durationS: 42 })] });
+    const second = reelPost({
+      author: AUTHORS.cozinhadabia,
+      media: [videoMedia({ durationS: 75.4 })],
+    });
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      configure: (fake) => {
+        reelFeed(fake, [first, second]);
+      },
+    });
+    await openReelsTab();
+    const tile = await screen.findByRole('button', { name: 'Reel de @marinac, 42 segundos' });
+    expect(within(tile).getByText('0:42')).toBeOnTheScreen();
+    expect(
+      screen.getByRole('button', { name: 'Reel de @cozinhadabia, 1 minuto e 15 segundos' }),
+    ).toBeOnTheScreen();
+    expect(screen.getByText('1:15')).toBeOnTheScreen();
+    // 9:16 e 3 colunas (largura da tela menos os dois vãos de 2, dividida por 3).
+    const { width, height } = (tile.props as { style: { width: number; height: number }[] })
+      .style[0] as { width: number; height: number };
+    expect(height).toBe(Math.round((width * 16) / 9));
+    expect(width).toBeCloseTo((750 - 4) / 3, 1);
+    // A miniatura é o poster; a chave do cache é o id da mídia.
+    expect(screen.getByTestId(`post-image-${first.media[0]?.id ?? ''}-img`)).toBeOnTheScreen();
+    expect(screen.getByTestId('caught-up-reel')).toBeOnTheScreen();
+    expect(api.callsTo('GET /v1/feed').some((call) => call.query.type === 'reel')).toBe(true);
+  });
+
+  it('MID-09/5.3 CA3: reel em processamento ou com falha nunca aparece no feed, nem o do próprio autor (defesa no app)', async () => {
+    const published = reelPost();
+    const processing = reelPost({
+      status: 'processing',
+      publishedAt: null,
+      media: [pendingVideo()],
+    });
+    const failed = reelPost({
+      status: 'failed',
+      publishedAt: null,
+      media: [pendingVideo('failed')],
+    });
+    const ownProcessing = reelPost({
+      isOwn: true,
+      author: AUTHORS.helena,
+      status: 'processing',
+      publishedAt: null,
+      media: [pendingVideo()],
+    });
+    await renderApp({
+      signedInAs: personalMe(),
+      configure: (fake) => {
+        reelFeed(fake, [processing, published, failed, ownProcessing]);
+      },
+    });
+    await openReelsTab();
+    expect(await screen.findByTestId(`reel-${published.id}`)).toBeOnTheScreen();
+    for (const hidden of [processing, failed, ownProcessing]) {
+      expect(screen.queryByTestId(`reel-${hidden.id}`)).not.toBeOnTheScreen();
+    }
+    expect(screen.queryByText('Processando')).not.toBeOnTheScreen();
+    expect(screen.queryByText('Falhou')).not.toBeOnTheScreen();
+  });
+
+  it('MID-09: no perfil de outra conta só aparece o reel publicado', async () => {
+    const theirs = reelPost();
+    const theirsProcessing = reelPost({
+      status: 'processing',
+      publishedAt: null,
+      media: [pendingVideo()],
+    });
+    await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: '/pessoal/inicio/u/marinac',
+      configure: (fake) => {
+        fake.on('GET /v1/users/marinac', {
+          status: 200,
+          body: {
+            handle: 'marinac',
+            name: 'Marina Costa',
+            bio: null,
+            avatarUrl: null,
+            accountType: 'personal',
+            counts: { posts: 1, connections: 1, creators: 0 },
+          },
+        });
+        fake.on('GET /v1/users/marinac/posts', ({ query }) => ({
+          status: 200,
+          body: {
+            items: query.type === 'reel' ? [theirsProcessing, theirs] : [],
+            nextCursor: null,
+          },
+        }));
+      },
+    });
+    await userEvent.press(await screen.findByRole('tab', { name: 'Reels' }));
+    expect(await screen.findByTestId(`reel-${theirs.id}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`reel-${theirsProcessing.id}`)).not.toBeOnTheScreen();
+    expect(screen.queryByText('Processando')).not.toBeOnTheScreen();
+  });
+
+  it('MID-09/5.6: no próprio perfil o dono vê também "Processando" (sem toque) e "Falhou"', async () => {
+    const mine = reelPost({ isOwn: true, author: AUTHORS.helena });
+    const mineProcessing = reelPost({
+      isOwn: true,
+      author: AUTHORS.helena,
+      status: 'processing',
+      publishedAt: null,
+      media: [pendingVideo()],
+    });
+    const mineFailed = reelPost({
+      isOwn: true,
+      author: AUTHORS.helena,
+      status: 'failed',
+      publishedAt: null,
+      media: [pendingVideo('failed')],
+    });
+    await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: '/pessoal/perfil',
+      configure: (fake) => {
+        fake.on('GET /v1/users/helena/posts', ({ query }) => ({
+          status: 200,
+          body: {
+            items: query.type === 'reel' ? [mineProcessing, mineFailed, mine] : [],
+            nextCursor: null,
+          },
+        }));
+      },
+    });
+    await userEvent.press(await screen.findByRole('tab', { name: 'Reels' }));
+    expect(await screen.findByRole('button', { name: 'Reel processando' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reel não publicado' })).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Reel de @helena, 42 segundos' })).toBeOnTheScreen();
+  });
+});
+
+describe('visualizador de reels (história 5.5)', () => {
+  it('5.5 CA1: o tile abre só aquele reel, que toca sozinho; ao terminar, "Assistir de novo" e nenhum outro abre', async () => {
+    const first = reelPost({ caption: 'Fim de tarde no Passaúna.' });
+    const second = reelPost({ author: AUTHORS.cozinhadabia });
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      configure: (fake) => {
+        reelFeed(fake, [first, second]);
+      },
+    });
+    await openReelsTab();
+    await userEvent.press(await screen.findByTestId(`reel-${first.id}`));
+    await waitFor(() => {
+      expect(screen).toHavePathname(`/reel/${first.id}`);
+    });
+    expect(await screen.findByRole('button', { name: 'Reel de @marinac' })).toBeOnTheScreen();
+    expect(screen.getByText('marinac · Conexão')).toBeOnTheScreen();
+    expect(screen.getByText('Fim de tarde no Passaúna.')).toBeOnTheScreen();
+    // Um player só, com o MP4 deste reel, tocando.
+    expect(fakeVideo.players).toHaveLength(1);
+    const player = fakeVideo.last();
+    expect(player.source).toEqual({ uri: first.media[0]?.url });
+    expect(player.calls).toContain('play');
+    expect(player.loop).toBe(false);
+
+    const before = player.calls.length;
+    await act(() => {
+      player.finish();
+    });
+    expect(screen.getByRole('button', { name: 'Assistir de novo' })).toBeOnTheScreen();
+    // Nada avança: a rota é a mesma, nenhum player novo, o outro reel nem é pedido à API.
+    expect(screen).toHavePathname(`/reel/${first.id}`);
+    expect(fakeVideo.players).toHaveLength(1);
+    expect(player.calls.slice(before)).not.toContain('play');
+    expect(api.callsTo(`GET /v1/posts/${second.id}`)).toHaveLength(0);
+
+    await userEvent.press(screen.getByRole('button', { name: 'Assistir de novo' }));
+    expect(player.calls.slice(before)).toEqual(expect.arrayContaining(['replay', 'play']));
+
+    // ✕ volta à grade.
+    await userEvent.press(screen.getByRole('button', { name: 'Fechar' }));
+    await waitFor(() => {
+      expect(screen).toHavePathname('/pessoal/inicio');
+    });
+  });
+
+  it('curtir no visualizador; comentar abre a folha e pausa o vídeo por baixo', async () => {
+    const reel = reelPost({ likeCount: 3, commentCount: 1 });
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: `/reel/${reel.id}?origem=%2Fpessoal%2Finicio`,
+      configure: (fake) => {
+        reelFeed(fake, [reel]);
+        fake.on(`PUT /v1/posts/${reel.id}/like`, {
+          status: 200,
+          body: { likeCount: 4, likedByMe: true },
+        });
+        fake.on(`GET /v1/posts/${reel.id}/comments`, {
+          status: 200,
+          body: { items: [], nextCursor: null },
+        });
+      },
+    });
+    await userEvent.press(await screen.findByRole('button', { name: 'Curtir' }));
+    expect(await screen.findByRole('button', { name: 'Curtido' })).toBeOnTheScreen();
+    expect(screen.getByLabelText('4 curtidas')).toBeOnTheScreen();
+    expect(api.callsTo(`PUT /v1/posts/${reel.id}/like`)).toHaveLength(1);
+
+    const player = fakeVideo.last();
+    await userEvent.press(screen.getByRole('button', { name: 'Comentar, 1 comentário' }));
+    await waitFor(() => {
+      expect(screen).toHavePathname(`/comentarios/${reel.id}`);
+    });
+    await waitFor(() => {
+      expect(player.calls.at(-1)).toBe('pause');
+    });
+  });
+
+  it('A-06: o criador não curte reels (só vê o número)', async () => {
+    const reel = reelPost({ author: AUTHORS.cozinhadabia, likeCount: 12 });
+    await renderApp({
+      signedInAs: creatorMe(),
+      initialUrl: `/reel/${reel.id}`,
+      configure: (fake) => {
+        reelFeed(fake, [reel]);
+      },
+    });
+    expect(await screen.findByLabelText('12 curtidas')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Curtir' })).not.toBeOnTheScreen();
+  });
+
+  it('D-UX14/X.1: ⋯ num reel de outra conta tem "Denunciar" e "Bloquear"; denunciar leva à denúncia do post', async () => {
+    const reel = reelPost();
+    await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: `/reel/${reel.id}`,
+      configure: (fake) => {
+        reelFeed(fake, [reel]);
+      },
+    });
+    await userEvent.press(await screen.findByRole('button', { name: 'Mais opções' }));
+    const menu = within(screen.getByTestId('moderation-menu'));
+    expect(
+      menu.getAllByRole('button').map((node) => String(node.props.accessibilityLabel)),
+    ).toEqual(['Denunciar', 'Bloquear', 'Cancelar']);
+    await userEvent.press(menu.getByRole('button', { name: 'Denunciar' }));
+    await waitFor(() => {
+      expect(screen).toHavePathname('/denunciar');
+    });
+    expect(screen).toHaveSearchParams({ alvo: 'publicacao', id: reel.id });
+  });
+
+  it('X.2: bloquear pelo ⋯ do reel fecha o visualizador e o reel some da grade', async () => {
+    const reel = reelPost();
+    answerAlerts('Bloquear');
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      configure: (fake) => {
+        reelFeed(fake, [reel]);
+        fake.on('POST /v1/me/blocks', { status: 204 });
+      },
+    });
+    await openReelsTab();
+    await userEvent.press(await screen.findByTestId(`reel-${reel.id}`));
+    await userEvent.press(await screen.findByRole('button', { name: 'Mais opções' }));
+    await userEvent.press(
+      within(screen.getByTestId('moderation-menu')).getByRole('button', { name: 'Bloquear' }),
+    );
+    await waitFor(() => {
+      expect(screen).toHavePathname('/pessoal/inicio');
+    });
+    expect(api.callsTo('POST /v1/me/blocks')[0]?.body).toEqual({ handle: 'marinac' });
+    await waitFor(() => {
+      expect(screen.queryByTestId(`reel-${reel.id}`)).not.toBeOnTheScreen();
+    });
+  });
+
+  it('2.9: ⋯ no próprio reel exclui (com confirmação) e fecha o visualizador', async () => {
+    const reel = reelPost({ isOwn: true, author: AUTHORS.helena });
+    answerAlerts('Excluir');
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      configure: (fake) => {
+        reelFeed(fake, [reel]);
+        fake.on(`DELETE /v1/posts/${reel.id}`, { status: 204 });
+      },
+    });
+    await openReelsTab();
+    await userEvent.press(await screen.findByTestId(`reel-${reel.id}`));
+    await userEvent.press(await screen.findByRole('button', { name: 'Mais opções' }));
+    await waitFor(() => {
+      expect(api.callsTo(`DELETE /v1/posts/${reel.id}`)).toHaveLength(1);
+    });
+    await waitFor(() => {
+      expect(screen).toHavePathname('/pessoal/inicio');
+    });
+    expect(screen.queryByTestId(`reel-${reel.id}`)).not.toBeOnTheScreen();
+  });
+
+  it('MID-09: reel de outra conta que não está publicado (ou 404) → "Esta publicação não está mais disponível."', async () => {
+    const processing = reelPost({
+      status: 'processing',
+      publishedAt: null,
+      media: [pendingVideo()],
+    });
+    await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: `/reel/${processing.id}`,
+      configure: (fake) => {
+        fake.on(`GET /v1/posts/${processing.id}`, { status: 200, body: processing });
+      },
+    });
+    expect(
+      await screen.findByRole('header', { name: 'Esta publicação não está mais disponível.' }),
+    ).toBeOnTheScreen();
+    expect(fakeVideo.players).toHaveLength(0);
+  });
+
+  it('o autor que abre o próprio reel em processamento vê "Seu reel está sendo processado…"', async () => {
+    const mine = reelPost({
+      isOwn: true,
+      author: AUTHORS.helena,
+      status: 'processing',
+      publishedAt: null,
+      media: [pendingVideo()],
+    });
+    await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: `/reel/${mine.id}`,
+      configure: (fake) => {
+        fake.on(`GET /v1/posts/${mine.id}`, { status: 200, body: mine });
+      },
+    });
+    expect(
+      await screen.findByText('Seu reel está sendo processado. Isso leva alguns minutos.'),
+    ).toBeOnTheScreen();
+    expect(fakeVideo.players).toHaveLength(0);
+  });
+
+  it('erro de reprodução: "Tentar de novo" busca o post de novo (URL assinada nova) e recria o player', async () => {
+    const reel = reelPost();
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: `/reel/${reel.id}`,
+      configure: (fake) => {
+        reelFeed(fake, [reel]);
+      },
+    });
+    await screen.findByRole('button', { name: 'Reel de @marinac' });
+    await act(() => {
+      fakeVideo.last().setStatus('error');
+    });
+    expect(screen.getByText('Não foi possível reproduzir este reel.')).toBeOnTheScreen();
+    const gets = api.callsTo(`GET /v1/posts/${reel.id}`).length;
+    await userEvent.press(screen.getByRole('button', { name: 'Tentar de novo' }));
+    await waitFor(() => {
+      expect(api.callsTo(`GET /v1/posts/${reel.id}`).length).toBeGreaterThan(gets);
+    });
+    expect(fakeVideo.players.length).toBeGreaterThanOrEqual(2);
+  });
+});

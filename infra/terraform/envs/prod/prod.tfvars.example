@@ -1,0 +1,43 @@
+# Modelo do prod.tfvars (o arquivo real fica fora do Git: tem a conta, o domínio e os e-mails). Todos
+# os valores abaixo são fictícios. Nada aqui é segredo: senhas e chaves privadas vão para o Secrets
+# Manager/SSM (docs/deploy/runbook.md).
+
+aws_account_id = "123456789012"
+region         = "sa-east-1"
+
+# P5/D12: enxuto (~US$ 155/mês, recomendado) ou completo (~US$ 285/mês). O PO confirma.
+porte = "enxuto"
+
+# P6: domínio do app. route53 = zona criada pelo bootstrap; external = registros à mão.
+domain_name = "example.com"
+dns_mode    = "route53"
+
+# SHA do commit da imagem publicada no ECR.
+image_tag = "0123abc"
+
+# Primeiro apply: false (antes das imagens, dos segredos e das migrations). Depois: true.
+services_enabled = false
+
+alarm_email      = "alertas@example.com"
+moderation_email = "moderacao@example.com"
+
+# Repositório autorizado a fazer deploy pelo OIDC (deixe vazio sem o deploy.yml).
+github_repository = ""
+
+# Chave pública RSA 2048 que verifica as URLs de mídia (a privada vai para o segredo
+# cloudfront-private-key; runbook, passo "chave do CloudFront").
+cloudfront_public_keys = {
+  k1 = <<-EOT
+    -----BEGIN PUBLIC KEY-----
+    (cole aqui a chave pública gerada no passo do runbook)
+    -----END PUBLIC KEY-----
+  EOT
+}
+cloudfront_active_key = "k1"
+
+# Sentry (D4): vazio = desligado.
+sentry_dsn_api    = ""
+sentry_dsn_worker = ""
+
+# L3 (Marco Civil, art. 15): fica false até o PO confirmar. Ligar muda a Política de Privacidade.
+access_log_retention_enabled = false

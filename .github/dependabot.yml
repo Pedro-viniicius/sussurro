@@ -1,0 +1,68 @@
+# Atualizações de dependências (infra.md §1.2, §4.1 e §8). Agrupadas para não inundar de PRs.
+# cooldown: só propõe versões publicadas há 14 dias ou mais (mesma margem da escolha do pnpm e das
+# actions). Não vale para atualizações de segurança, que chegam na hora.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 14
+    ignore:
+      # Upgrade de SDK do Expo é manual, com "expo install --fix" (infra.md §8).
+      - dependency-name: expo
+        update-types: ['version-update:semver-major']
+      - dependency-name: react-native
+        update-types: ['version-update:semver-major']
+      - dependency-name: react
+        update-types: ['version-update:semver-major']
+      # Fixado em 6.0.x pelo overrides do pnpm-workspace.yaml: typescript-eslint exige < 6.1 (risco F0-6).
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+    groups:
+      expo:
+        patterns:
+          ['expo', 'expo-*', '@expo/*', '@expo-google-fonts/*', 'jest-expo', 'react-native*']
+      nest:
+        patterns: ['@nestjs/*', 'nestjs-pino', 'pino*']
+      sentry:
+        patterns: ['@sentry/*']
+      aws-sdk:
+        patterns: ['@aws-sdk/*']
+      lint-e-testes:
+        patterns:
+          [
+            'eslint*',
+            '@eslint/*',
+            'typescript-eslint',
+            'prettier',
+            'vitest',
+            '@vitest/*',
+            'jest',
+            '@testing-library/*',
+          ]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    cooldown:
+      default-days: 14
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: weekly }
+    cooldown:
+      default-days: 14
+  # Fase 7 (infra.md §8): imagens base dos Dockerfiles (tag + digest) e providers do Terraform.
+  - package-ecosystem: docker
+    directories: ['/apps/api', '/apps/worker']
+    schedule: { interval: weekly }
+    cooldown:
+      default-days: 14
+    groups:
+      node-base:
+        patterns: ['node']
+  - package-ecosystem: terraform
+    directories: ['/infra/terraform/bootstrap', '/infra/terraform/envs/prod']
+    schedule: { interval: weekly }
+    cooldown:
+      default-days: 14

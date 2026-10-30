@@ -1,0 +1,19 @@
+pnpm-lock.yaml
+node_modules
+dist
+coverage
+.turbo
+.expo
+android
+ios
+.smoke-export
+expo-env.d.ts
+# Documentos da equipe e do PO: texto escrito à mão (tabelas alinhadas, quebras de linha
+# intencionais). O Prettier cuida só do código e das configs.
+docs
+CLAUDE.md
+# Gerado pelo drizzle-kit (db:generate): fica no formato da ferramenta.
+packages/db/migrations/meta
+# Fixtures de texto compartilhadas (TXT-02): os escapes \uXXXX mostram os caracteres invisíveis e
+# os acentos decompostos; o Prettier os trocaria pelos caracteres literais.
+packages/shared/src/fixtures

@@ -1,0 +1,7 @@
+{
+  "extends": ["expo/tsconfig.base", "@sussurro/config/tsconfig/expo.json"],
+  "compilerOptions": {
+    "types": ["jest"]
+  },
+  "include": ["src", "modules", "*.ts", ".expo/types/**/*.ts", "expo-env.d.ts"]
+}
