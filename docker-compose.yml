@@ -1,0 +1,95 @@
+# Dependências locais do Sussurro (infra.md §3, opção B decidida pelo PO: ElasticMQ + SeaweedFS).
+# Subir: docker compose up -d --wait   ·   Derrubar: docker compose down
+# A API, o worker e o Metro rodam no host (pnpm dev / pnpm dev:mobile), não aqui.
+# Validar os emuladores: pnpm spike:aws (F0-DC-07).
+name: sussurro
+
+services:
+  postgres:
+    image: postgres:18.6-bookworm
+    environment:
+      POSTGRES_USER: sussurro
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sussurro}
+      POSTGRES_DB: sussurro
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      # PostgreSQL 18: o volume vai no diretório pai (/var/lib/postgresql).
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sussurro -d sussurro']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  valkey:
+    image: valkey/valkey:8.1-alpine
+    ports:
+      - '127.0.0.1:6379:6379'
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  elasticmq:
+    # SQS. As filas e DLQs vêm do arquivo de configuração. Sem healthcheck por enquanto: a imagem
+    # (alpine) não tem curl, só o wget do busybox. O --wait considera o serviço pronto quando está
+    # "running", o que basta para o ElasticMQ nativo (sobe em menos de 1 s).
+    image: softwaremill/elasticmq-native:1.7.1
+    ports:
+      - '127.0.0.1:9324:9324'
+      - '127.0.0.1:9325:9325'
+    volumes:
+      - ./infra/local/elasticmq.conf:/opt/elasticmq.conf:ro
+    depends_on:
+      # Não é dependência real: o "docker compose up --wait" só aceita um serviço que termina
+      # (o s3-init) quando outro depende dele com service_completed_successfully. Sem isto, o
+      # --wait falha com "container sussurro-s3-init-1 exited (0)" (F0-DC-01).
+      s3-init:
+        condition: service_completed_successfully
+
+  seaweedfs:
+    # S3. Fica na LAN (0.0.0.0) porque o celular faz o PUT pré-assinado direto aqui.
+    # -ip.bind=0.0.0.0: sem ele o SeaweedFS só escuta no IP do container (não no 127.0.0.1),
+    # e o healthcheck nunca passaria.
+    image: chrislusf/seaweedfs:4.48
+    command: server -ip=seaweedfs -ip.bind=0.0.0.0 -s3 -s3.config=/etc/seaweedfs/s3.json -dir=/data
+    ports:
+      - '8333:8333'
+    volumes:
+      - s3data:/data
+      - ./infra/local/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      # /healthz do gateway S3, que é o último componente a subir (master, volume, filer, S3).
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1:8333/healthz || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  s3-init:
+    # Cria o bucket de mídia de forma idempotente e termina com código 0.
+    # Tenta por até ~20 s caso o filer ainda esteja terminando de subir.
+    image: amazon/aws-cli:2.38.5
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      AWS_REGION: sa-east-1
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        for tentativa in 1 2 3 4 5 6 7 8 9 10; do
+          aws --endpoint-url http://seaweedfs:8333 s3api head-bucket --bucket ${S3_BUCKET_MEDIA:-sussurro-media} && exit 0
+          aws --endpoint-url http://seaweedfs:8333 s3api create-bucket --bucket ${S3_BUCKET_MEDIA:-sussurro-media} && exit 0
+          sleep 2
+        done
+        exit 1
+    restart: 'no'
+
+volumes:
+  pgdata: {}
+  s3data: {}

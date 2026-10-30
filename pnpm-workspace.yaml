@@ -1,0 +1,28 @@
+packages:
+  - apps/*
+  - packages/*
+
+# ADR 0001: node_modules isolado (padrão). Plano B documentado: nodeLinker: hoisted.
+nodeLinker: isolated
+engineStrict: true
+
+# Segurança da cadeia de suprimentos (infra.md §1.2): não instala versões com menos de 1 dia.
+minimumReleaseAge: 1440
+
+# O pnpm bloqueia scripts de instalação por padrão. Só os pacotes abaixo podem rodá-los.
+allowBuilds:
+  '@swc/core': true
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
+  # Negados de propósito: têm binário pré-compilado (optionalDependencies) ou o script não é
+  # necessário (upload de source maps do Sentry só na Fase 6; hooks instalados pelo "prepare").
+  '@parcel/watcher': false
+  '@sentry/cli': false
+  dtrace-provider: false
+  lefthook: false
+  protobufjs: false
+
+# TypeScript 7 é o "latest" no npm, mas typescript-eslint exige < 6.1 (fase-0-plano.md §3.3, risco F0-6).
+overrides:
+  typescript: 6.0.3

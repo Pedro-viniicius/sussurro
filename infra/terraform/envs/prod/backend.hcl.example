@@ -1,0 +1,2 @@
+# Copie para backend.hcl (fora do Git) e troque pelo bucket da saída state_bucket_name do bootstrap.
+bucket = "sussurro-tfstate-123456789012"

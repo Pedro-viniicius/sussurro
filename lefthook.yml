@@ -1,0 +1,15 @@
+# Hooks de Git (fase-0-plano.md §2). Instalados pelo script "prepare" no pnpm install.
+pre-commit:
+  parallel: true
+  commands:
+    prettier:
+      glob: '*.{js,mjs,cjs,ts,tsx,json,md,yml,yaml}'
+      run: pnpm exec prettier --check {staged_files}
+    eslint:
+      glob: '*.{js,mjs,cjs,ts,tsx}'
+      # O turbo reaproveita o cache dos pacotes que não mudaram.
+      run: pnpm lint
+commit-msg:
+  commands:
+    commitlint:
+      run: pnpm exec commitlint --edit {1}

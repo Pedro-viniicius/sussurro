@@ -1,0 +1,41 @@
+{
+  "name": "@sussurro/shared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Contratos compartilhados entre app, API e worker (schemas Zod).",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@sussurro/source": "./src/index.ts",
+      "react-native": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./fixtures/text-count.json": "./src/fixtures/text-count.json"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage",
+    "clean": "rimraf dist coverage .turbo"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@sussurro/config": "workspace:*",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^5.0.5",
+    "eslint": "^10.13.0",
+    "rimraf": "^6.1.3",
+    "typescript": "6.0.3",
+    "vitest": "^5.0.5"
+  }
+}

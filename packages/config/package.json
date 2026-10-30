@@ -1,0 +1,36 @@
+{
+  "name": "@sussurro/config",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Configurações base de TypeScript e ESLint do monorepo.",
+  "type": "module",
+  "exports": {
+    "./tsconfig/base.json": "./tsconfig/base.json",
+    "./tsconfig/node-library.json": "./tsconfig/node-library.json",
+    "./tsconfig/nest-app.json": "./tsconfig/nest-app.json",
+    "./tsconfig/expo.json": "./tsconfig/expo.json",
+    "./eslint/base": "./eslint/base.mjs",
+    "./eslint/node": "./eslint/node.mjs",
+    "./eslint/react-native": "./eslint/react-native.mjs"
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint-plugin-expo": "^1.2.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import-x": "^4.17.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "typescript-eslint": "^8.72.1"
+  },
+  "devDependencies": {
+    "eslint": "^10.13.0",
+    "typescript": "6.0.3"
+  },
+  "peerDependencies": {
+    "eslint": "^10.0.0",
+    "typescript": ">=6.0 <6.1"
+  }
+}

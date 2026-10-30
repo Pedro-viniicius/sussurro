@@ -1,0 +1,21 @@
+# gitleaks (infra.md §8): regras padrão do gitleaks + uma exceção estreita para as credenciais
+# fictícias de desenvolvimento local. Roda no CI (job "secrets") sobre todo o histórico.
+#
+# Achou um segredo de verdade? Revogue/rotacione primeiro. Só depois decida com o PO se o commit
+# entra numa allowlist (ou se o histórico é reescrito). Nunca amplie a exceção abaixo para "passar".
+
+title = "Sussurro"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Credenciais fictícias do ambiente local (local/local, sussurro/sussurro), não são segredos"
+condition = "AND"
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)docker-compose\.yml$''',
+  '''^infra/local/''',
+  '''^\.github/workflows/''',
+]
+regexes = ['''^(local|sussurro)$''']
