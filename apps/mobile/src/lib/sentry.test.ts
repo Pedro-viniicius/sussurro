@@ -23,7 +23,7 @@ function initOptions(init: jest.Mock): ReactNativeOptions {
 }
 
 const JWT =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMWExODllMCJ9.c2VncmVkby1kby1zZXJ2aWRvcg';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMWExODllMCJ9.c2VncmVkby1kby1zZXJ2aWRvcg'; // gitleaks:allow (fictício, só de teste)
 const PUSH_TOKEN = 'ExponentPushToken[abcdefghijklmnop]';
 
 /** Um evento de erro com tudo o que nunca pode sair do aparelho (PERM-17; 6.7 CA1 e CA2). */

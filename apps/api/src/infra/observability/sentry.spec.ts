@@ -14,8 +14,8 @@ const SECRETS = {
   password: 'senha-que-nunca-sai-42',
   token: 'link-de-email-opaco-999',
   refreshToken: 'refresh-opaco-de-256-bits',
-  observedToken: 'AAECAwQFBgcICQoLDA0ODw',
-  targetToken: 'EBESExQVFhcYGRobHB0eHw',
+  observedToken: 'AAECAwQFBgcICQoLDA0ODw', // gitleaks:allow (fictício, só de teste)
+  targetToken: 'EBESExQVFhcYGRobHB0eHw', // gitleaks:allow (fictício, só de teste)
   expoToken: 'ExponentPushToken[aparelho-secreto-77]',
   followerId: '01a189e0-af57-7000-85fe-2054e618fea6',
   creatorId: '01a189e0-af57-7000-85fe-2054e618fea7',

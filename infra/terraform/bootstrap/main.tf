@@ -42,6 +42,8 @@ resource "aws_s3_bucket_public_access_block" "state" {
   restrict_public_buckets = true
 }
 
+# O Trivy aponta o AVD-AWS-0132 neste bloco (não no bucket): a exceção precisa ficar aqui também.
+#trivy:ignore:AVD-AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
   bucket = aws_s3_bucket.state.id
 

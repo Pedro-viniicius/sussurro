@@ -12,6 +12,9 @@ const lucideCjs = require.resolve('lucide-react-native').replaceAll(path.sep, '/
 module.exports = {
   preset: 'jest-expo',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
+  // O CI começa sem o cache de transformação do Babel: o 1º teste de uma suíte pesada pode passar
+  // dos 5 s padrão só compilando os módulos do React Native (aconteceu no CommentsSheet).
+  testTimeout: 20_000,
   // O jest-expo resolve a condição "react-native" do Lucide (ESM .mjs, que o babel-jest não
   // transforma): aponta o pacote e os ícones avulsos para o build CommonJS.
   moduleNameMapper: {

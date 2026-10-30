@@ -64,7 +64,7 @@ describe('AccessTokenService', () => {
   });
 
   it('rotação de segredo: token assinado com o kid anterior ainda é aceito', async () => {
-    const previousSecret = 'segredo-anterior-com-mais-de-32-caracteres';
+    const previousSecret = 'segredo-anterior-com-mais-de-32-caracteres'; // gitleaks:allow (fictício, só de teste)
     const old = service({ JWT_ACCESS_SECRET: previousSecret, JWT_ACCESS_KID: 'k0' });
     const signedWithOld = await old.tokens.sign(claims);
 

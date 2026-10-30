@@ -5,7 +5,7 @@ import { vi } from 'vitest';
 import { loadApiEnv, type ApiEnv } from '../config/env.schema.js';
 
 /** Segredo HMAC só de teste (32+ caracteres). */
-export const TEST_JWT_SECRET = 'segredo-de-teste-do-jwt-com-mais-de-32-caracteres';
+export const TEST_JWT_SECRET = 'segredo-de-teste-do-jwt-com-mais-de-32-caracteres'; // gitleaks:allow (fictício, só de teste)
 
 /** Ambiente mínimo e válido para testes unitários (nenhuma conexão real é aberta). */
 export function testEnv(overrides: Record<string, string> = {}): ApiEnv {
