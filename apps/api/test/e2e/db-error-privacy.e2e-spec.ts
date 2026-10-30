@@ -138,12 +138,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await t.app.close();
-  try {
-    await t.database.close();
-  } catch {
-    // O último teste derruba o PGlite de propósito (conexão perdida): fechar de novo pode falhar.
-  }
+  // O último teste já fechou o banco; o `close()` dele é idempotente nos dois modos.
+  await t.close();
   await Sentry.close();
 });
 
@@ -313,12 +309,12 @@ describe('erro real do banco no meio de uma rota (PERM-17b)', () => {
     expect(leaks(sentry)).toEqual([]);
   });
 
-  // Por último: derruba o banco (o PGlite fecha) e não há volta neste arquivo.
+  // Por último: derruba o banco do arquivo e não há volta. O `close()` do banco de teste vale nos
+  // dois modos e é idempotente (o `afterAll` não fecha de novo): no PGlite fecha a instância; no
+  // Postgres encerra o pool do `pg` (o mesmo do app) e apaga o banco `sussurro_test_*` do arquivo.
   it('[PERM-17b] POST /auth/login com o banco derrubado no meio: 500 de sempre; o e-mail e a senha não saem', async () => {
     await createUser(t.database.db, { email: PERSON.email, handle: PERSON.handle });
-    const client = (t.database.db as unknown as { $client: { close: () => Promise<void> } })
-      .$client;
-    await client.close();
+    await t.database.close();
 
     const response = await t.http
       .post('/v1/auth/login')
@@ -328,7 +324,10 @@ describe('erro real do banco no meio de uma rota (PERM-17b)', () => {
 
     const { entries, log, messages, events, sentry } = await collect();
     const line = filterError(entries);
-    expect(line.msg).toMatch(/^Failed query: select .* <- PGlite is closed/);
+    // A mensagem do driver de cada modo: PGlite fechado ou pool do `pg` encerrado.
+    expect(line.msg).toMatch(
+      /^Failed query: select .* <- (PGlite is closed|Cannot use a pool after calling end on the pool)/,
+    );
     expect(leaks(log)).toEqual([]);
     expect(leaks(messages)).toEqual([]);
     expect(events).toHaveLength(1);
