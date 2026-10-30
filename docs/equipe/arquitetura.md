@@ -1,6 +1,7 @@
 # Arquitetura do Sussurro (v1)
 
 > Autor: Arquiteto. Data: 2026-10-29. Status: proposta para revisão do PO.
+> (atualizado em 2026-10-30) Conexão presencial "encostando os celulares" (revisão do D3 e substituição do D13): ADR 0012 (aceita pelo PO em 2026-10-30), nas §2.1, §3, §5, §6, §11, §13, §15 e §16. O desenho ainda não está implementado.
 > Entrada: `docs/equipe/briefing.md`. Decisões detalhadas em `docs/equipe/adr/`.
 > Princípio: a solução mais simples que atende à v1. O que for preciso para escalar fica registrado como risco, sem complexidade antecipada.
 
@@ -27,7 +28,7 @@ O Sussurro é composto por um app mobile (Expo/React Native), uma API NestJS (mo
 flowchart LR
   P[Pessoa<br/>conta pessoal] -->|usa| APP[App Sussurro<br/>iOS/Android]
   C[Criador<br/>conta de criador] -->|usa| APP
-  P <-.->|BLE / QR<br/>tela Conectar| P2[Outra pessoa<br/>com o app aberto]
+  P <-.->|encostar: BLE de curtíssimo alcance<br/>ou QR, tela Conectar| P2[Outra pessoa<br/>com o app aberto]
   APP -->|HTTPS/JSON| SYS[(Backend Sussurro)]
   SYS -->|push| EXPO[Expo Push Service] --> APNS[APNs / FCM]
   SYS -->|transcodificação| MC[AWS MediaConvert]
@@ -85,7 +86,7 @@ As versões foram verificadas em 2026-10-29. Os números exatos ficam fixados no
 | Runtime | **Node.js 26 LTS** (Active LTS desde 2026-10-28, suporte até abr/2029), fixado em `.nvmrc`, `engines` e `eas.json` | É a versão instalada na máquina do PO e já está em LTS. Expo SDK 58 pede Node >= 22.13 e NestJS 12 pede >= 20. A Fase 0 inclui um smoke test, com fallback para Node 24 (ADR 0001). |
 | Gerenciador | pnpm 12.13.0 instalado à parte (`npm i -g`; o Node 26 não traz corepack) + `packageManager`; Turborepo 2.x | Fixado pelo PO. Usamos `nodeLinker` isolado (o padrão), suportado pelo Expo desde o SDK 54, com fallback para `hoisted` (ADR 0001). |
 | App | Expo SDK 58 (RN 0.88, React 19.3, New Architecture), Expo Router, TS strict, dev build | Fixado pelo PO. O SDK 58 é o atual (out/2026). O fallback é o SDK 57 se alguma lib crítica não suportar o 58. |
-| BLE | **Módulo Expo próprio `sussurro-proximity`** (Expo Modules API, Swift + Kotlin) que anuncia e varre sem conexão GATT | Diverge do `react-native-ble-plx`, que não anuncia (ADR 0002). |
+| BLE | **Módulo Expo próprio `sussurro-proximity`** (Expo Modules API, Swift + Kotlin) que anuncia e varre sem conexão GATT | Diverge do `react-native-ble-plx`, que não anuncia (ADR 0002). (atualizado em 2026-10-30, ADR 0012) Serve só para reconhecer o celular **encostado**: o Android anuncia com potência baixa e o campo TX Power, e o servidor só revela a pessoa com observação mútua (§11). |
 | QR | `expo-camera` (leitura) + `react-native-qrcode-svg` ou equivalente (exibição) | Plano B da conexão. |
 | Armazenamento seguro | `expo-secure-store` | Refresh token no Keychain/Keystore. |
 | API | NestJS 12.x, adapter Fastify ou Express (padrão Express; não há motivo para trocar) | Fixado pelo PO. |
@@ -132,7 +133,7 @@ Regra de dependência: os controllers só falam com services do próprio módulo
 | `users` | Perfil próprio (`/me`), edição, perfil por @ (com regras de visibilidade), contadores, exclusão de conta. |
 | `policies` | `AccessPolicyService`: `canViewProfile`, `canViewPost`, `isConnected`, `isFollowing`, `assertPersonal`, `assertCreator`. É o único ponto que decide visibilidade e é coberto por testes de permissão. (atualizado na Fase 3) Também decide o bloqueio (X.2), nos dois sentidos: `canViewProfile`, `canViewPost`, `visibleProfiles`, `canFollow`, `canRequestConnection` (pronto para a Fase 4; atualizado na Fase 4: `connectionRequestState`, que também diz "já conectados") e `hideBlockedFor` (filtro SQL das listas com conteúdo de várias contas: comentários e busca). As consultas ficam no `RelationsRepository` ("é conexão?", "há bloqueio?", "segue?"), que nunca devolve listas. |
 | `connections` | Pedidos de conexão, aceite/recusa/cancelamento, criação do par ordenado, lista **própria** de conexões. (atualizado na Fase 4) A lista própria continua no `own-lists`. Aqui ficam os pedidos (`/connections/requests/*`) e desfazer conexão (`DELETE /connections/:handle`, D8). Toda escrita do par pega a trava do par (`lockAccountPair`, a mesma de seguir e bloquear) e decide pelo `AccessPolicyService.connectionRequestState` (tipo de conta, bloqueio e "já conectados") dentro da transação. O `ConnectionsService` é usado pelo `auth` no logout e na exclusão de conta (cancela os pendentes e revoga os tokens, PROX-27). |
-| `proximity` | Emissão/rotação de tokens no Redis, resolução de tokens em cartões, validação de tokens cruzados, rate limits. Não grava no Postgres (delega a `connections`). (atualizado na Fase 4) O estado fica atrás da porta `ProximityStore`: `RedisProximityStore` em produção e `MemoryProximityStore` nos testes (sobre o `Clock`) e no desenvolvimento sem Docker (`PROXIMITY_STORE=memory`, recusado em produção). Os limites da proximidade são contados no próprio store e falham **fechados**, como os tokens. |
+| `proximity` | Emissão/rotação de tokens no Redis, resolução de tokens em cartões, validação de tokens cruzados, rate limits. Não grava no Postgres (delega a `connections`). (atualizado na Fase 4) O estado fica atrás da porta `ProximityStore`: `RedisProximityStore` em produção e `MemoryProximityStore` nos testes (sobre o `Clock`) e no desenvolvimento sem Docker (`PROXIMITY_STORE=memory`, recusado em produção). Os limites da proximidade são contados no próprio store e falham **fechados**, como os tokens. (atualizado em 2026-10-30, ADR 0012) Cada emissão traz dois tokens, um por canal (`bleToken` no anúncio, `qrToken` no QR). O `POST /proximity/touches` recebe os encostos, detecta a observação mútua e grava o par que libera o pedido `ble`. O `resolve` passa a servir só ao QR. A proximidade continua sem gravar no Postgres. |
 | `dev` (atualizado na Fase 4) | `POST /dev/simulate-request` (4.11, D15): uma persona do seed (@lucasf ou @tomas) pede conexão para a conta logada e a resposta traz um token da persona para o aceite. O módulo só é importado com `NODE_ENV=development` (`devModules` no `AppModule`): em `test` e `production` a rota não existe (PROX-30). |
 | `follows` | Seguir/deixar de seguir (personal→creator), lista **própria** de seguidos, busca de criadores por prefixo. (atualizado na Fase 3) A lista própria de seguidos saiu para o `own-lists`. Seguir pega a trava do par (`pg_advisory_xact_lock`), a mesma do bloqueio, e decide pelo `canFollow` dentro da transação. |
 | `own-lists` (atualizado na Fase 3) | As **únicas** listas de relacionamento da API: `GET /me/connections`, `GET /me/following` e `GET /me/blocks`. O `OwnListsRepository` recebe `AuthContext` e só lista as relações de `auth.userId`. Regra de lint (`apps/api/eslint.config.mjs`, `no-restricted-imports`): o repositório só é importável pelo `OwnListsService`, e o service só pelo `MeListsController` (3.6 CA5, com teste). |
@@ -400,13 +401,15 @@ Constraints/índices:
 ### Redis (efêmero)
 | chave | conteúdo | TTL |
 |---|---|---|
-| `prox:t:{sha256(token)}` | `{uid, iat}` | 30 s (token **válido**) |
-| `prox:r:{sha256(token)}` | `uid` (atualizado na Fase 4: `{uid, iat}`, o mesmo valor do `prox:t`) | 120 s (token **recente**, só para confirmação) |
+| `prox:t:{sha256(token)}` | `{uid, iat}`. (atualizado em 2026-10-30, ADR 0012) `{uid, iat, ch}`, com o canal `ble` ou `qr`; cada emissão grava dois tokens | 30 s (token **válido**) |
+| `prox:r:{sha256(token)}` | `uid` (atualizado na Fase 4: `{uid, iat}`, o mesmo valor do `prox:t`; atualizado em 2026-10-30: com `ch`) | 120 s (token **recente**: confirma o aceite `qr` e identifica o alvo do pedido `ble` com par) |
 | `prox:u:{uid}` | hash do token atual | 30 s (prova de "tela aberta") |
 | ~~`prox:cool:{from}:{to}`~~ | (atualizado na Fase 4) não existe: o intervalo de 1 h depois da recusa é lido da linha `declined` em `connection_requests` | |
 | `prox:ut:{uid}` | (atualizado na Fase 4) conjunto dos hashes emitidos pela conta, para revogar no logout e na exclusão (PROX-27) | 120 s, renovado a cada token |
 | `prox:lock:{uid}` | (atualizado na Fase 4) proximidade bloqueada depois de 20 falhas de token em 10 min | 15 min |
-| `rl:{rota}:{uid\|ip}` | contadores de rate limit. (atualizado na Fase 4) Os da proximidade (`rl:prox-tokens:user`, `rl:prox-resolve:user`, `rl:conn-requests:user:min` e `:day`, `rl:conn-accepts:user`, `rl:prox-failures:user`) ficam no `ProximityStore` e falham fechados | janela |
+| `prox:o:{observadorUid}:{donoUid}` | (atualizado em 2026-10-30, ADR 0012) o observador relatou um token **BLE** do dono com força de encosto; só o horário (ms) | 10 s (`PROX_TOUCH_WINDOW_S`) |
+| `prox:m:{menorUid}:{maiorUid}` | (atualizado em 2026-10-30, ADR 0012) par com **encosto mútuo**, sem bloqueio: libera o pedido `ble` entre os dois; só o horário (ms) | 60 s (`PROX_TOUCH_PAIR_TTL_S`) |
+| `rl:{rota}:{uid\|ip}` | contadores de rate limit. (atualizado na Fase 4) Os da proximidade (`rl:prox-tokens:user`, `rl:prox-resolve:user`, `rl:conn-requests:user:min` e `:day`, `rl:conn-accepts:user`, `rl:prox-failures:user`) ficam no `ProximityStore` e falham fechados. (atualizado em 2026-10-30) Mais `rl:prox-touches:user` (60/min) | janela |
 | `cnt:followers:{creatorId}` | número de seguidores do criador (atualizado na Fase 3) | 60 s |
 
 ## 7. Regras de negócio no servidor
@@ -498,7 +501,11 @@ Texto: `POST /v1/posts {type:'text', text}` publica direto.
 - Logout revoga a família e desativa o push token do dispositivo. "Sair de todos os dispositivos" revoga todas as famílias.
 - Rate limit: login 5/min por (IP+e-mail) e 20/min por IP; cadastro 5/h por IP.
 
-## 11. Conexão presencial (ADR 0002, ADR 0003)
+## 11. Conexão presencial (ADR 0002, ADR 0003; atualizado em 2026-10-30: ADR 0012)
+
+> (atualizado em 2026-10-30) **Encostar os celulares** (revisão do D3; substitui o D13). O Bluetooth deixa de mostrar quem está "por perto": só quem **encosta** o celular, com a tela Conectar aberta nos dois, vê a pessoa. A garantia não é o limiar do app, que um cliente modificado ignora. É a **observação mútua** no servidor: um token BLE só vira pessoa quando os dois aparelhos afirmam, numa janela de 10 s, que viram o token um do outro com força de encosto. O QR continua de reserva, com token próprio. Resumo do que muda:
+> - **Desenho:** §11.1 (anúncio), §11.2 (detecção no app), §11.3 (protocolo novo), §11.4 (garantia e o que o servidor revela), §11.5 (QR), §11.6 (calibração) e §11.7 (contratos).
+> - **O que não muda:** a trava do par, a corrida A→B ∥ B→A, o pendente único, a recusa, o bloqueio, o logout e o desfazer da Fase 4a.
 
 ### 11.1 Descoberta por BLE sem conexão
 - Cada app com a tela Conectar aberta (em foreground) **anuncia e varre ao mesmo tempo**.
@@ -508,11 +515,73 @@ Texto: `POST /v1/posts {type:'text', text}` publica direto.
 - Tela fechada ou app em background: o anúncio e a varredura param.
 - **Token**: 12 bytes aleatórios (96 bits, CSPRNG), em base64url com 16 caracteres. O mesmo valor vai no QR (`sussurro://c/{token}`).
 - (atualizado na Fase 4) O prefixo fixo do UUID é `53555353` ("SUSS" em ASCII): o UUID anunciado é `53555353-xxxx-xxxx-xxxx-xxxxxxxxxxxx`, com os 12 bytes do token. Montar e ler o UUID e o QR são funções puras em `packages/shared/src/proximity.ts` (`proximityTokenToServiceUuid`, `serviceUuidToProximityToken`, `proximityQrPayload`, `parseProximityQr`), com testes (4.3 CA6), sem `Buffer` (rodam no Hermes).
+- (atualizado em 2026-10-30, ADR 0012) O que muda no rádio:
+  - **Dois tokens por emissão:** o anúncio leva o `bleToken`, e o QR leva o `qrToken`, que nunca vai ao ar. Os helpers de UUID e de QR não mudam.
+  - **Android anunciando:**
+    - potência configurável (`ULTRA_LOW`, -21 dBm no AOSP, como padrão inicial; `LOW` como alternativa do spike);
+    - o campo **TX Power** no anúncio (`setIncludeTxPowerLevel(true)`; 24 de 31 bytes);
+    - continua `LOW_LATENCY` e não conectável.
+  - **iOS anunciando:** a potência e o campo TX não são configuráveis (o `CBPeripheralManager` só aceita `LocalName` e `ServiceUUIDs`). Anúncio **sem** campo TX = iPhone.
+  - **Varredura:** o evento passa a ser `{uuid, rssi, txPower | null}` (Android: `ScanRecord.getTxPowerLevel()`; iOS: `CBAdvertisementDataTxPowerLevelKey`), com o intervalo mínimo por UUID vindo do TypeScript (200 ms, hoje 500 ms fixo).
+  - **Android:** uma **sessão contínua** de varredura por tela, porque o sistema segura a varredura em silêncio com mais de cerca de 5 inícios em 30 s. Só reinicia quando o Bluetooth liga ou desliga, ou ao voltar do background.
+  - **Capacidades:** ganham `locationServices: 'on' | 'off' | 'not_required'` (Android ≤ 11 exige a localização do sistema ligada para varrer) e o modelo do aparelho (usado só no aparelho, para a correção de calibração).
+  - **Aparelho que não anuncia** (`canAdvertise = false`): vai direto para o QR. Só varrer não serve, porque o encosto exige os dois anunciando.
 
-### 11.2 Distância "a ~1 m"
-O RSSI de BLE entre celulares varia ±6–10 dB por modelo, orientação, bolso e corpo, o que dá erro de metros. **Recomendação**: ordenar a lista por RSSI suavizado (média móvel) e mostrar faixas qualitativas ("bem perto", acima de cerca de -60 dBm, e "por perto"), escondendo quem estiver abaixo de -90 dBm. Números em metros prometem uma precisão que não existe. Decisão de UX/PO.
+### 11.2 Detecção do encosto no app (atualizado em 2026-10-30, ADR 0012; substitui as faixas do D13)
+
+~~Distância "a ~1 m": lista ordenada por RSSI suavizado, com as faixas "bem perto" (acima de -60 dBm) e "por perto" (até -90 dBm).~~ A lista "Por perto agora" e as faixas saem.
+
+O app só afirma "encostado" para o servidor. O RSSI, o campo TX e o modelo **nunca saem do aparelho**.
+
+**Onde fica:**
+- a detecção é TypeScript puro e testável (`apps/mobile/src/features/connect/touch-detector.ts`);
+- os valores ficam num **ponto único de calibração**, `touch-calibration.ts`, ao lado (tabela completa e valores iniciais na ADR 0012 §2);
+- o nativo recebe a potência e o intervalo como parâmetros e não guarda limiares.
+
+**Métrica: perda estimada.**
+- `perda = txRef − rssi − correçãoRx` (dB; quanto menor, mais perto);
+- `txRef` = o campo TX do anúncio (Android) ou `iosAdvertiserTxDbm` (anúncio sem o campo = iPhone);
+- `correçãoRx` = por plataforma de quem recebe, mais uma tabela opcional por modelo, só para os outliers medidos;
+- **por quê:** a variação entre aparelhos é grande (o padrão "Presence" do Android aceita mediana entre -65 e -45 dBm a 1 m), e a perda torna a potência do Android um botão de calibração, sem refazer os limiares.
+
+**Suavização e tempo sustentado:**
+- mediana das amostras dos últimos 1,5 s, com pelo menos 3 amostras; a mediana ignora os vales de multipercurso;
+- histerese de 6 dB para sair;
+- 0,7 s sustentado para virar `encostado`;
+- RSSI 127, positivo ou abaixo de -127 é descartado;
+- token novo (rotação) começa do zero.
+
+```mermaid
+stateDiagram-v2
+  [*] --> longe
+  longe --> quase: mediana <= nearMaxLossDb (52)
+  quase --> longe: mediana > nearMaxLossDb
+  quase --> encostando: mediana <= enterMaxLossDb (40)
+  encostando --> quase: mediana > exitMinLossDb (46)
+  encostando --> encostado: sustentado por holdMs (700 ms)
+  encostado --> quase: mediana > exitMinLossDb
+  encostado --> casado: o servidor devolve o cartão (§11.4)
+```
+
+Os números do diagrama são **provisórios**: o spike 4.1-B (§11.6) define os valores.
+
+**Relato ao servidor:**
+- `POST /proximity/touches` a cada 1 s, por até 8 s desde o primeiro `encostado`, **mesmo depois de afastar**, até o cartão chegar. Sem isso, quem detecta primeiro pode ficar sem o cartão que o outro recebeu;
+- sem cartão aberto, um token por chamada (o de menor perda); com cartão aberto, nenhum. É isso que garante uma pessoa por vez (P8 do UX);
+- chamadas sem sobreposição.
+
+**Sinais para a tela** (o UX/UI define textos e visual; premissas P1 a P11 da `ux.md` §11.2 respondidas na ADR 0012 §10):
+- `longe`: nada aparece;
+- `quase`: o "Aproximando" do UX;
+- `encostado`: o "Confirmando", com aviso aos 4 s, mas o relato continua até 8 s e um casamento tardio ainda abre o cartão;
+- `casado`: o cartão. É aqui, e não no `encostado` local, que entram a vibração e o "pode afastar";
+- QR em destaque: aos 20 s sem encostar, aos 10 s em `quase` ou depois de 2 avisos seguidos.
+
+O cartão vale 55 s no app (o par vale 60 s no servidor).
 
 ### 11.3 Protocolo
+
+(atualizado em 2026-10-30, ADR 0012) O fluxo por Bluetooth agora passa pelo encosto e pela observação mútua. O diagrama da Fase 4 (resolve de qualquer token visto, aceite com o token cruzado) está na ADR 0003 e no histórico do Git.
 
 ```mermaid
 sequenceDiagram
@@ -522,26 +591,34 @@ sequenceDiagram
   participant B as App B
   actor HB as Pessoa B
   participant API as API
-  participant R as Redis
+  participant R as Valkey
   participant DB as Postgres
 
-  par Tela Conectar aberta nos dois
+  par Tela Conectar aberta nos dois, modo Encostar
     A->>API: POST /proximity/tokens
-    API->>R: SET prox:t:h(tA) {uid:A} EX 30, prox:r:h(tA) EX 120, prox:u:A EX 30
-    API-->>A: tA, expiresAt (renova a cada 20 s)
+    API->>R: SET prox:t e prox:r de tA (ch ble) e de qA (ch qr), prox:u:A
+    API-->>A: bleToken tA, qrToken qA (renova a cada 20 s)
   and
     B->>API: POST /proximity/tokens
-    API-->>B: tB
+    API-->>B: tB, qB
   end
-  A--)B: BLE adv UUID(prefixo|tA)
-  B--)A: BLE adv UUID(prefixo|tB)
-  A->>API: POST /proximity/resolve {tokens:[tB], rssi}
-  API->>R: prox:u:A existe? GET prox:t:h(tB) -> B (personal, ≠ A)
-  API-->>A: [{token:tB, handle, name, avatar, alreadyConnected}]
-  HA->>A: toca "Conectar" em B
+  A--)B: anúncio UUID(prefixo|tA)
+  B--)A: anúncio UUID(prefixo|tB)
+  Note over A,B: celulares encostados: cada app vê a perda do outro abaixo do limiar por 0,7 s (§11.2)
+  A->>API: POST /proximity/touches {tokens:[tB]}
+  API->>R: tB válido, ch ble, dono B ≠ A; SET prox:o:A:B (10 s); prox:o:B:A existe? não
+  API-->>A: {items: []}
+  B->>API: POST /proximity/touches {tokens:[tA]}
+  API->>R: SET prox:o:B:A; prox:o:A:B existe? sim (mútuo)
+  API->>DB: A pessoal, ativa, sem bloqueio (findNearby)
+  API->>R: SET prox:m:{par} (60 s)
+  API-->>B: {items:[cartão de A]}
+  A->>API: POST /proximity/touches {tokens:[tB]} (1 s depois)
+  API-->>A: {items:[cartão de B]}
+  HA->>A: toca "Conectar" no cartão de B
   A->>API: POST /connections/requests {targetToken:tB, method:"ble"}
-  API->>R: tB válido (dono B), prox:u:A existe, rate limit, cooldown
-  API->>DB: BEGIN, pg_advisory_xact_lock(par), expira pendentes vencidos do par
+  API->>R: tB válido ou recente, ch ble, dono B; prox:m:{par} existe; prox:u:A; limites
+  API->>DB: BEGIN, pg_advisory_xact_lock(par), política, recusa recente, expira pendentes vencidos
   alt já existe pedido pendente B→A (pedidos simultâneos)
     API->>DB: INSERT connections ON CONFLICT DO NOTHING, request B→A = accepted
     API-->>A: 200 {status:"connected"}
@@ -555,8 +632,8 @@ sequenceDiagram
   API-->>B: [{id, from:{handle,name,avatar}}]
   B->>HB: folha "Pedido recebido" (Aceitar/Recusar)
   HB->>B: Aceitar
-  B->>API: POST /connections/requests/{id}/accept {observedToken:tA}
-  API->>R: prox:u:B existe, h(tA) em prox:t ou prox:r, dono = A (from_id)
+  B->>API: POST /connections/requests/{id}/accept {} (ble: sem token; qr: observedToken = qA lido do QR)
+  API->>R: prox:u:B existe (no qr: qA recente, ch qr, dono = from_id)
   API->>DB: BEGIN, lock(par), SELECT request FOR UPDATE (pending, não expirado, to=B)
   API->>DB: INSERT connections(a<b, method) ON CONFLICT DO NOTHING, status=accepted
   API-->>B: 200 {status:"connected"}
@@ -568,17 +645,23 @@ sequenceDiagram
 
 **Regras**
 - **Tokens cruzados**: o pedido exige o token de B (observado por A); a confirmação exige o token de A (observado por B, "válido ou recente", até 120 s). Os dois lados precisam estar com a tela aberta (`prox:u:*` ativo). Um atacante remoto que receba `tB` por relay não consegue que B confirme, porque B nunca viu o token dele.
-- **QR (plano B)**: A lê o QR de B e cria o pedido com `method:'qr'`. Para aceitar, B lê o QR de A, que fica exibido na tela "Aguardando". Isso mantém o cruzamento. A alternativa mais simples (aceite sem segunda leitura) é decisão do PO.
-- **Assimetria de BLE**: se um aparelho não consegue anunciar (Android sem `isMultipleAdvertisementSupported`), o app detecta e sugere o QR.
+  - (atualizado em 2026-10-30, ADR 0012) No método `ble`, o cruzamento passa a ser a **observação mútua com força de encosto**: o pedido exige o par `prox:m` e o aceite dispensa o token. É mais forte: B precisa ter relatado o token de A encostado, não só tê-lo visto a metros. Some o problema da A-10 no `ble`.
+  - No `qr`, o cruzamento continua como está.
+- **QR (plano B)**: A lê o QR de B e cria o pedido com `method:'qr'`. Para aceitar, B lê o QR de A, que fica exibido na tela "Aguardando". Isso mantém o cruzamento. A alternativa mais simples (aceite sem segunda leitura) é decisão do PO. (atualizado em 2026-10-30) O QR leva o `qrToken`, que nunca vai ao ar (§11.5).
+- **Assimetria de BLE**: se um aparelho não consegue anunciar (Android sem `isMultipleAdvertisementSupported`), o app detecta e sugere o QR. (atualizado em 2026-10-30) Agora vai direto para o QR: sem anunciar não há encosto mútuo.
 - **Corrida A→B e B→A**: o índice único parcial por par e o advisory lock serializam os pedidos. O segundo pedido encontra o primeiro e vira aceite mútuo, porque os dois tokens já foram observados.
 - **Replay**: tokens vivem 30 s (120 s para confirmar), ficam guardados como hash e só valem para o dono. O aceite é idempotente (o mesmo request devolve o mesmo resultado). `resolve` exige que o próprio chamador esteja com a tela aberta.
 - **Expiração**: o pedido expira em 120 s. A expiração é preguiçosa (verificada em cada operação) e um job limpa a cada minuto. O app de A mostra "não confirmado" ao expirar.
 - **Recusa**: cria um cooldown de 1 h de A para B. A vê só "não confirmado" (não diferenciamos recusa de expiração).
-- **Rate limits** (por usuário): emitir token 6/min; resolve 30/min; criar pedido 10/min e 50/dia; aceitar 10/min; 20 falhas de validação de token em 10 min bloqueiam a proximidade por 15 min. Se o Redis cair, a proximidade fica fail-closed.
+- **Rate limits** (por usuário): emitir token 6/min; resolve 30/min; criar pedido 10/min e 50/dia; aceitar 10/min; 20 falhas de validação de token em 10 min bloqueiam a proximidade por 15 min. Se o Redis cair, a proximidade fica fail-closed. (atualizado em 2026-10-30, ADR 0012)
+  - Entra `touches`: 60/min, até 4 tokens por chamada (o app manda 1), nunca contado como falha (não ser mútuo é normal).
+  - O `resolve` fica só para o QR.
+  - Passam a contar como falha o pedido `ble` sem par e o token de canal trocado.
+  - O resto não muda (tabela na ADR 0012 §6).
 - **Já conectados**: 409 `ALREADY_CONNECTED`.
 - **Entrega do pedido**: polling de 2 s **somente com a tela Conectar aberta**. A Fase 6 adiciona push. WebSocket/SSE fica para depois (risco R7).
 
-**Como ficou na Fase 4a** (atualizado na Fase 4; contratos em `packages/shared`, `proximity.ts` e `connections.ts`, e casos em `apps/api/test/e2e/proximity|connections|dev-routes.e2e-spec.ts`):
+**Como ficou na Fase 4a** (atualizado na Fase 4; contratos em `packages/shared`, `proximity.ts` e `connections.ts`, e casos em `apps/api/test/e2e/proximity|connections|dev-routes.e2e-spec.ts`). (atualizado em 2026-10-30) É o registro do que foi implementado. A ADR 0012 muda os itens "`resolve` sem RSSI" (agora só QR; o Bluetooth usa `touches`), "Falhas de token" (novos casos), "Respostas do pedido" (canal e par no `ble`) e "Aceite" (sem token no `ble`), conforme §11.4 e §11.7. O resto continua valendo.
 - **E-mail confirmado (X.3)**: emitir token, `resolve`, pedir e aceitar exigem e-mail confirmado (403 `EMAIL_NOT_VERIFIED`). Quem não confirmou nunca aparece "por perto" para os outros. Recusar, cancelar, os pollings e desfazer conexão não exigem.
 - **`resolve` sem RSSI**: o app manda só os tokens (1 a 20). A distância em faixas (D13) é calculada no aparelho, e o servidor não recebe a força do sinal. A resposta tem uma linha por pessoa, com o token mais recente dela (PROX-25). Os tokens que não resolvem **não** contam como falha (é normal ver um token que acabou de vencer); o app junta os tokens novos numa chamada a cada 3 s, no máximo 20 por minuto (A-17).
 - **Falhas de token**: contam o pedido e o aceite recusados por token (inexistente, vencido, de outra pessoa, de conta excluída, com bloqueio ou no intervalo da recusa). Todos recebem o mesmo 400 `PROXIMITY_TOKEN_INVALID` com o mesmo corpo. Na 20ª em 10 min, tokens, `resolve`, pedido e aceite dão 429 por 15 min (`Retry-After`).
@@ -589,6 +672,120 @@ sequenceDiagram
 - **Bloqueio**: bloquear cancela o pedido pendente do par, na mesma transação e sob a mesma trava.
 - **Desfazer conexão** (D8): `DELETE /connections/:handle` → 204; @ que não é conexão, inexistente, excluído ou a própria conta → o mesmo 404. A outra pessoa não é avisada. As URLs de mídia já emitidas valem até vencer (até 6 h, A-19).
 - **Simulação em dev** (D15): `POST /v1/dev/simulate-request` só com `NODE_ENV=development`.
+
+### 11.4 Garantia no servidor: observação mútua (atualizado em 2026-10-30, ADR 0012)
+
+**Problema:** o RSSI é medido pelo cliente, e qualquer um lê o anúncio.
+- Um scanner passivo a 10 m lê o UUID de um iPhone, cuja potência não dá para baixar.
+- Um cliente modificado mente que está encostado.
+- Antes, o `resolve` e até a resposta do pedido revelavam @, nome e foto de qualquer token válido.
+
+**Regra:** um token BLE só vira pessoa quando **os dois** aparelhos relatam, numa janela de `PROX_TOUCH_WINDOW_S` (10 s), o token um do outro com força de encosto. O aparelho honesto da vítima só relata o atacante se o sinal dele chegar com força de encosto, o que a 10 m não acontece com um celular comum.
+
+**`POST /proximity/touches {tokens: [1..4]}`.** Exige conta pessoal, e-mail confirmado, tela aberta (409 `PROXIMITY_SCREEN_CLOSED`) e não estar bloqueado; 60 por minuto. O que o servidor faz:
+1. **Filtra os tokens.** Fica só o que estiver válido no `prox:t` (até 30 s), com `ch = 'ble'` e dono diferente de quem chama. O resto é ignorado em silêncio, sem contar como falha.
+2. **Grava e confere, por dono O, num script Lua atômico:**
+   - `SET prox:o:{caller}:{O} PX janela`;
+   - `EXISTS prox:o:{O}:{caller}` → mútuo.
+3. **Aplica a política aos mútuos** (`findNearby` com `hideBlockedFor`): conta pessoal, ativa e sem bloqueio em nenhum sentido.
+   - grava `prox:m:{menor}:{maior} PX PROX_TOUCH_PAIR_TTL_S` (60 s);
+   - devolve o `NearbyPerson` (o token relatado, @, nome, foto e `alreadyConnected`).
+4. **Responde 200 `{items}`.** Não mútuo, vencido, inexistente, próprio, de criador, de conta excluída ou com bloqueio são indistinguíveis.
+
+**Revelação simétrica:** quem relata primeiro recebe `items: []` e, no relato seguinte, o cartão. Ninguém vê quem não o vê.
+
+**Pedido e aceite:**
+- **pedido `ble`:** `targetToken` válido **ou recente**, `ch = 'ble'`, e o par `prox:m` existe. Sem o par ou com canal trocado → 400 `PROXIMITY_TOKEN_INVALID` (genérico, conta como falha). O token "recente" basta porque o app só conhece o token devolvido no casamento, e o par é a prova forte;
+- **aceite `ble`:** sem `observedToken` (se vier, é ignorado). Exige a tela aberta, o pedido pendente e não vencido e B como destinatário. O pedido só nasce com o par;
+- **validação do env:** `PROX_TOUCH_PAIR_TTL_S + PROX_TOKEN_TTL_S ≤ PROX_RECENT_TTL_S` e `PROX_TOUCH_WINDOW_S ≤ PROX_TOKEN_TTL_S`.
+
+**O que o servidor revela antes do aceite, e para quem:**
+
+| Situação | Quem chama | O que recebe |
+|---|---|---|
+| Token BLE lido do ar, sem encosto mútuo | qualquer conta pessoal | nada (`touches` e `resolve` → `items: []`; pedido → 400 genérico) |
+| Encosto mútuo | A e B | o cartão um do outro |
+| QR lido | quem leu | o cartão de quem mostrou o QR |
+| Pedido recebido | B | o cartão de A na folha (como hoje) |
+| Bloqueio, conta excluída, criador | — | o mesmo que inexistente |
+
+**Riscos que ficam:**
+- relay ativo com aparelhos encostados nos dois alvos (R12);
+- alguém a poucos centímetros do celular da vítima com a tela aberta;
+- o prefixo fixo `53555353` revela que alguém por perto está com a tela Conectar aberta, mas não quem (R17).
+
+### 11.5 QR de reserva (atualizado em 2026-10-30, ADR 0012)
+
+- **O D7 continua igual:** A lê o QR de B e pede; B lê o QR de A para aceitar.
+- **Token próprio:** o QR leva o `qrToken` (`sussurro://c/{qrToken}`), separado do `bleToken`. Com o mesmo token, quem lesse o anúncio a 10 m usaria o caminho do QR para descobrir a pessoa.
+- **Separação de canais no servidor:**
+  - o `resolve` só resolve `ch = 'qr'`;
+  - o pedido `qr` exige `ch = 'qr'`;
+  - o aceite `qr` exige `observedToken` com `ch = 'qr'`, dono igual a `from_id` e até 120 s (sem ele → 400 `VALIDATION_ERROR`; canal trocado → 400 `PROXIMITY_TOKEN_INVALID`, e o pedido segue pendente).
+- **Quando o app oferece o QR.** O seletor está sempre disponível. O QR vira a saída principal quando:
+  - falta permissão de Bluetooth e não dá para pedir de novo;
+  - o Bluetooth está desligado (junto com "Ligar");
+  - o aparelho não tem BLE, ou o build não tem o módulo;
+  - o aparelho **não anuncia**;
+  - é Android ≤ 11 com a localização do sistema desligada;
+  - passaram 20 s no Pronto sem encostar, 10 s em `quase` sem confirmar, ou houve 2 "Não deu para confirmar" seguidos.
+
+### 11.6 Calibração (atualizado em 2026-10-30, ADR 0012)
+
+**Ponto único:** `apps/mobile/src/features/connect/touch-calibration.ts`.
+- **Conteúdo:**
+  - potência do Android e campo TX;
+  - TX assumido do iPhone;
+  - correção por plataforma e por modelo;
+  - limiares de entrar, sair e "quase";
+  - janela, amostras mínimas e tempo sustentado;
+  - cadência de relato e tempo até oferecer o QR.
+- **Sem limiar no nativo:** o nativo recebe a potência e o intervalo por parâmetro.
+- **Tempos do servidor:** ficam no env da API (`PROX_TOUCH_WINDOW_S`, `PROX_TOUCH_PAIR_TTL_S`), com padrão no `packages/shared`.
+- **Atualizar:** sem `expo-updates`, a calibração muda só com build novo.
+
+**Spike 4.1-B** (roteiro completo na ADR 0012 §8):
+- **Ferramenta:** uma tela `/dev/proximidade`, só na variante `development`. Mostra ao vivo, por token, RSSI, campo TX, perda, mediana e estado, e escreve CSV no `console` (capturado no Metro). Sem dependência nova e sem nada no servidor.
+- **Medições:**
+  - matriz de aparelhos do `testes.md` §8.1, em todos os pares e nos dois sentidos;
+  - três capas e dez posições (de costas com costas até 10 m);
+  - o Android em `ULTRA_LOW` e em `LOW`.
+- **Critério de aprovação, por par e por capa:**
+  - pelo menos 95% de encostos casados em até 3 s;
+  - **nenhum** `encostado` a 30 cm ou mais em 5 min (requisito do UX);
+  - `quase` em no máximo 5% das leituras a 1 m;
+  - entre iPhones, a incidência de NameDrop por gesto (topo com topo, lado a lado, base com base, costas com costas), que decide o gesto (R20);
+  - mediana até casar ≤ 2 s.
+- **Saída:**
+  - os valores no arquivo de calibração (com data e aparelhos);
+  - o relatório em `docs/evidencias/fase-4/`;
+  - par reprovado usa o QR (decisão do PO, 2026-10-30).
+
+### 11.7 Contratos (atualizado em 2026-10-30, ADR 0012)
+
+**`packages/shared`, primeiro:**
+- `ProximityTokenSchema` → `{bleToken, qrToken, expiresAt, renewInS}`;
+- novos `ProximityTouchRequestSchema` (`strictObject {tokens: 1..4}`) e `ProximityTouchResultSchema` (`{items: NearbyPerson[]}`);
+- novas constantes `PROXIMITY_TOUCH_MAX_TOKENS` (4), `PROXIMITY_TOUCH_WINDOW_S` (10), `PROXIMITY_TOUCH_PAIR_TTL_S` (60) e `PROXIMITY_TOUCH_REPORT_INTERVAL_S` (1);
+- `AcceptConnectionRequestSchema` → `{observedToken?}`;
+- `ConnectionMethodSchema` continua `ble | qr` (`ble` = encostando);
+- os helpers de UUID e QR não mudam.
+
+**Rotas:**
+- nova: `POST /v1/proximity/touches`;
+- mudam: `POST /proximity/tokens` (resposta), `POST /proximity/resolve` (só QR), `POST /connections/requests` (canal e par) e `POST /connections/requests/:id/accept` (por método);
+- `POST /dev/simulate-request` grava o par da persona no `ble` e devolve o `qrToken` da persona;
+- opcional: `POST /dev/simulate-touch`, só em desenvolvimento;
+- toda rota nova entra no PERM-10.
+
+**`ProximityStore`:**
+- o registro ganha `ch`; `issue` grava os dois tokens;
+- novos `recordTouch(observador, dono, janelaMs) → mútuo`, `markTouchPair(a, b, ttlMs)` e `hasTouchPair(a, b)`, no Valkey com script Lua e no fake em memória sobre o `Clock`;
+- limite novo: `touches`.
+
+**Erros:** nenhum código novo.
+
+**Postgres:** **sem migration** e sem SQL novo (o `findNearby` é reaproveitado).
 
 ## 12. Notificações (ADR 0011)
 
@@ -628,8 +825,8 @@ Prefixo `/v1`. JSON. Erros no formato `{ code, message }`. Todos os schemas fica
 | 3 | `GET /users/:handle` | (atualizado na Fase 3) o perfil de criador ganha `followedByMe`; `counts.followers` com cache de 60 s; com bloqueio em qualquer sentido, o 404 de inexistente |
 | 3 | `POST /me/blocks` `{handle}` ou `{commentId}`, `DELETE /me/blocks/:handle`, `GET /me/blocks?cursor=` | (atualizado na Fase 3, X.2) os dois tipos de conta. `POST` e `DELETE` → 204 sempre (alvo que a pessoa não vê: nada gravado); a própria conta → 400; `GET` → 200 `BlocksPage` `{items:[{handle,blockedAt}],nextCursor}`; 429 acima de 60/h |
 | 3 | `POST /reports` `{target:{type:'post'\|'comment',id}\|{type:'account',handle},reason,details?}` | (atualizado na Fase 3, X.1) os dois tipos de conta → 202 sem corpo; o que a pessoa não vê → 404 igual ao de inexistente; o próprio conteúdo → 400; repetido → 202 sem duplicar; 429 acima de 20/h; e-mail para `MODERATION_EMAIL` |
-| 4 | `POST /proximity/tokens`, `POST /proximity/resolve` | personal. (atualizado na Fase 4) Todas as rotas da Fase 4 são só de conta pessoal (criador → 403 `ACCOUNT_TYPE_NOT_ALLOWED`), sem cache (`no-store`), e as que tocam o Redis respondem 503 `PROXIMITY_UNAVAILABLE` sem ele. `tokens` (e-mail confirmado) → 201 `ProximityToken` `{token,expiresAt,renewInS}`; 429 acima de 6/min. `resolve` `{tokens:[1..20]}` (e-mail confirmado; campo a mais → 400) → 200 `ProximityResolveResult` `{items:[{token,handle,name,avatarUrl,alreadyConnected}]}`; sem a tela aberta → 409 `PROXIMITY_SCREEN_CLOSED`; 429 acima de 30/min |
-| 4 | `POST /connections/requests`, `GET /connections/requests/incoming`, `GET /connections/requests/:id`, `POST /connections/requests/:id/accept`, `POST /connections/requests/:id/decline`, `DELETE /connections/requests/:id` | (atualizado na Fase 4) Todas devolvem `ConnectionRequest` `{id,direction,status,method,other:{handle,name,avatarUrl},createdAt,expiresAt,expiresInS}` (a caixa de entrada, `{items:[...]}`, no máximo 20, do mais antigo para o mais novo). Pedido `{targetToken,method}` (e-mail confirmado) → 201 novo, 200 o mesmo pendente ou já `accepted`; 400 `PROXIMITY_TOKEN_INVALID` (genérico), 400 `CANNOT_CONNECT_SELF`, 409 `ALREADY_CONNECTED`, 409 `PROXIMITY_SCREEN_CLOSED`, 429 (10/min e 50/dia). `accept` `{observedToken}` (e-mail confirmado) → 200; sem o token → 400; token de outra pessoa ou com mais de 120 s → 400 `PROXIMITY_TOKEN_INVALID` (o pedido continua pendente); 409 `PROXIMITY_SCREEN_CLOSED`; 410 `REQUEST_EXPIRED`; recusado ou cancelado → 404; 429 (10/min). `decline` (só B) e `DELETE` (cancelar, só A) → 200 com o estado final. `:id` que não é uuid → 400; terceiro → 404 |
+| 4 | `POST /proximity/tokens`, `POST /proximity/resolve` | personal. (atualizado na Fase 4) Todas as rotas da Fase 4 são só de conta pessoal (criador → 403 `ACCOUNT_TYPE_NOT_ALLOWED`), sem cache (`no-store`), e as que tocam o Redis respondem 503 `PROXIMITY_UNAVAILABLE` sem ele. `tokens` (e-mail confirmado) → 201 `ProximityToken` `{token,expiresAt,renewInS}`; 429 acima de 6/min. `resolve` `{tokens:[1..20]}` (e-mail confirmado; campo a mais → 400) → 200 `ProximityResolveResult` `{items:[{token,handle,name,avatarUrl,alreadyConnected}]}`; sem a tela aberta → 409 `PROXIMITY_SCREEN_CLOSED`; 429 acima de 30/min. (atualizado em 2026-10-30, ADR 0012; ainda não implementado) `tokens` → `{bleToken,qrToken,expiresAt,renewInS}`; `resolve` só resolve tokens de QR; nova rota `POST /proximity/touches` `{tokens:[1..4]}` (e-mail confirmado, tela aberta) → 200 `ProximityTouchResult` `{items}`, só com quem tem encosto mútuo (§11.4); 429 acima de 60/min |
+| 4 | `POST /connections/requests`, `GET /connections/requests/incoming`, `GET /connections/requests/:id`, `POST /connections/requests/:id/accept`, `POST /connections/requests/:id/decline`, `DELETE /connections/requests/:id` | (atualizado na Fase 4) Todas devolvem `ConnectionRequest` `{id,direction,status,method,other:{handle,name,avatarUrl},createdAt,expiresAt,expiresInS}` (a caixa de entrada, `{items:[...]}`, no máximo 20, do mais antigo para o mais novo). Pedido `{targetToken,method}` (e-mail confirmado) → 201 novo, 200 o mesmo pendente ou já `accepted`; 400 `PROXIMITY_TOKEN_INVALID` (genérico), 400 `CANNOT_CONNECT_SELF`, 409 `ALREADY_CONNECTED`, 409 `PROXIMITY_SCREEN_CLOSED`, 429 (10/min e 50/dia). `accept` `{observedToken}` (e-mail confirmado) → 200; sem o token → 400; token de outra pessoa ou com mais de 120 s → 400 `PROXIMITY_TOKEN_INVALID` (o pedido continua pendente); 409 `PROXIMITY_SCREEN_CLOSED`; 410 `REQUEST_EXPIRED`; recusado ou cancelado → 404; 429 (10/min). `decline` (só B) e `DELETE` (cancelar, só A) → 200 com o estado final. `:id` que não é uuid → 400; terceiro → 404. (atualizado em 2026-10-30, ADR 0012; ainda não implementado) Pedido `ble`: token válido ou recente de canal `ble` **e** o par de encosto mútuo (sem ele → 400 `PROXIMITY_TOKEN_INVALID`); pedido `qr`: token de canal `qr`; aceite `ble`: sem `observedToken`; aceite `qr`: `observedToken` obrigatório e de canal `qr` |
 | 4 | `DELETE /connections/:handle` | desfazer conexão (decisão do PO). (atualizado na Fase 4, D8) → 204; @ que não é conexão, inexistente, excluído ou a própria conta → 404 `NOT_FOUND` idêntico; a outra pessoa não é avisada |
 | 4 | `POST /dev/simulate-request` `{from?,method?}` | (atualizado na Fase 4, 4.11 e D15) só com `NODE_ENV=development` (em `test` e `production`, 404 de rota inexistente). Pessoal → 201 `SimulatedConnectionRequest` `{request,observedToken}`: @lucasf (padrão) ou @tomas pede conexão para a conta logada; o `observedToken` serve para o aceite. Persona fora da lista → 400; sem o seed → 404; já conectados → 409 |
 | 5 | `POST /posts/drafts` com `type:'reel'`, `POST /posts/:id/publish`, `GET /feed?type=reel`, `GET /users/:handle/posts?type=reel` | (atualizado na Fase 5) Nenhuma rota nova. Rascunho `{type:'reel',video:{mime,sizeBytes,durationS},poster:{mime,sizeBytes}}` (MP4/MOV até 200 MB e 90 s; poster até 5 MB) → 201 `Draft` com `uploads[0]` (vídeo) e `poster`; 91 s ou 200 MB + 1 byte → 400; 429 acima de 10 rascunhos de reel/h. `publish` → 200 `Post` em `processing`; sem vídeo ou poster → 409 `MEDIA_NOT_UPLOADED` (`details.positions`, `details.poster`). `PostMedia` ganhou `kind` (`image`/`video`) e `durationS`. Processando ou com falha: só o autor vê (MID-09, MID-10) |
@@ -653,12 +850,21 @@ Prefixo `/v1`. JSON. Erros no formato `{ code, message }`. Todos os schemas fica
 - (atualizado na Fase 6) No app (`@sentry/react-native` 8.28, `apps/mobile/src/lib/sentry.ts`): `sendDefaultPii: false`, nenhum `setUser`, sem sessões de release health, captura de tela nem hierarquia de views; `beforeSend`, `beforeSendTransaction` e `beforeBreadcrumb` com o `scrubTelemetryEvent` e, além dele, as URLs e rotas sem @, ids e query (`/v1/creators/:handle/follow`, `/c/:token`) e os breadcrumbs de toque descartados; `sentry-trace` só para a API. Ambiente = variante; release e `dist` do SDK (iguais aos do upload dos source maps). Os crashes nativos não passam pelo `beforeSend` do JavaScript: levam o contexto do aparelho e os breadcrumbs (já limpos no `beforeBreadcrumb`).
 - Exclusão de conta: `deleted_at` imediato (some de tudo), hard delete em cascata em até 30 dias, objetos S3 apagados. Backups do RDS expiram em 14 dias, o que precisa constar na política de privacidade.
 - Logs não registram corpo de requisição nem listas de relacionamento.
+- (atualizado em 2026-10-30, ADR 0012) **Conectar encostando.**
+  - **O que muda na Política de Privacidade** (site, fora do repositório; Tech Lead com o PO):
+    - **quem vê o quê:** antes da conexão, só quem encosta o celular no seu, com a tela Conectar aberta nos dois, ou quem lê o seu QR code vê seu nome, @ e foto;
+    - **o anúncio Bluetooth:** leva só um código aleatório que muda a cada 20 s, sem nome. O prefixo fixo indica que alguém por perto está com a tela Conectar aberta, mas não quem é. No Android, o anúncio sai com potência baixa;
+    - **o que fica no servidor:** os códigos, como hash, por até 2 minutos, e o registro de que dois celulares se encostaram, por até 60 s, sem localização e sem força do sinal;
+    - **a força do sinal** é usada só no aparelho e nunca sai dele;
+    - **Android 11 ou anterior:** o sistema exige a permissão de localização e a localização ligada para usar o Bluetooth, mas o Sussurro não lê nem guarda a localização.
+  - **Permissões:** a lista não muda (iOS `NSBluetoothAlwaysUsageDescription`; Android 12+ `BLUETOOTH_SCAN` com `neverForLocation`, `BLUETOOTH_ADVERTISE` e `BLUETOOTH_CONNECT`; Android ≤ 11 `ACCESS_FINE_LOCATION`). Muda o texto de uso ("reconhecer o celular encostado no seu"), no `app.plugin.js` e na explicação antes do pedido (texto final do UX/UI).
+  - **Telemetria e chaves:** nenhuma telemetria de RSSI em produção (decidido pelo PO em 2026-10-30, que também aprovou o texto da Política acima). A limpeza do Sentry já cobre `tokens`, `bleToken` e `qrToken` (chaves com "token").
 
 ## 16. Riscos técnicos
 
 | # | Risco | Impacto | Mitigação |
 |---|---|---|---|
-| R1 | Módulo BLE próprio é código nativo novo (Swift/Kotlin) e o comportamento varia por fabricante Android | Fase 4 atrasa | Spike curto no início da Fase 4 com 2 iPhones + 2 Androids (1 Samsung). Superfície mínima (anunciar UUID, varrer). QR como plano B. Alternativa avaliada: `munim-bluetooth` (ADR 0002). |
+| R1 | Módulo BLE próprio é código nativo novo (Swift/Kotlin) e o comportamento varia por fabricante Android | Fase 4 atrasa | Spike curto no início da Fase 4 com 2 iPhones + 2 Androids (1 Samsung). Superfície mínima (anunciar UUID, varrer). QR como plano B. Alternativa avaliada: `munim-bluetooth` (ADR 0002). (atualizado em 2026-10-30) O spike vira o 4.1-B, que inclui a calibração do encosto (ADR 0012 §8, R14). |
 | R2 | Expo SDK 58 é recente (out/2026), então libs podem atrasar suporte ao RN 0.88 | Bloqueio pontual | Verificar na Fase 0 as libs da lista (router, image, camera, secure-store, notifications, sentry). Fallback para o SDK 57. |
 | R3 | Node 26 entrou em LTS ontem | Ferramenta incompatível | Smoke test na Fase 0. Fallback para o Node 24 trocando só `.nvmrc`/`engines` (ADR 0001). |
 | R4 | Feed com muitos autores (pessoa que segue milhares) | Latência | O `LATERAL` limita a leitura por autor e há métrica de p95. No futuro: limitar follows (ex.: 2.000) ou timeline materializada. |
@@ -669,5 +875,12 @@ Prefixo `/v1`. JSON. Erros no formato `{ code, message }`. Todos os schemas fica
 | R9 | Licença do LocalStack (token obrigatório, plano gratuito só para uso não comercial) | Custo/atrito | ElasticMQ + SeaweedFS (ADR 0010). |
 | R10 | Custo e abuso de vídeo | Custo | Limites de duração e tamanho, rate limit de rascunhos (10/h), custo por minuto do MediaConvert monitorado com budget alarm. (atualizado na Fase 5) 90 s e 200 MB (D10) conferidos no rascunho e no arquivo antes de criar o job; 10 rascunhos de reel por hora por conta. |
 | R11 | Redis indisponível | Proximidade e rate limit param | Auth não depende do Redis. Proximidade fail-closed com mensagem amigável. Os demais rate limits ficam fail-open com log. (atualizado na Fase 4) Proximidade: 503 `PROXIMITY_UNAVAILABLE` em até 500 ms (tokens, resolve, pedido e aceite, inclusive os limites dela); login, feed, perfil, caixa de entrada, recusar, cancelar, desfazer e logout seguem. Em desenvolvimento sem Docker, `PROXIMITY_STORE=memory`. |
-| R12 | Relay attack de BLE (alguém retransmite anúncios de longe) | Conexão indevida | Tokens cruzados, TTL curto, aceite explícito vendo nome e avatar. |
+| R12 | Relay attack de BLE (alguém retransmite anúncios de longe) | Conexão indevida | Tokens cruzados, TTL curto, aceite explícito vendo nome e avatar. (atualizado em 2026-10-30, ADR 0012) Com o encosto, o relay precisa de aparelhos **encostados nos dois alvos** retransmitindo nos dois sentidos com força de encosto. Os alvos veem o cartão um do outro, mas ainda precisam tocar "Conectar" e aceitar. Risco aceito. |
+| R14 | (atualizado em 2026-10-30, ADR 0012) Variação de RSSI entre modelos, capas e orientação (o padrão "Presence" do Android aceita 20 dB de diferença a 1 m) | Encosto não detectado (falso negativo) ou detectado a ~30 cm | Métrica de perda com TX do anúncio, mediana + 0,7 s sustentado + histerese, correção por plataforma e por modelo, dica "aproxime mais", QR depois de 20 s. Spike 4.1-B como portão: pelo menos 95% de detecção em até 3 s, e nenhum "encostado" a 30 cm ou mais, por par e por capa. Um falso positivo só revela o cartão a quem está a centímetros e também com a tela aberta. |
+| R15 | (atualizado em 2026-10-30) Android ≤ 11: sem a localização do sistema ligada, a varredura volta vazia, sem erro | Encosto nunca funciona nesses aparelhos | `getCapabilities` informa `locationServices`; estado próprio na tela, com o QR. O PO decidiu manter o Android ≤ 11 assim (2026-10-30), sem subir o piso. |
+| R16 | (atualizado em 2026-10-30) Android 7+ segura a varredura em silêncio com mais de cerca de 5 inícios em 30 s | Encosto para de funcionar depois de idas e vindas na tela | Uma sessão de varredura contínua por tela; reinício só quando o Bluetooth liga ou desliga, ou ao voltar do background; caso no MAN. |
+| R17 | (atualizado em 2026-10-30) O prefixo fixo do UUID (`53555353`) revela, a quem varre, que alguém por perto está com a tela Conectar aberta (não quem) | Privacidade (uso do app) | O token muda a cada 20 s, o MAC é aleatório e não há nome; o Android anuncia com potência baixa. Registrado na Política. Prefixo rotativo fica fora da v1 (o filtro do Android precisa de um padrão fixo). |
+| R18 | (atualizado em 2026-10-30) Calibração presa ao build (sem `expo-updates`) | Correção de limiar demora uma publicação | Constantes num arquivo só. O PO decidiu não ter OTA por agora (2026-10-30); o tema volta se o campo mostrar necessidade. |
+| R19 | (atualizado em 2026-10-30) O aceite exige a tela Conectar aberta (`prox:u`). Depois de encostar, B pode sair da tela antes de o pedido chegar | Pedido vence sem resposta | O aceite `ble` não depende mais de B continuar vendo o anúncio de A (sem `observedToken`): basta B voltar à tela dentro dos 120 s, inclusive pelo push do pedido (Fase 6), que abre o Conectar. O app mantém a tela acesa no modo Encostar e no "Aguardando". |
+| R20 | (atualizado em 2026-10-30, levantado pelo UX/UI) **NameDrop**: entre dois iPhones desbloqueados, aproximar os aparelhos (a Apple descreve a poucos centímetros; há relato também lado a lado) abre a troca de contatos do sistema por cima do app. Não há API para pausar (fórum da Apple, thread 802004). Não acontece com Android | Confusão; a pessoa pode compartilhar o telefone sem querer (o NameDrop exige escolher "Compartilhar" e cancela ao afastar) | O gesto é decidido no spike 4.1-B (ADR 0012 §9): entre os gestos que cumprem o critério de detecção, o de menor incidência de NameDrop. Se todos dispararem, o mais natural, com a nota T41 só no iPhone. "Pode afastar" só no cartão. O app nunca pede para desligar o recurso do sistema. |
 | R13 | Dependência do Expo Push | Push indisponível | Notificações continuam no app (pull). Push é best-effort. |

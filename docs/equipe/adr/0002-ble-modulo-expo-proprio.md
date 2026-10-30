@@ -1,6 +1,13 @@
 # ADR 0002: BLE com módulo Expo próprio (anúncio + varredura, sem GATT)
 
 - Status: proposto (diverge do briefing, seção 4.2/5) · Data: 2026-10-29
+- Em parte substituída pela ADR 0012 (2026-10-30, Conectar encostando). Mudam:
+  - a potência do anúncio no Android (configurável, `ULTRA_LOW` como padrão inicial) e o campo TX Power no anúncio;
+  - o evento da varredura (`txPower`) e o intervalo vindo do TypeScript;
+  - as capacidades (`locationServices` e modelo);
+  - o aparelho que não anuncia, que vai direto para o QR.
+
+  O módulo próprio, o UUID de 128 bits e o esquema sem GATT continuam.
 
 ## Contexto
 A especificação prevê `react-native-ble-plx` para trocar tokens entre dois celulares. Fatos verificados:

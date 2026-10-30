@@ -1,6 +1,15 @@
 # ADR 0003: Tokens de proximidade e protocolo de conexão mútua
 
 - Status: proposto · Data: 2026-10-29
+- Em parte substituída pela ADR 0012 (2026-10-30, Conectar encostando). Mudam:
+  - um token por canal (`bleToken` e `qrToken`);
+  - o `resolve` passa a servir só ao QR;
+  - entra o `POST /proximity/touches`, com observação mútua;
+  - o pedido `ble` exige o par de encosto mútuo;
+  - o aceite `ble` dispensa o token cruzado;
+  - os limites ganham `touches`.
+
+  O formato do token, as validades, a trava do par, a corrida, a recusa, a entrega por polling e o QR cruzado (D7) continuam.
 
 ## Contexto
 A especificação pede um token opaco e efêmero (30 s, Redis), troca por BLE ou QR, pedido de A com o token de B e confirmação de B, com o servidor exigindo tokens "válidos, recentes e cruzados", mais rate limit e registro do método. Faltava definir: formato do token, o que "cruzado" exige de cada lado, entrega do pedido, corridas, replay e expiração.

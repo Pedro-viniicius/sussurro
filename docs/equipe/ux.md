@@ -3,6 +3,7 @@
 > Autor: UX/UI Designer. Data: 2026-10-29. Status: proposta para revisão do PO.
 > Entradas: `briefing.md` (seção 6 do PO = referência obrigatória), protótipo `docs/design/prototipo/p-01…p-22.png` + `texto-extraido.txt`, `arquitetura.md`, ADRs 0002–0005, 0008, 0011.
 > Regra deste documento: o que está no protótipo é seguido como está; o que diverge da especificação ou do protótipo está marcado com **[DIVERGE]** e levado ao PO na seção 9.
+> (atualizado em 2026-10-30) A tela Conectar mudou para **"encostar os celulares"** (D3 revisto, D13 substituído). A especificação nova está na **§11**, que substitui as partes do Conectar marcadas com "(atualizado em 2026-10-30)" ao longo do documento.
 
 ## 0. Leitura do protótipo (correções e método)
 
@@ -61,6 +62,8 @@ flowchart LR
 ```
 
 Pontos de atrito e resposta de design: permissão de Bluetooth pedida **só ao tocar "Procurar por perto"** (não no cadastro); quem é procurado também precisa estar com a tela aberta (microcopy na tela inicial do Conectar); QR sempre a 1 toque.
+
+(atualizado em 2026-10-30) Com o "encostar os celulares", esta jornada foi substituída pela §11.3.
 
 ### 2.2 Pessoa B (quem recebe o pedido)
 Tela Conectar aberta (qualquer estado) → folha "Helena quer se conectar" com avatar, nome e @ → **Aceitar** → "Vocês estão conectados". Se B não está com a tela aberta, o pedido não chega na v1 (polling só com a tela aberta, ADR 0003); com push (Fase 6), a notificação abre o Conectar.
@@ -358,6 +361,8 @@ Depois do botão: Alert de confirmação final ("Excluir conta? Não dá para de
 Igual a p16 sem os ícones Criar/Sair, com `‹` e o @ no header, sem a nota de privacidade, números **não tocáveis** (a lista é privada), e um único botão `(Conectados ✓)` largura total. Toque em "Conectados" → folha de ações: "Desfazer conexão" (danger, se D8 = sim), "Cancelar". Pessoa não conectada (404 do servidor) → EmptyState "Perfil indisponível · Contas pessoais só aparecem para as conexões delas."
 
 ### 4.10 Conectar: seletor e QR (proposta para D3: "Bluetooth | QR code")
+> (atualizado em 2026-10-30) O seletor passa a "Encostar | QR code" e o radar sai (§11). O QR (meu código, ler o código e o fluxo cruzado abaixo) continua valendo, com os textos da §11.9.
+
 ```
 INICIAL (p10 com seletor novo)          QR: MEU CÓDIGO
 ┌──────────────────────────┐            ┌──────────────────────────┐
@@ -398,6 +403,8 @@ O QR se renova a cada 20 s sem piscar (troca com fade de 150 ms). Brilho da tela
 Haptic de notificação ao abrir. Vários pedidos: um por vez, em fila. Fecha sozinha ao expirar, com Toast "O pedido da Helena expirou."
 
 ### 4.12 Permissões (estados inline, não rotas)
+> (atualizado em 2026-10-30) Os estados e os textos do Bluetooth foram revistos na §11.4 e na §11.9; o "Aparelho não anuncia" vira "Sem suporte". Câmera, fotos e notificações continuam como aqui.
+
 ```
 BLUETOOTH: EXPLICAÇÃO (antes do diálogo do SO)
 ┌──────────────────────────┐
@@ -448,6 +455,8 @@ BLUETOOTH: EXPLICAÇÃO (antes do diálogo do SO)
 Regra geral de erro: mensagem humana + ação. Nunca mostrar `code` técnico na UI; o `code` vai para o Sentry. Erros sem ação na tela → Toast de erro.
 
 ### 5.2 Conectar: máquina de estados
+> (atualizado em 2026-10-30) Substituída pela §11.4 (encostar os celulares). Daqui continuam valendo, com os textos da §11.9: Aguardando, Não confirmado, Conectados, Já conectados, Pausado, Indisponível, Offline e Criador. O resto descreve o que a Fase 4b implementou ("Por perto agora").
+
 
 ```mermaid
 stateDiagram-v2
@@ -674,6 +683,8 @@ Usar a prop `boxShadow` (RN 0.76+, New Architecture), que vale para iOS e Androi
 | Easing | `Easing.bezier(0.2, 0, 0, 1)` | padrão |
 
 Com **Reduzir movimento** ligado (`useReducedMotion` do Reanimated): durações viram 0 (exceto opacidade ≤ 150 ms), radar fica estático (2 anéis fixos em blueMist + texto "Procurando…" com reticências estáticas), sem "pop" do coração, sem pulso do skeleton.
+
+(atualizado em 2026-10-30) O radar sai da tela Conectar. Para a ilustração do encostar entra o `motion.touchCycle` (2400 ms, 2 ciclos e para), descrito na §11.7.
 
 ### 6.11 Ícones
 
@@ -904,6 +915,8 @@ Regras comuns: todo componente aceita `testID`; todo elemento tocável tem `acce
 | `Spinner` | geral | `ActivityIndicator` com cor black/white/grey |
 | `QRCodeCard` | Conectar QR | QR 240 (`react-native-qrcode-svg`), correção de erro M, card white raio 16 borda border, Avatar 32 + @ abaixo |
 
+(atualizado em 2026-10-30) No Conectar, o `Radar` e o `UserRow` saem, o `SegmentedControl` muda de rótulos e entra o `TouchHint`: ver §11.11.
+
 ### 6.15 Tela de catálogo (Fase 0)
 
 - **Rota**: `src/app/dev/catalog.tsx`. Disponível só quando `__DEV__` ou `EXPO_PUBLIC_DEV_TOOLS === '1'`; em produção a rota redireciona para `/` (e o perfil de build `production` do EAS não define a variável). Na Fase 0 o `src/app/index.tsx` redireciona direto para o catálogo. A partir da Fase 1: deep link `sussurro://dev/catalog` e pressão longa de 2 s no logo da tela Entrar (só em dev).
@@ -964,7 +977,7 @@ Resumo: a paleta do PO **passa** para texto principal e ações (blue/white 4,83
 - Tab bar só com ícones: todos os itens com `accessibilityLabel` (6.13). Coração do feed: "Notificações" + ", há novidades" com o ponto azul.
 - Ordem de foco = ordem visual; no post: autor → mídia → curtir → comentar → curtidas → legenda → comentários → tempo.
 - Ações secundárias em `accessibilityActions` (curtir, comentar, responder, excluir), além dos botões visíveis.
-- Conectar: anunciar "Caio Ribeiro encontrado por perto" quando alguém entra na lista (no máximo 1 anúncio a cada 3 s), "Pedido enviado", "Vocês estão conectados", "Pedido recusado ou expirado".
+- Conectar: anunciar "Caio Ribeiro encontrado por perto" quando alguém entra na lista (no máximo 1 anúncio a cada 3 s), "Pedido enviado", "Vocês estão conectados", "Pedido recusado ou expirado". (atualizado em 2026-10-30: o "encontrado por perto" sai; os anúncios novos estão na §11.8.)
 - Folhas e modais: `accessibilityViewIsModal`, foco no título ao abrir, retorno do foco ao elemento que abriu ao fechar.
 - Imagens de post: label "Foto 1 de 3 de @marinac". Texto alternativo escrito pelo autor fica para depois (D-UX13).
 - Tempo limitado (2.2.1): o pedido de conexão expira em 120 s por segurança (exceção "essencial"); a folha mostra o tempo restante e "Tentar de novo" está sempre disponível.
@@ -1001,6 +1014,8 @@ Resumo: a paleta do PO **passa** para texto principal e ações (blue/white 4,83
 | Por perto, rodapé | "Via Bluetooth. Só aparece quem está com a tela Conectar aberta agora. Ninguém vê sua localização." | manter | correto em relação ao ADR 0002 |
 | Tempo relativo | "40 min", "3 h", "ontem", "2 d", "Há 18 minutos" | thread/notificação: "agora", "5 min", "3 h", "ontem", "2 d", "27 out"; PostPhoto: "Há 18 minutos", "Há 3 horas", "Ontem", "27 de outubro" | consistente com p06/p07/p09 |
 
+(atualizado em 2026-10-30) As linhas "Conectar, seletor", "Por perto" e "Por perto, rodapé" foram substituídas pela lista da §11.9.
+
 ---
 
 ## 9. Decisões de UX que precisam do PO
@@ -1029,6 +1044,8 @@ Resumo: a paleta do PO **passa** para texto principal e ações (blue/white 4,83
 | D-UX19 | Notificação do pessoal com tab bar | nenhuma aba ativa (p09) × Início ativo | Início ativo (a tela está na pilha do Início). Divergência visual mínima. |
 | D-UX20 | "Você está em dia" | círculo azul cheio (spec) × contorno azul (p08) | **Contorno, como no p08.** |
 
+(atualizado em 2026-10-30) O PO reviu o D-UX1 (= D3) e substituiu o D-UX2 (= D13): a conexão passa a ser "encostar os celulares", com o QR de reserva (§11). Decisões novas desta mudança: D-UX21 a D-UX24, na §11.10.
+
 ## 10. Pontos para validar com usuários (teste com 5 pessoas, em pares, na Fase 4)
 1. Duas pessoas que acabaram de se conhecer conseguem se conectar em < 30 s sem ajuda? Onde travam (permissão, achar a outra pessoa, saber que a outra precisa abrir a tela)?
 2. "Bluetooth / QR code": as pessoas entendem quando usar o QR? O passo de ler o código para aceitar parece natural?
@@ -1037,8 +1054,517 @@ Resumo: a paleta do PO **passa** para texto principal e ações (blue/white 4,83
 5. Criadores entendem que não verão quem os segue (só números) e que o tipo de conta é definitivo?
 6. Leitor de tela: completar o fluxo do Conectar só com VoiceOver/TalkBack.
 
+(atualizado em 2026-10-30) Os itens 2 e 3 foram substituídos pelos pontos da §11.12.
+
+---
+
+## 11. Conectar: encostar os celulares (atualizado em 2026-10-30)
+
+> **Decisão do PO (2026-10-30; `PROJETO.md`, D3 revisto e D13 substituído).** A conexão presencial passa a ser "encostar os celulares": Bluetooth de curtíssimo alcance, só com a tela Conectar aberta nos dois aparelhos, e o QR code de reserva. O NFC foi descartado, porque o iPhone não deixa um app social emular cartão NFC. Motivo do PO: quem está a alguns metros não deve nem enxergar a pessoa.
+>
+> **O que esta seção substitui** na tela Conectar: a §4.10 (seletor e radar), os textos de Bluetooth da §4.12, a máquina de estados da §5.2, as linhas do Conectar na §8 e as decisões D-UX1 e D-UX2.
+> **O que continua valendo:** o QR (meu código, ler o código e o fluxo cruzado do D7, §4.10), a folha do pedido recebido (§4.11, com os textos da §11.9), o p13 (Aguardando), o p14 (Conectados), o p22 (criador) e os estados Sem internet, Indisponível, Muitas tentativas e E-mail não confirmado.
+>
+> **Aprovado pelo PO em 2026-10-30**, com todas as recomendações: a ADR 0012 (`adr/0012-conectar-encostando.md`) e esta seção, com as decisões da §11.10 e os textos T1 a T42 da §11.9. As premissas técnicas da §11.2 foram confirmadas ou corrigidas pela ADR 0012 (§9 e §10), e as correções já estão incorporadas aqui.
+
+### 11.1 Princípios
+1. **Só quem encosta aparece.** Antes do "encostado" confirmado pelos dois aparelhos, a tela não mostra o nome, o @, a foto, a quantidade de pessoas nem a distância de ninguém.
+2. **Abrir a aba já é o começo.** O "Procurar por perto" deixa de existir: com a permissão já dada, a tela fica pronta sozinha (D-UX21). Sem ela, primeiro vem a explicação (estado 2), nunca o pedido do sistema direto.
+3. **Um gesto, uma pessoa.** No lugar da lista "Por perto agora", um único cartão: a pessoa cujo celular encostou no seu.
+4. **O QR está sempre a 1 toque** (no seletor) e ganha destaque quando encostar não funciona.
+5. **Sem jargão.** A interface fala em "encostar" e em "QR code". A palavra "Bluetooth" só aparece onde a pessoa precisa agir (permitir, ligar). Nunca aparecem: sinal, distância, NFC, token, varredura, proximidade.
+6. **Três canais de feedback** em cada marco (encostou, pedido recebido, conectados): o visual, o texto anunciado ao leitor de tela e a vibração (D-UX24).
+
+### 11.2 Premissas técnicas (confirmadas pela ADR 0012 §10)
+
+| # | Premissa | Resposta da ADR 0012 e o que fica na tela |
+|---|---|---|
+| P1 | O nome, o @ e a foto só chegam ao app depois que o **servidor confirma a observação mútua**: os dois aparelhos informaram ter visto o token um do outro acima do limiar de "encostado". | **Confirmada.** A revelação é simétrica, mas não simultânea: quem relata primeiro recebe o cartão no relato seguinte, cerca de 1 s depois. |
+| P2 | Dois limiares no aparelho: **"aproximando"** (o `quase` da ADR) e **"encostado"** (o sinal acima do limiar por cerca de 1 s). O "encostado" não dispara a 30 cm; o "aproximando" não dispara a mais de 1 m. | **Confirmada, com ressalva.** Os 30 cm são critério do spike, e o 1 m do "aproximando" é meta (no máximo 5% das leituras): vale para os pares medidos, não é garantia num aparelho fora da matriz. O que vale sempre: ninguém é revelado sem os dois lados afirmarem o encosto. Nada muda na tela. |
+| P3 | O servidor confirma o outro lado em pouco tempo. | **Corrigida.** O normal é de 1 a 3 s. O aviso "Não deu para confirmar" (estado 9) sai aos **4 s**, mas o app **continua relatando por até 8 s** depois do primeiro "encostado", mesmo com os celulares afastados. Se o casamento chegar nesse intervalo, o cartão abre mesmo depois do aviso (transição 9 → 11). |
+| P4 | Confirmado o par, o pedido pode ser feito mesmo com os celulares já afastados. | **Confirmada, com ajustes.** O par vale 60 s no servidor, contados do casamento; o app usa **55 s**. O estado 17 (cartão venceu) acontece aos 55 s. Esse prazo é só para **pedir**: o aceite segue a validade do pedido (120 s a partir do pedido), sem depender do par. |
+| P5 | Se os dois tocam em "Conectar", a conexão sai na hora (a corrida A→B ∥ B→A). | **Confirmada.** O segundo toque precisa cair dentro dos 60 s do par; depois disso, o cartão já virou "Aceitar" pelo polling. |
+| P6 | Um aparelho que **não consegue anunciar** não consegue encostar: vai para "Sem suporte" e usa o QR. O "Procurar mesmo assim" deixa de existir. | **Confirmada.** |
+| P7 | O anúncio e a varredura **começam ao abrir a aba** e param ao sair dela ou ao ir para o background. | **Confirmada, com condições:** só com a **permissão já dada** (sem ela, primeiro a explicação, estado 2); no Android, uma sessão de varredura por visita à aba, uns 500 ms depois de abrir (o Verificando cobre essa espera); para ao sair da aba e no background, como hoje. |
+| P8 | **Um par por vez.** | **Confirmada** e garantida pelo protocolo: sem cartão, o app relata só o token mais próximo; com cartão, não relata nada. |
+| P9 | QR em destaque depois de **20 s** no Pronto, de **10 s** no "aproximando" ou de **2** "Não deu para confirmar" seguidos. | **Confirmada.** Os tempos ficam no arquivo de calibração da ADR. |
+| P10 | Para quem encostou, não se distinguem bloqueio, conta excluída, criador, token vencido e falta de encosto mútuo. | **Confirmada.** Só a falta de rede se distingue (estado 18). |
+| P11 | O método gravado na conexão continua `ble`. | **Confirmada:** `ble` = encostando, sem valor novo. |
+
+### 11.3 Jornada: Tomás conhece Bia numa festa
+
+Meta: do toque na aba até "Conectados" em menos de 20 s, com 2 toques por pessoa e um gesto.
+
+```mermaid
+flowchart LR
+  A[Os dois abrem a aba Conectar] --> B{Bluetooth pronto?}
+  B -- primeira vez --> C[Explicacao + pedido do sistema] --> D
+  B -- sim --> D[Pronto: encoste o seu celular no da outra pessoa]
+  B -- desligado ou negado --> E[Ligar ou permitir<br/>ou Usar QR code]
+  B -- sem suporte --> Q[Abre no QR code]
+  D --> F[Encostam os celulares] --> G[Encostou! segurem um instante]
+  G --> H[Cartao nos dois celulares<br/>Bia Alves, @bia.alves<br/>Conectar com Bia]
+  H --> I[Os dois tocam em Conectar] --> J[Voces estao conectados]
+  H --> K[So um toca: o outro ve<br/>Tomas quer se conectar] --> J
+  D -- 20 s sem encostar --> L[Nao esta dando certo?<br/>Usar QR code] --> Q
+```
+
+Comparado à Fase 4b, somem o passo "Procurar por perto" e a escolha da pessoa certa numa lista, e entra o gesto. Quem recebe o pedido já está com o cartão de quem pediu na tela: aceitar custa 1 toque, sem folha nova.
+
+### 11.4 Estados e transições
+
+```mermaid
+stateDiagram-v2
+  [*] --> Verificando: abre a aba
+  Verificando --> ExplicacaoBT: permissao nunca pedida
+  Verificando --> BTNegado: permissao negada
+  Verificando --> BTDesligado: Bluetooth desligado
+  Verificando --> SemSuporte: sem BLE, sem modulo ou nao anuncia
+  Verificando --> Pronto: tudo certo
+  ExplicacaoBT --> Pronto: Continuar e permitiu
+  ExplicacaoBT --> BTNegado: recusou
+  BTNegado --> Pronto: permitiu nos Ajustes
+  BTDesligado --> Pronto: ligou
+  SemSuporte --> QR: abre direto no QR
+  Pronto --> Aproximando: sinal forte, abaixo do limiar
+  Aproximando --> Pronto: sinal some por 2 s
+  Pronto --> Confirmando: chegou ao limiar
+  Aproximando --> Confirmando: chegou ao limiar
+  Confirmando --> Encostado: servidor confirma os dois lados
+  Confirmando --> NaoDeu: 4 s sem confirmar
+  NaoDeu --> Encostado: casamento ate 8 s depois do encosto
+  NaoDeu --> Pronto: aviso some aos 6 s
+  NaoDeu --> Confirmando: encostaram de novo
+  Pronto --> NadaDetectado: 20 s sem encostar
+  Aproximando --> NadaDetectado: 10 s sem chegar ao limiar
+  NadaDetectado --> Confirmando: chegou ao limiar
+  NadaDetectado --> QR: Usar QR code
+  Pronto --> QR: seletor
+  QR --> Pronto: seletor
+  Encostado --> Aguardando: Conectar, o outro ainda nao tocou
+  Encostado --> Conectados: Conectar, o outro ja tinha tocado
+  Encostado --> PedidoRecebido: o outro tocou primeiro
+  Encostado --> Pronto: Cancelar ou 55 s sem acao
+  PedidoRecebido --> Conectados: Aceitar
+  PedidoRecebido --> Pronto: Recusar
+  Aguardando --> Conectados: aceito
+  Aguardando --> NaoConfirmado: recusou ou expirou
+  Aguardando --> Pronto: Cancelar pedido
+  NaoConfirmado --> Pronto: Tentar de novo
+  Conectados --> Pronto: Conectar outra pessoa
+  Conectados --> [*]: Ir para o inicio
+```
+
+De qualquer estado, um erro de rede ou do servidor leva aos estados 18 a 20. O QR (meu código, ler o código, aguardando por QR) segue a §4.10 e a §11.6.
+
+| # | Estado | Quando | O que a pessoa vê | Ações | Leitor de tela | Vibração (opcional) |
+|---|---|---|---|---|---|---|
+| 1 | Verificando | abre a aba; confere a permissão, o Bluetooth e o próprio token (no Android, a varredura começa uns 500 ms depois, P7) | título, introdução e seletor; a área do estado fica vazia, com Spinner 20 grey só depois de 300 ms | — | — | — |
+| 2 | Explicação do Bluetooth | permissão nunca pedida | EmptyState `bluetooth` (T23; no Android ≤ 11, também o T24) | [Continuar] → pedido do sistema · ‹Usar QR code› | título e texto | — |
+| 3 | Bluetooth negado | negado, ou o sistema não pergunta mais | EmptyState `bluetooth-off` (T25) | [Abrir Ajustes] ‹Usar QR code›; na volta dos Ajustes, confere de novo | título e texto | — |
+| 4 | Bluetooth desligado | rádio desligado | EmptyState `bluetooth-off` (T26) | iOS [Abrir Ajustes] · Android [Ligar Bluetooth] · ‹Usar QR code›; ligou → Pronto sozinho | título e texto | — |
+| 4b | Localização desligada (opcional) | só Android ≤ 11, que exige a localização ligada para varrer; depende de o módulo nativo informar isso | EmptyState `bluetooth-off` (T27) | [Abrir Ajustes] ‹Usar QR code› | título e texto | — |
+| 5 | Sem suporte | sem BLE, sem o módulo nativo ou sem conseguir anunciar (P6) | a aba **abre direto no QR**, com a faixa T30; tocar em "Encostar" mostra o EmptyState `bluetooth-off` (T28, T29) | [Usar QR code] | título e texto | — |
+| 6 | Pronto | tudo certo, com a permissão já dada; anuncia e varre (P7) | ilustração em demonstração (2 ciclos e para, §11.7), T4, T5 e a nota T6 | seletor | foco normal | — |
+| 7 | Aproximando | sinal forte, abaixo do limiar (P2) | ilustração na pose "quase", T7 e T8. **Nenhum dado de ninguém** | — | A1, uma vez por aproximação e no máximo a cada 5 s | — |
+| 8 | Confirmando | este celular chegou ao limiar; espera o servidor confirmar o outro lado (P3; o normal é de 1 a 3 s) | ilustração "encostados" com o selo, T9 e Spinner 16 + T10 ("segurem": ainda não é hora de afastar) | — | A2 | — |
+| 9 | Não deu para confirmar | 4 s sem confirmação (P3, P10, sem dizer o motivo) | volta ao Pronto com o T11 no lugar do T5 por 6 s. O app continua relatando até 8 s depois do primeiro encosto: se o casamento chegar nesse intervalo, o cartão abre (9 → 11) | — | T11 | — |
+| 10 | Nada detectado | P9 | Pronto + o bloco "Não está dando certo?" (T12, T13) com [Usar QR code]; a varredura continua | [Usar QR code] | A6, uma vez | — |
+| 11 | Encostado | o servidor confirmou os dois lados (P1), inclusive até 8 s depois do encosto, já no estado 9 (P3) | cartão: Avatar 72, nome, @, T15, [Conectar com Caio] e ‹Cancelar›. Sem a introdução e sem o seletor. É aqui, e não no Confirmando, que a pessoa pode afastar os celulares | Conectar · Cancelar → Pronto | foco no nome; A3 | impacto médio, 1 vez: o "pode afastar" |
+| 12 | Encostado, já conectados | o servidor diz que já são conexão | cartão com T18 e (Voltar) | Voltar → Pronto | foco no nome; A4 | impacto médio, 1 vez |
+| 13 | Aguardando (p13) | tocou em Conectar e o outro ainda não tocou | p13 sem mudança | (Cancelar pedido) | "Pedido enviado" | — |
+| 14 | Pedido recebido | o outro tocou em Conectar primeiro | **no próprio cartão**, se ele é da mesma pessoa; senão, a folha da §4.11. Daqui em diante vale o prazo do pedido (120 s), não o do cartão (P4) | [Aceitar] (Recusar) · "Expira em 1:45" | foco no título; A5 | impacto leve, 1 vez |
+| 15 | Conectados (p14) | aceito, ou os dois tocaram em Conectar | p14 sem mudança | [Ir para o início] ‹Conectar outra pessoa› → Pronto | "Vocês estão conectados" | sucesso, 1 vez |
+| 16 | Não confirmado | recusa, expiração (120 s) ou cancelamento, sem diferença | o da §5.2 (tracejado cinza), com o T21 | [Tentar de novo] → Pronto · ‹Voltar› | "Pedido recusado ou expirado" | — |
+| 17 | Cartão venceu | 55 s no Encostado sem tocar em nada (P4; 60 s no servidor), ou o pedido recusado por token vencido. Não vale para o cartão que já virou pedido (estado 14) | volta ao Pronto + Toast T20 | — | T20 | — |
+| 18 | Sem internet | erro de rede ao pedir o token ou durante o Confirmando | EmptyState `wifi-off` da §5.2, sem mudança | [Tentar de novo] | título e texto | — |
+| 19 | Servidor indisponível | 503/5xx, Redis fora (fail-closed) | EmptyState `circle-alert` da §5.2, sem mudança | [Tentar de novo] | título e texto | — |
+| 20 | Muitas tentativas | 429 | EmptyState `clock` da §5.2, com o T22 | [Tentar de novo] | título e texto | — |
+| — | E-mail não confirmado; criador (p22) | sem mudança | sem mudança | — | — | — |
+
+Regras gerais:
+- **O cartão não some quando os celulares se afastam.** Ele fica até alguém tocar em Conectar, Cancelar ou Recusar, ou até vencer aos 55 s (P4). Virou pedido, vale o prazo do pedido (120 s). O app deixa de tirar a pessoa da tela quando o anúncio dela para (o "saiu de perto" de hoje).
+- **Quando afastar.** "Segurem" vale até o cartão (estados 7 a 9); o "pode afastar" é o cartão, com a vibração. Quem afasta antes de o outro celular detectar o encosto impede o casamento (ADR 0012 §9).
+- **Pedido recebido no cartão.** Quando o cartão de Helena está na tela e chega o pedido de Helena, o cartão vira o pedido (§11.5). O botão principal fica no mesmo lugar e com o mesmo estilo: um toque durante a troca conecta do mesmo jeito (P5). A folha da §4.11 só aparece quando o cartão não é dessa pessoa: o cartão já fechou, a pessoa está no QR, ou o pedido chegou por push.
+- **Erro de rede no toque em Conectar ou Aceitar:** Toast com o `OFFLINE_MESSAGE`, e o cartão continua, para tentar de novo enquanto valer. Erro de rede ao abrir a aba ou no Confirmando: estado 18.
+- **O seletor** aparece nos estados 6 a 10 e no QR. Some do cartão em diante (estados 11 a 17), para a pessoa se concentrar na decisão.
+- **Background:** pausa e volta no mesmo estado (4.3 CA3). Se o cartão venceu no meio-tempo, cai no estado 17. **Sair da aba** para tudo, e a volta começa no Verificando.
+- **Tela acesa:** no Pronto, só nos primeiros 2 min sem encostar (depois o sistema pode apagar a tela; ao voltar, a tela recomeça no Pronto); sempre no Confirmando, no Encostado e no Aguardando.
+- `testID` sugeridos: `conectar-pronto`, `conectar-aproximando`, `conectar-confirmando`, `conectar-nao-deu`, `conectar-dica-qr`, `conectar-encostado`, `conectar-encostado-conectados`, `conectar-pedido-cartao`, `conectar-sem-suporte`, `bt-localizacao`. Continuam: `conectar-aguardando`, `conectar-nao-confirmou`, `conectar-conectados`, `conectar-qr`, `bt-explicacao`, `bt-negado`, `bt-desligado` e os de erro.
+
+### 11.5 Wireframes
+
+Convenções da §4: `[Botão]` primário, `(Botão)` secundário, `‹link›`, `◯` avatar. A tab bar continua visível (Conectar ativo, D-UX8).
+
+**Pronto (estado 6)**, com a ilustração em repouso:
+```
+┌──────────────────────────────────┐
+│ Conectar                         │ titleLg (header 52)
+│ Conexões só acontecem ao vivo,   │ bodySm grey, centro (T1)
+│ com os celulares encostados. As  │
+│ duas pessoas precisam confirmar. │
+│ [   Encostar   |   QR code    ]  │ SegmentedControl, "Encostar" ativo
+│                                  │
+│             ┌─────┐              │ TouchHint 240×216 (§11.7)
+│             │     │              │ celular da outra pessoa,
+│             │  ▬  │              │ de cabeça para baixo
+│             └─────┘              │
+│                ⌄                 │ setas: só na pose de repouso
+│                ⌃                 │
+│             ┌─────┐              │ o seu celular
+│             │  ▬  │              │
+│             │     │              │
+│             └─────┘              │
+│  Encoste o seu celular no da     │ titleMd, centro, role header (T4)
+│  outra pessoa                    │
+│  Os dois com esta tela aberta.   │ bodySm grey, centro (T5)
+│  Juntem as partes de cima dos    │
+│  celulares e segurem por um      │
+│  instante.                       │
+│  (cadeado 16) Só quem encosta    │ caption grey (T6)
+│  aparece. Quem está por perto    │
+│  não vê seu nome nem sua foto.   │
+└──────────────────────────────────┘
+```
+
+**Aproximando (7)** e **Confirmando (8)**: o layout é o mesmo do Pronto; só mudam a ilustração e os dois textos.
+```
+APROXIMANDO                           CONFIRMANDO
+│             ┌─────┐              │  │             ┌─────┐              │
+│             │     │              │  │             │     │              │
+│             │  ▬  │              │  │             │  ▬  │              │
+│             └─────┘              │  │             ├(S•)─┤              │ encostados; selo branco 44
+│              (S•)                │  │             │  ▬  │              │ com o logo em cores
+│             ┌─────┐              │  │             │     │              │
+│             │  ▬  │              │  │             └─────┘              │
+│             │     │              │  │  Encostou!                       │ titleMd (T9)
+│             └─────┘              │  │  ◌ Segurem mais um instante…     │ Spinner 16 + bodySm grey (T10)
+│  Quase lá                        │  │  (nota T6)                       │
+│  Encostem os celulares e         │
+│  segurem por um instante.        │ vão de 8 pt; selo do logo a 40%
+│  (nota T6)                       │ nenhum nome, foto ou @
+```
+
+**Encostado (11)**, sem a introdução e sem o seletor:
+```
+┌──────────────────────────────────┐
+│ Conectar                         │
+│                                  │
+│               ◯ 72               │ Avatar (foto ou iniciais), decorativo
+│           Caio Ribeiro           │ titleMd, role header, recebe o foco
+│             @caio.r              │ bodySm grey
+│   Confira se é a pessoa que      │ bodySm grey, maxWidth 300 (T15)
+│   está com você.                 │
+│                                  │
+│ [       Conectar com Caio      ] │ Button lg primary, largura total (T16)
+│            ‹Cancelar›            │ Button link sm, hitSlop 5 (T17)
+└──────────────────────────────────┘
+```
+Medidas: coluna centralizada, paddingTop 32, gap 8 entre avatar, nome, @ e verificação; botões a 24 da verificação; o link a 12 do botão. Entrada: fade de 200 ms (sem fade com Reduzir movimento).
+
+**Encostado, já conectados (12)** e **Pedido recebido no cartão (14)**, do lado de quem recebe:
+```
+JÁ CONECTADOS                          PEDIDO RECEBIDO (Bia vê o pedido de Helena)
+│               ◯ 72               │   │               ◯ 72               │
+│           Caio Ribeiro           │   │     Helena quer se conectar      │ titleMd (sheetTitle)
+│             @caio.r              │   │     @helena · Helena Souza       │ bodySm grey
+│   Vocês já estão conectados.     │   │  Confirme só se Helena estiver   │ bodySm grey (sheetConfirm)
+│                                  │   │  aí com você.                    │
+│ (             Voltar           ) │   │ [            Aceitar           ] │ lg primary, mesmo lugar do Conectar
+│                                  │   │ (            Recusar           ) │ lg secondary
+│                                  │   │          Expira em 1:45          │ caption grey, não anunciado a cada s
+```
+Erro no aceite: linha `bodySm` danger acima do prazo, como na folha (T35, T36).
+
+**Nada detectado (10)**: o bloco entra no lugar do T5 e da nota T6, com fade de 200 ms, sem mexer na ilustração.
+```
+│  (ilustração em repouso)         │
+│  Encoste o seu celular no da     │ titleMd (T4)
+│  outra pessoa                    │
+│ ┌──────────────────────────────┐ │ fundo greySoft, raio 12, padding 16
+│ │ Não está dando certo?        │ │ bodyStrong black (T12)
+│ │ Confiram se a outra pessoa   │ │ bodySm greyStrong (T13)
+│ │ está com a tela Conectar     │ │
+│ │ aberta e encostem as partes  │ │
+│ │ de cima dos celulares. Se não│ │
+│ │ funcionar, usem o QR code.   │ │
+│ │ [ (qr-code) Usar QR code ]   │ │ Button sm primary (T14)
+│ └──────────────────────────────┘ │
+```
+
+**QR code (reserva)** e **Sem suporte (5)**:
+```
+QR CODE                                SEM SUPORTE (a aba abre assim)
+┌──────────────────────────────────┐   ┌──────────────────────────────────┐
+│ Conectar                         │   │ Conectar                         │
+│ [   Encostar   |   QR code    ]  │   │ [   Encostar   |   QR code    ]  │
+│ Use quando encostar não          │   │ ┌──────────────────────────────┐ │ faixa greySoft, raio 12,
+│ funcionar: um celular mostra o   │   │ │ Este celular não consegue    │ │ padding 12, bodySm
+│ código e o outro lê com a câmera.│   │ │ encostar. Use o QR code.     │ │ greyStrong (T30)
+│        ┌────────────────┐        │   │ └──────────────────────────────┘ │
+│        │  ▓▓ QR 240 ▓▓  │        │   │ (o resto igual ao QR code)       │
+│        └────────────────┘        │   └──────────────────────────────────┘
+│            ◯ helena              │ QRCodeCard sem mudança
+│ Peça para a outra pessoa ler     │ bodySm grey, centro (T33)
+│ este código. Mostre só para quem │
+│ está com você.                   │
+│ [ (scan) Ler o código da outra   │ Button lg primary (T34)
+│          pessoa                ] │
+└──────────────────────────────────┘
+```
+O T32 (explicação) fica logo abaixo do seletor. "Aguardando por QR", leitura e aceite por QR: §4.10, sem mudança de layout.
+
+**Bluetooth (2 a 5)**: mesmo layout de EmptyState da §4.12; textos na §11.9.
+
+### 11.6 O QR code como reserva
+
+**Onde fica.**
+- No seletor "Encostar | QR code", no topo da tela, no mesmo lugar do p10. Fica sempre a 1 toque nos estados 6 a 10 (D-UX22).
+- Como botão "Usar QR code": link nos estados de Bluetooth (2 a 4) e botão primário dentro do bloco "Não está dando certo?" (10).
+- Sem suporte: a aba já abre no QR.
+- Câmera negada: "Mostrar meu código", sem mudança.
+- No QR, o celular não anuncia nem varre (como hoje). Voltar para "Encostar" recomeça no Pronto.
+
+**Quando aparece em destaque.**
+
+| Situação | Como o QR aparece |
+|---|---|
+| Tudo certo, tela recém-aberta | segmento "QR code" (secundário) |
+| 20 s sem encostar, 10 s no "quase" ou 2 "não deu" seguidos (P9) | bloco "Não está dando certo?" com [Usar QR code] primário |
+| Bluetooth negado ou desligado | ‹Usar QR code› em link: a ação principal é consertar |
+| Sem suporte (sem BLE, sem módulo, não anuncia) | a aba abre no QR, com a faixa T30 |
+| Pedido recebido por QR | sem mudança: "Ler código para aceitar" (D7) |
+
+**Como explicar a diferença sem jargão.**
+- Encostar: "Encoste o seu celular no da outra pessoa." É o caminho principal: rápido, sem câmera, e ninguém por perto vê você.
+- QR code: "Use quando encostar não funcionar: um celular mostra o código e o outro lê com a câmera." (T32)
+- Privacidade no QR: "Mostre só para quem está com você." (T33). Um QR na tela pode ser lido a alguns metros, com zoom; a frase mantém a promessa do PO também na reserva.
+- Nunca: "BLE", "sinal", "NFC", "token", "proximidade", "varredura", "anúncio".
+
+### 11.7 Visual: a ilustração do encostar (substitui o radar e as faixas)
+
+**Ideia.** O p04 descreve o símbolo assim: "dois arcos iguais, um para cada pessoa, que se curvam um na direção do outro" e "a conexão só existe porque os dois lados se inclinam". A ilustração mostra exatamente isso: dois celulares se aproximam e, no ponto em que encostam, o S do Sussurro se forma. O arco de cima (`blue`) é da outra pessoa e o de baixo (`blueMid`), o seu. A marca explica o gesto.
+
+**Composição** (`TouchHint`, 240 × 216 pt, centralizado; decorativo, some do leitor de tela):
+
+| Elemento | Medidas | Cor |
+|---|---|---|
+| Celular | 52 × 92, raio 12, traço 2 | contorno `black`, fundo `white` |
+| Tela do celular | recuo 4, raio 8 | `blueLight` |
+| Marca do topo (alto-falante) | 14 × 3, raio 1,5, a 6 da borda de cima | `black` |
+| Celular da outra pessoa | em cima, girado 180° (o topo aponta para o seu) | igual |
+| O seu celular | embaixo, em pé | igual |
+| Selo do encostar | círculo 44 `white` com `shadow.sm`, no centro da linha de contato, com o `<Logo variant="mark" size={28}>` | o logo em cores |
+| Setas | chevron 16, traço 2: uma para baixo, acima do vão, e outra para cima, abaixo dele | `grey` |
+
+Em telas com menos de 700 pt de altura (iPhone SE), a ilustração encolhe para 200 × 180 (celulares 44 × 78).
+
+**Poses.**
+
+| Pose | Vão | Selo | Setas | Usada em |
+|---|---|---|---|---|
+| afastados | 32 | — | só em repouso | Pronto (repouso), Nada detectado |
+| quase | 8 | logo a 40%, sem sombra | não | Aproximando |
+| encostados | 0 | logo a 100%, com sombra | não | Confirmando e o meio de cada ciclo da demonstração |
+
+**Demonstração no Pronto**, com `motion.touchCycle` = 2400 ms e o easing padrão:
+
+| Tempo | O que acontece |
+|---|---|
+| 0–800 ms | os celulares andam um para o outro (16 pt cada), de "afastados" a "encostados" |
+| 800–1100 ms | o selo aparece: escala 0,6 → 1 e opacidade 0 → 1 |
+| 1100–1700 ms | pausa encostados |
+| 1700–2100 ms | o selo some e os celulares voltam |
+| 2100–2400 ms | pausa afastados |
+
+- Roda **2 ciclos (4,8 s) e para** na pose "afastados", com as setas. Com menos de 5 s, cumpre o WCAG 2.2.2 sem botão de pausa. Roda de novo (2 ciclos) a cada volta ao Pronto: Cancelar, cartão vencido, "Não deu para confirmar", volta do QR. Nada pisca (2.3.1).
+- O radar de hoje roda sem parar no "Procurando": era uma pendência do 2.2.2 que some junto com ele.
+- Transições: entre as poses, 200 ms (`motion.base`). No Confirmando, o selo dá um "pop" de 1 → 1,1 → 1 em 300 ms (`motion.heart`), uma vez. No Encostado, a ilustração sai em fade de 200 ms e o cartão entra em fade de 200 ms.
+- **Reduzir movimento:** sem deslocamento e sem escala; as poses trocam com fade de até 150 ms; o Pronto já começa e fica na pose "afastados" com as setas; o selo aparece sem "pop".
+
+**O gesto desenhado: topo com topo** (as partes de cima dos celulares se encostam, cada pessoa segurando o seu, uma de frente para a outra). É o gesto natural para duas pessoas frente a frente, e quem tem iPhone já o conhece do NameDrop. É provisório: **o gesto vai ser decidido no spike em aparelho** (D-UX23; ADR 0012 §8 e §9, spike 4.1-B), por dois motivos:
+- **Risco do NameDrop:** entre dois iPhones, esse gesto pode abrir a troca de contatos do sistema por cima do Sussurro, e a pessoa pode compartilhar o telefone sem querer, o contrário do que o app promete. A Apple confirma que não há API para pausar o NameDrop dentro de um app ([fórum de desenvolvedores da Apple, thread 802004](https://developer.apple.com/forums/thread/802004)). O relato desse fórum é de celulares lado a lado, então o "lado a lado" também tem o risco. Entre iPhone e Android, o NameDrop não acontece.
+- **Antena:** a posição da antena muda por modelo, e o limiar (P2) depende do gesto.
+
+Regra de escolha do gesto (ADR 0012 §9):
+1. entre os gestos que passam no critério de detecção do spike, o que menos abre o NameDrop entre iPhones;
+2. se todos abrirem, o mais natural, com a nota T41 só no iPhone.
+
+Se outro gesto vencer, mudam só a ilustração e os textos T5 e T13.
+
+**Com o NameDrop, a tela segue estas regras:**
+- **O app nunca pede para desligar o recurso do sistema** ("Aproximar dispositivos"): nenhum texto, link ou atalho para os Ajustes do AirDrop.
+- **A vibração e o "pode afastar" pertencem ao cartão** (estado 11), não ao Confirmando: no Confirmando, o texto continua sendo "segurem" (T10).
+- **A nota T41 é opcional.** Não há sinal confiável de que o NameDrop abriu. Se usada, aparece só no iPhone, quando o app fica `inactive` durante o Confirmando ou o Encostado (a heurística da ADR 0012 §9), no lugar do T10 ou abaixo do cartão, uma vez por visita à aba. Essa heurística também dispara com a central de controle e outros alertas do sistema, e por isso o texto não afirma que foi o NameDrop ("Se o iPhone abrir…"). Se o spike mostrar que o app vai para o `background` com o NameDrop, a nota não aparece, porque tudo pausa e recomeça na volta.
+
+**O que substitui as faixas de distância:** nada. Não há número, faixa, lista nem contagem. O único sinal anterior ao "encostado" é o "Quase lá", que não identifica ninguém.
+
+### 11.8 Acessibilidade
+
+**Leitor de tela**
+- A ilustração é decorativa (`accessibilityElementsHidden` / `importantForAccessibility="no-hide-descendants"`); todo o significado está no texto ao lado. O título de cada estado (T4, T7, T9 e o nome no cartão) tem `accessibilityRole="header"`.
+- Ordem de foco: título da tela → introdução → seletor → título do estado → texto → nota (ou o bloco da dica com o botão).
+- Anúncios: no iOS, `announceForAccessibility`; no Android, `accessibilityLiveRegion="polite"` no bloco do estado.
+
+| # | Quando | Anúncio |
+|---|---|---|
+| A1 | entra no Aproximando (no máximo 1 a cada 5 s) | "Quase lá. Encostem os celulares." |
+| A2 | Confirmando | "Encostou. Segurem mais um instante." |
+| A3 | o cartão aparece | "Encostou em {nome}. Confira se é a pessoa que está com você." |
+| A4 | cartão de quem já é conexão | "Encostou em {nome}. Vocês já estão conectados." |
+| A5 | pedido recebido (cartão ou folha) | "{primeiro nome} quer se conectar com você." |
+| A6 | Nada detectado (uma vez) | "Não está dando certo? Você pode usar o QR code." |
+| — | "não deu", cartão vencido | T11, T20 |
+| — | mantidos | "Pedido enviado", "Vocês estão conectados", "Pedido recusado ou expirado" |
+
+- Foco: quando o cartão aparece, o foco vai para o nome (`AccessibilityInfo.setAccessibilityFocus`, uns 300 ms depois); no pedido recebido, para o título; em Conectados, para o título do p14; de volta ao Pronto, para o título do estado.
+- Botão do cartão: label "Conectar com {nome}, @{handle}".
+- Quem usa leitor de tela costuma contar com a outra pessoa para encostar. O A2 diz para segurar; o A3 (ou o A4) e a vibração do cartão avisam que já dá para afastar os celulares.
+
+**Movimento reduzido:** ver §11.7.
+
+**Vibração (`expo-haptics`, aprovado pelo PO em 2026-10-30, D-UX24; ainda depende do aval do `seguranca` na hora de adicionar)**
+
+| Momento | Com `expo-haptics` | Sem ele (`Vibration` do React Native) |
+|---|---|---|
+| Encostou (o cartão aparece): o "pode afastar" | `impactAsync(Medium)`, 1 vez | Android: 40 ms · iOS: nada |
+| Pedido recebido (o cartão vira pedido ou a folha abre) | `impactAsync(Light)` | nada |
+| Conectados | `notificationAsync(Success)` | Android: `[0, 40, 80, 40]` · iOS: nada |
+| Aproximando, Confirmando, "não deu", vencido, erros | nada | nada |
+
+- Nada vibra no Confirmando: ali a pessoa ainda precisa segurar os celulares juntos.
+- Nunca é o único aviso: cada vibração acompanha um texto na tela e um anúncio.
+- Respeitar a configuração do sistema (no iOS, o `expo-haptics` já segue o "Feedback tátil do sistema"; no Android, conferir no teste).
+- A coluna "Sem ele" só vale se o `seguranca` não aceitar o `expo-haptics`: o `Vibration` do React Native não traz dependência nova, mas no iOS vibra uns 0,4 s sem intensidade, forte demais para o momento, e por isso fica só no Android. Ele precisa da permissão `VIBRATE` no Android (permissão normal, sem pedido à pessoa), a conferir no `app.config`.
+
+**Área de toque**
+- Botões do cartão: `lg` (44 ou mais), largura total, ao alcance do polegar. "Cancelar": `link sm` com `hitSlop` vertical 5 (= 44).
+- Seletor: hoje tem minHeight 40 e segmentos de 34. Recomendo minHeight 44 (segmentos de 38), pela regra `hitMin` do projeto; o WCAG 2.5.8 pede 24, então hoje já passa.
+- Na tela, nenhum gesto além do toque. O encostar é físico e tem o QR como alternativa; a outra pessoa também pode levar o celular dela até o seu, que fica parado.
+
+**Escala de fonte:** o T4 e o nome do cartão quebram em até 3 linhas; "Conectar com {nome}" pode quebrar em 2 (o Button limita a escala em 1,5); a ilustração não escala com a fonte; a tela continua em `ScrollView`.
+
+**Tempo limitado (2.2.1):** o cartão vale 55 s no app (P4; 60 s no servidor) e o pedido, 120 s. São limites essenciais à segurança (exceção "essencial"). O cartão de quem pede não tem contagem, para não pressionar; encostar de novo está sempre disponível; o vencimento é anunciado (T20).
+
+**Contraste:** texto do bloco da dica, `greyStrong` sobre `greySoft`, 4,99:1; título do bloco, black sobre greySoft, 18,3:1; nota T6, `grey` sobre white, 4,74:1. A ilustração é decorativa (contorno black 21:1; arcos blueMid 3,0:1, só gráfico).
+
+### 11.9 Microcopy (aprovada pelo PO em 2026-10-30)
+
+**Os textos T1 a T42 foram aprovados pelo PO em 2026-10-30 como estão**; o PO revisa de novo no app, em uso. Situação: **novo**, **alterado**, **mantido** ou **removido**. A chave é a do `apps/mobile/src/features/connect/copy.ts`, quando existe.
+
+| # | Onde (chave) | Hoje (Fase 4b) | Proposta | Situação |
+|---|---|---|---|---|
+| T1 | Introdução (`intro`) | "Conexões só acontecem ao vivo, com os celulares próximos. As duas pessoas precisam confirmar." | "Conexões só acontecem ao vivo, com os celulares encostados. As duas pessoas precisam confirmar." | alterado |
+| T2 | Seletor, 1º segmento (`modeBluetooth`) | "Bluetooth" | "Encostar" | alterado |
+| T3 | Seletor, nome do grupo (`modeGroup`) e 2º segmento (`modeQr`) | "Como conectar" / "QR code" | iguais | mantido |
+| T4 | Pronto, título (no lugar do `search`) | botão "Procurar por perto" | "Encoste o seu celular no da outra pessoa" | novo |
+| T5 | Pronto, texto (no lugar do `searchHint`) | "Fiquem a poucos metros, os dois com esta tela aberta." | "Os dois com esta tela aberta. Juntem as partes de cima dos celulares e segurem por um instante." (o gesto depende do D-UX23) | alterado |
+| T6 | Pronto, nota de privacidade (no lugar do `nearbyFooter`) | "Via Bluetooth. Só aparece quem está com a tela Conectar aberta agora. Ninguém vê sua localização." | "Só quem encosta aparece. Quem está por perto não vê seu nome nem sua foto." | alterado |
+| T7 | Aproximando, título | — | "Quase lá" | novo |
+| T8 | Aproximando, texto | — | "Encostem os celulares e segurem por um instante." | novo |
+| T9 | Confirmando, título | — | "Encostou!" | novo |
+| T10 | Confirmando, texto | — | "Segurem mais um instante…" | novo |
+| T11 | Não deu para confirmar | — | "Não deu para confirmar. Afastem e encostem os celulares de novo." | novo |
+| T12 | Nada detectado, título (`nobodyTitle`) | "Ninguém por perto ainda" | "Não está dando certo?" | alterado |
+| T13 | Nada detectado, texto (`nobodyText`) | "Peça para a outra pessoa abrir a tela Conectar. Se não aparecer, usem o QR code." | "Confiram se a outra pessoa está com a tela Conectar aberta e encostem as partes de cima dos celulares. Se não funcionar, usem o QR code." | alterado |
+| T14 | Botão (`useQr`) | "Usar QR code" | igual | mantido |
+| T15 | Cartão, verificação | — | "Confira se é a pessoa que está com você." | novo |
+| T16 | Cartão, botão (`connect`) | "Conectar" (leitor: "Conectar com @caio.r") | "Conectar com {primeiro nome}" (leitor: "Conectar com {nome}, @{handle}") | alterado |
+| T17 | Cartão, sair (`cancel`) | "Cancelar" | igual | mantido |
+| T18 | Cartão, já conectados (`connectedLabel`) | "Conectados" | "Vocês já estão conectados." + botão "Voltar" (`back`) | alterado |
+| T19 | Lista "Por perto agora" (`nearbyTitle`, `searchAgain`, faixas "bem perto"/"por perto"), "Procurando por perto…" (`searching`), "Mantenha o app aberto" (`keepOpen`) | — | saem | removido |
+| T20 | Cartão venceu: Toast e anúncio (no lugar do `left`) | "{nome} saiu de perto. Procure de novo." | "O tempo para conectar com {primeiro nome} acabou. Encostem os celulares de novo." | alterado |
+| T21 | Não confirmado, texto (`notConfirmedText`) | "O pedido vale por 2 minutos. Vocês podem tentar de novo." | pelo encostar: "O pedido vale por 2 minutos. Para tentar de novo, encostem os celulares outra vez." · pelo QR: igual ao de hoje | alterado |
+| T22 | Muitas tentativas, texto (`pausedText`) | "Você poderá procurar de novo em alguns minutos." | "Você poderá tentar de novo em alguns minutos." | alterado |
+| T23 | Bluetooth, explicação (`btExplainText`) | "O Sussurro usa o Bluetooth para achar quem está com esta tela aberta perto de você. Ninguém vê sua localização, e nada é transmitido com o app fechado." | "O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa. Quem está por perto não vê seu nome nem sua foto, e nada é transmitido com o app fechado." | alterado |
+| T24 | Bluetooth, explicação, só Android ≤ 11 | — | "Neste celular, o sistema chama essa permissão de localização. O Sussurro não usa nem guarda onde você está." | novo |
+| T25 | Bluetooth negado (`btDeniedText`) | "Para achar pessoas por perto, permita o Bluetooth nos Ajustes." | "Para encostar os celulares, permita o Bluetooth nos Ajustes." | alterado |
+| T26 | Bluetooth desligado (`btOffText`) | "Ligue o Bluetooth para procurar quem está por perto." | "Ligue o Bluetooth para encostar os celulares." | alterado |
+| T27 | Localização desligada, só Android ≤ 11 (opcional) | — | título "Ligue a localização do celular" · texto "Neste celular, o Android só deixa encostar com a localização ligada. O Sussurro não usa nem guarda onde você está." · [Abrir Ajustes] ‹Usar QR code› | novo |
+| T28 | Sem suporte, título (`btUnavailableTitle`) | "Bluetooth indisponível neste celular" | "Este celular não consegue encostar" | alterado |
+| T29 | Sem suporte, texto (`btUnavailableText`) | "Use o QR code para se conectar com quem está com você." | igual | mantido |
+| T30 | Sem suporte, faixa no QR | — | "Este celular não consegue encostar. Use o QR code." | novo |
+| T31 | Não anuncia (`cannotAdvertiseTitle`, `cannotAdvertiseText`, `searchAnyway`) | "Seu celular não consegue ser encontrado" / "Você ainda acha outras pessoas, mas elas não acham você. Use o QR code para garantir." / "Procurar mesmo assim" | saem: o caso vira "Sem suporte" (P6) | removido |
+| T32 | QR, explicação | — | "Use quando encostar não funcionar: um celular mostra o código e o outro lê com a câmera." | novo |
+| T33 | QR, dica (`qrHint`) | "Peça para a outra pessoa ler este código." | "Peça para a outra pessoa ler este código. Mostre só para quem está com você." | alterado |
+| T34 | QR, botão (`readTheirCode`) | "Ler o código dela" | "Ler o código da outra pessoa" (sozinho no botão, o "dela" soa como gênero) | alterado |
+| T35 | Aceite sem ter visto quem pediu (`notSeen`) | "O Sussurro ainda não encontrou {nome} por perto. Aproximem os celulares e tentem de novo." | "Encoste o seu celular no de {primeiro nome} e toque em Aceitar de novo." | alterado |
+| T36 | Aceite recusado (`acceptFailed`) | "Não foi possível confirmar agora. Aproximem os celulares e tentem de novo." | "Não foi possível confirmar agora. Encostem os celulares e tentem de novo." | alterado |
+| T37 | Pedido recebido no cartão | — | os mesmos textos da folha: `sheetTitle`, `sheetConfirm`, `accept`, `decline`, `expiresIn` | mantido |
+| T38 | Leitor de tela (`announceFound`) | "{nome} encontrado por perto" | sai; entram A1 a A6 (§11.8) | removido / novo |
+| T39 | Diálogo do sistema no iOS (`BLUETOOTH_USAGE` em `apps/mobile/modules/sussurro-proximity/app.plugin.js`) | "O Sussurro usa o Bluetooth para achar quem está com a tela Conectar aberta perto de você. Ninguém vê sua localização, e nada é transmitido com o app fechado." | "O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa, com a tela Conectar aberta. Ninguém vê sua localização, e nada é transmitido com o app fechado." | alterado |
+| T40 | Lista de conexões vazia (`apps/mobile/src/features/lists/OwnListScreens.tsx`, opcional) | "Conexões acontecem ao vivo: as duas pessoas confirmam, uma perto da outra." | "Conexões acontecem ao vivo: as duas pessoas encostam os celulares e confirmam." | alterado |
+| T41 | Nota opcional, só no iPhone: quando o app fica `inactive` durante o Confirmando ou o Encostado, uma vez por visita à aba (§11.7; ADR 0012 §9) | — | "Se o iPhone abrir a troca de contatos, não precisa usar: o Sussurro conecta sem ela." | novo |
+| T42 | Erro novo da ADR 0012, se houver (em `apps/mobile/src/lib/error-messages.ts`) | — | o mesmo T11 | novo, condicional |
+
+Mantidos sem mudança: `title`, `cancelRequest`, `waitingTitle`, `waitingText`, `waitingQr`, `notConfirmedTitle`, `tryAgain`, `back`, `connectedTitle`, `connectedSince`, `connectedText`, `goHome`, `connectAnother`, `alreadyConnected`, `cannotSend`, `unavailable*`, `offline*`, `email*`, `btExplainTitle`, `continue`, `btDeniedTitle`, `openSettings`, `btOffTitle`, `turnOnBluetooth`, os textos da câmera e do leitor de QR, `qrInvalid`, `qrNotTheirs`, os textos da folha e os do criador. No `error-messages.ts`, o `PROXIMITY_TOKEN_INVALID` continua genérico de propósito (não revela recusa nem bloqueio).
+
+### 11.10 Divergências do protótipo e decisões do PO
+
+O PO aprovou em 2026-10-30 todas as recomendações desta seção: as divergências abaixo e as decisões D-UX21, D-UX22 e D-UX24. O D-UX23 (gesto) fica para o spike em aparelho.
+
+| Tela | Protótipo | Fase 4b (hoje) | Proposta | Recomendação |
+|---|---|---|---|---|
+| p10, seletor | "NFC / Bluetooth", com Bluetooth ativo | "Bluetooth / QR code" | **"Encostar / QR code"**, com Encostar ativo | Aprovar. O "NFC" do protótipo prometia encostar; agora o gesto é esse, sem NFC. Mesmo componente, no mesmo lugar (D-UX22). |
+| p10, centro | botão azul de 160 "Procurar por perto", com anéis | igual | a ilustração dos dois celulares (§11.7), sem botão: a tela começa pronta | Aprovar (D-UX21). |
+| p10, textos | "…com os celulares próximos…" / "Fiquem a poucos metros…" | iguais | T1, T4, T5, T6 | Aprovar os textos. |
+| p11 | "Procurando por perto…", radar, "Mantenha o app aberto", (Cancelar) | igual | sai: o Pronto já é a espera, e sair da aba para tudo | Aprovar. |
+| p12 | lista "Por perto agora" com "a ~1 m", rodapé "Via Bluetooth…", (Procurar de novo) | faixas "bem perto" / "por perto" | sai: um cartão só, de quem encostou (§11.5) | Aprovar (é consequência direta do D13 substituído). |
+| Folha do pedido (não desenhada) | — | folha (`Modal`) | dentro do cartão quando o cartão é da mesma pessoa; a folha nos outros casos | Aprovar. |
+| p13, p14, p22 | — | iguais ao protótipo | sem mudança (só o T21 no "Não confirmado", que não está no protótipo) | — |
+| Aba Conectar | ícone `radio` azul (D-UX8) | igual | igual | Manter na v1 e conferir no teste se as pessoas acham a função (§11.12). A alternativa do Lucide, `smartphone-nfc`, desenha o "encostar", mas leva NFC no nome do arquivo (a pessoa não vê o nome). |
+| p10, "Simular um pedido recebido" | no protótipo | só em dev (D15) | só em dev | — |
+
+| # | Tema | Opções | Recomendação UX | Decisão |
+|---|---|---|---|---|
+| **D-UX21** | Começo automático | (a) a tela fica pronta ao abrir a aba · (b) botão "Começar", como o "Procurar por perto" de hoje | **(a).** Abrir a aba Conectar já é a intenção, e é um passo a menos para o Tomás. A privacidade fica de pé porque ninguém é identificado sem encostar (P1). Muda a decisão da 4b de anunciar só depois do toque. | **Aprovada pelo PO em 2026-10-30:** (a), só com a permissão já dada (P7). |
+| **D-UX22** | Onde fica o QR | (a) o seletor "Encostar / QR code" (p10) · (b) só o botão "Usar QR code" e a dica | **(a).** É fiel ao p10, o componente já existe e é acessível, e a volta é óbvia. O QR continua secundário: é a segunda opção e só ganha destaque na dica. | **Aprovada pelo PO em 2026-10-30:** (a). |
+| **D-UX23** | Gesto ilustrado | (a) topo com topo · (b) lado a lado · (c) base com base · (d) costas com costas | **(a), provisório.** É o gesto natural frente a frente e o do NameDrop, que muita gente conhece. | **Vai ser decidido no spike em aparelho** (spike 4.1-B, ADR 0012 §8 e §9), por causa do NameDrop, com a regra de escolha da §11.7. Até lá, a ilustração e os textos usam o (a). |
+| **D-UX24** | Vibração | (a) aprovar o `expo-haptics` (dependência nova do Expo) · (b) só o `Vibration` no Android · (c) nenhuma | **(a).** No encostar, a pessoa olha para os celulares, não para a tela: a vibração do cartão é o "pronto, pode afastar". | **Aprovada pelo PO em 2026-10-30:** (a). Ainda depende do aval do `seguranca` na hora de adicionar a dependência; sem esse aval, vale a coluna "Sem ele" da §11.8. |
+
+### 11.11 Impacto nos componentes (indicação para o `frontend`; eu não altero código)
+
+| Onde | Mudança |
+|---|---|
+| `packages/ui/src/components/Radar` | Sai da tela Conectar. **Apagar o componente foi aprovado pelo PO em 2026-10-30**: saem o componente, o teste, o bloco do catálogo e o token `motion.radarCycle`. |
+| `TouchHint` (novo, `packages/ui`) | A ilustração da §11.7. Props: `pose: 'demo' \| 'approaching' \| 'touching'` (a demo roda 2 ciclos e fica em "afastados"), `compact?: boolean` (200 × 180) e `testID`. Desenho em `react-native-svg` e animação com o `Animated` (as dependências do `Radar`), sem dependência nova. Usa o `Logo` dentro do selo. Decorativo. Entra no catálogo com as 3 poses e o modo Reduzir movimento. Token novo: `motion.touchCycle` = 2400. |
+| `SegmentedControl` | O componente fica. No Conectar, os rótulos passam a "Encostar" e "QR code", e a chave `ble` vira algo como `touch` (o `ConnectMode`). Sugestão: minHeight 44 (segmentos de 38). No catálogo, a legenda "Conectar (D3 revisto): Encostar / QR code". |
+| `PairAvatars` | Sem mudança (waiting, notConfirmed e connected). |
+| `QRCodeCard` | Sem mudança; o T32 e o T33 ficam fora do componente. |
+| `UserRow` | Sai do Conectar e continua nas listas e na busca. |
+| `EmptyState`, `Avatar`, `Button`, `Toast` | Sem mudança. O cartão usa o Avatar 72, o `Button lg` e o `link sm`. |
+| Cartão de quem encostou (`apps/mobile/src/features/connect`, novo) | Composto no app, com as variantes `touched`, `alreadyConnected` e `incoming` (§11.5). Opcional: extrair o cabeçalho "avatar + título + subtítulo" para servir também a `IncomingRequestSheet`. |
+| `IncomingRequestSheet.tsx` | Não abre quando o cartão da mesma pessoa está na tela (o pedido vira o cartão). Textos T35 e T36. Vibração leve (D-UX24). |
+| `ConnectScreen.tsx` / `useConnectSession.ts` | Os estados da §11.4: sem `BluetoothStart`, `Searching` e `NearbyList`; com Pronto, Aproximando, Confirmando, "Não deu para confirmar", Encostado e a dica do QR; o "Sem suporte" abre no QR; começo automático só com a permissão já dada (P7); o relato continua até 8 s depois do primeiro encosto, e o cartão abre mesmo depois do aviso (9 → 11, P3); o cartão vence aos 55 s, e o pedido segue os 120 s (P4); o cartão não some quando o anúncio da pessoa para; um par por vez (P8); a tela acesa como nas regras gerais; a nota T41 opcional no iPhone. |
+| `nearby.ts` | Sem faixas e sem lista. Entra o estado do contato (`none`, `approaching`, `touching`) com histerese: entra no "encostado" depois de leituras seguidas acima do limiar (P2) e sai do "aproximando" depois de 2 s sem sinal, sem piscar. Os valores vêm da ADR 0012. O RSSI continua sem sair do aparelho. |
+| `timing.ts` e o arquivo de calibração da ADR 0012 | Da ADR (nomes dela): `noTouchFallbackMs` 20 s, `nearFallbackMs` 10 s, `failuresBeforeQr` 2, `confirmWarnAfterMs` 4 s, o relato por até 8 s depois do primeiro encosto e `cardTtlMarginMs` (o cartão vence aos 55 s). Da tela, sugeridos: `notConfirmedNoticeMs` 6 s, `approachingLeaveMs` 2 s, `keepAwakeIdleMs` 120 s, `announceApproachingEveryMs` 5 s. |
+| `copy.ts` | Os textos da §11.9. |
+| `error-messages.ts` | Sem mudança, a menos que a ADR 0012 crie um código novo (T42). |
+| `modules/sussurro-proximity/app.plugin.js` | O texto T39. Opcional: o `getCapabilities` informar a localização desligada no Android ≤ 11 (estado 4b). |
+| Vibração | `expo-haptics` (D-UX24 aprovado; adicionar só com o aval do `seguranca`): um helper com os 3 momentos da §11.8. O "Encostou" vibra no cartão, nunca no Confirmando. |
+| `features/catalog/Phase4Blocks.tsx` | Trocar o bloco "Radar" pelo "TouchHint" e atualizar a legenda do seletor. |
+| Testes (`testes`) | Os `testID` mudam (§11.4); os casos de "Por perto" e das faixas saem; entram os do encostar, os do cartão vencido e os do QR em destaque. |
+
+### 11.12 Pontos para validar com usuários e em aparelho
+
+1. **Spike em aparelho** (4.1-B; roteiro na ADR 0012 §8 e §9), com os pares da matriz (iPhone↔iPhone, iPhone↔Android, Android↔Android), para cada gesto do D-UX23:
+   - tempo até o cartão;
+   - falso positivo a 30 cm e a 1 m;
+   - falso negativo;
+   - se o NameDrop abre, se o casamento acontece com ele na tela e em que estado o app fica (`inactive` ou `background`).
+   O resultado decide o D-UX23 e se a nota T41 é usada.
+2. Só com a ilustração, que gesto as pessoas fazem? Entendem que os dois precisam estar com a tela aberta?
+3. Duas pessoas que acabaram de se conhecer chegam a "Conectados" em menos de 20 s, sem ajuda?
+4. O "Quase lá" ajuda ou confunde num lugar cheio, quando aparece por causa de outra pessoa?
+5. "Só quem encosta aparece. Quem está por perto não vê seu nome nem sua foto." é entendido e passa segurança?
+6. Quando a dica do QR aparece, as pessoas usam? O "Use quando encostar não funcionar" basta para explicar a diferença?
+7. Só com VoiceOver/TalkBack, a pessoa completa o fluxo? A vibração ajuda a saber a hora de afastar?
+8. Num lugar barulhento e escuro, com uma mão só, funciona?
+9. As pessoas acham a função pela aba com o ícone `radio`?
+
 ---
 
 ### Arquivos
 - Criado: `docs/equipe/ux.md` (este documento).
+- Alterado em 2026-10-30: §11 nova (Conectar por encostar os celulares) e avisos "(atualizado em 2026-10-30)" no topo e nas §2.1, 4.10, 4.12, 5.2, 6.10, 6.14, 7.3, 8, 9 e 10. No mesmo dia: a aprovação do PO (D-UX21, D-UX22, D-UX24, T1 a T42 e a remoção do `Radar`; o D-UX23 fica para o spike) e as correções da ADR 0012 §9 e §10 às premissas (P3, P4, P7 e o NameDrop).
 - Previsto para a Fase 0 (Dev): `packages/ui/theme.ts`, `packages/ui/icons/HouseFill.tsx`, `packages/ui/avatar/color.ts`, componentes da seção 6.13–6.14, `packages/ui/catalog/fixtures/*`, `apps/mobile/src/app/dev/catalog.tsx`.
