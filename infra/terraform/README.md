@@ -45,20 +45,20 @@ Ao subir de porte com o ambiente no ar, fixe `secrets_backend` e `log_group_clas
 ## Versões
 
 - Terraform `~> 1.16.0` (a 1.17 é nova demais; infra.md §6.2). O CI usa a 1.16.6.
-- Provider AWS fixado em `6.69.1` e random em `3.9.1` nas raízes; os módulos aceitam `>= 6.68.0, < 7.0.0`. O primeiro `terraform init` com credencial gera o `.terraform.lock.hcl` de cada raiz, que deve ser versionado (`terraform providers lock -platform=linux_amd64 -platform=windows_amd64 -platform=darwin_arm64`).
+- Provider AWS fixado em `6.69.1` e random em `3.9.1` nas raízes; os módulos aceitam `>= 6.68.0, < 7.0.0`. O `.terraform.lock.hcl` de cada raiz (`bootstrap/` e `envs/prod/`) está versionado desde 2026-10-31, com os hashes das cinco plataformas abaixo, e **não precisa de credencial da AWS**: o `terraform providers lock` só fala com o registry da HashiCorp. Quando uma raiz não tem o lock no Git (uma raiz nova, como `envs/staging`), o job `infra` do CI gera o arquivo para `linux_amd64`, `linux_arm64`, `darwin_amd64`, `darwin_arm64` e `windows_amd64` e o publica no artefato `terraform-lock` do run (7 dias), com um aviso "Terraform sem lock". Com o lock no Git, o CI roda `init -lockfile=readonly`, que falha se um provider não estiver no lock ou se o pacote não bater com o hash. Para trocar a versão de um provider, o PR do Dependabot (ou quem mudar o `versions.tf`) atualiza o lock: `terraform -chdir=<raiz> init -upgrade -backend=false` e o mesmo `providers lock` com as cinco plataformas.
 - TFLint v0.64.0 com o ruleset da AWS 0.49.0 (`.tflint.hcl`); Trivy 0.76.0. Todas as versões têm 14 dias ou mais, a mesma margem do Dependabot.
 
 ## Validar sem credencial (o que o CI roda no job `infra`)
 
 ```bash
 terraform fmt -check -recursive infra/terraform
-terraform -chdir=infra/terraform/bootstrap init -backend=false && terraform -chdir=infra/terraform/bootstrap validate
-terraform -chdir=infra/terraform/envs/prod init -backend=false && terraform -chdir=infra/terraform/envs/prod validate
+terraform -chdir=infra/terraform/bootstrap init -backend=false -lockfile=readonly && terraform -chdir=infra/terraform/bootstrap validate
+terraform -chdir=infra/terraform/envs/prod init -backend=false -lockfile=readonly && terraform -chdir=infra/terraform/envs/prod validate
 cd infra/terraform && tflint --init --config="$PWD/.tflint.hcl" && tflint --recursive --config="$PWD/.tflint.hcl"
 docker run --rm -v "$PWD:/src:ro" -w /src aquasec/trivy:0.76.0 config --severity HIGH,CRITICAL --skip-dirs node_modules --skip-dirs docs .
 ```
 
-`plan` e `apply` exigem credencial da AWS e autorização do PO (runbook).
+As duas raízes têm o `.terraform.lock.hcl` no Git desde 2026-10-31 (gerado no run 41234942342 do CI), então o `init` local e o do CI usam `-lockfile=readonly`. Uma raiz nova, sem lock, cai no caminho de "Versões". `plan` e `apply` exigem credencial da AWS e autorização do PO (runbook).
 
 ## Achados do Trivy aceitos (com `#trivy:ignore` no código)
 

@@ -1,6 +1,7 @@
 # ADR 0002: BLE com módulo Expo próprio (anúncio + varredura, sem GATT)
 
-- Status: proposto (diverge do briefing, seção 4.2/5) · Data: 2026-10-29
+- Status: ~~proposto~~ Aceita (PO, 2026-10-29) (diverge do briefing, seção 4.2/5) · Data: 2026-10-29
+- (revisto em 2026-10-31) Status atualizado: o PO aprovou o plano em 2026-10-29, e as recomendações da §8 do `PROJETO.md` passaram a valer como decididas, entre elas o D1 (módulo Expo próprio) (`PROJETO.md`, topo e §8.2).
 - Em parte substituída pela ADR 0012 (2026-10-30, Conectar encostando). Mudam:
   - a potência do anúncio no Android (configurável, `ULTRA_LOW` como padrão inicial) e o campo TX Power no anúncio;
   - o evento da varredura (`txPower`) e o intervalo vindo do TypeScript;

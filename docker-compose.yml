@@ -2,11 +2,15 @@
 # Subir: docker compose up -d --wait   ·   Derrubar: docker compose down
 # A API, o worker e o Metro rodam no host (pnpm dev / pnpm dev:mobile), não aqui.
 # Validar os emuladores: pnpm spike:aws (F0-DC-07).
+# Imagens fixadas por tag e pelo digest do índice multi-arquitetura (amd64 e arm64: o job "test"
+# roda em x64 e o "images" em ARM64). O Dependabot (ecossistema docker-compose) atualiza os dois
+# juntos; os services do .github/workflows/ci.yml repetem os do Postgres e do Valkey, e o job
+# "quality" confere que são iguais.
 name: sussurro
 
 services:
   postgres:
-    image: postgres:18.6-bookworm
+    image: postgres:18.6-bookworm@sha256:5c4783a8cc3f0074912164f94dfa1be4e043438f0f707cf968d7af9a0d31a2c8
     environment:
       POSTGRES_USER: sussurro
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sussurro}
@@ -23,7 +27,7 @@ services:
       retries: 20
 
   valkey:
-    image: valkey/valkey:8.1-alpine
+    image: valkey/valkey:8.1-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a
     ports:
       - '127.0.0.1:6379:6379'
     healthcheck:
@@ -36,7 +40,7 @@ services:
     # SQS. As filas e DLQs vêm do arquivo de configuração. Sem healthcheck por enquanto: a imagem
     # (alpine) não tem curl, só o wget do busybox. O --wait considera o serviço pronto quando está
     # "running", o que basta para o ElasticMQ nativo (sobe em menos de 1 s).
-    image: softwaremill/elasticmq-native:1.7.1
+    image: softwaremill/elasticmq-native:1.7.1@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c
     ports:
       - '127.0.0.1:9324:9324'
       - '127.0.0.1:9325:9325'
@@ -53,7 +57,7 @@ services:
     # S3. Fica na LAN (0.0.0.0) porque o celular faz o PUT pré-assinado direto aqui.
     # -ip.bind=0.0.0.0: sem ele o SeaweedFS só escuta no IP do container (não no 127.0.0.1),
     # e o healthcheck nunca passaria.
-    image: chrislusf/seaweedfs:4.48
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
     command: server -ip=seaweedfs -ip.bind=0.0.0.0 -s3 -s3.config=/etc/seaweedfs/s3.json -dir=/data
     ports:
       - '8333:8333'
@@ -70,7 +74,7 @@ services:
   s3-init:
     # Cria o bucket de mídia de forma idempotente e termina com código 0.
     # Tenta por até ~20 s caso o filer ainda esteja terminando de subir.
-    image: amazon/aws-cli:2.38.5
+    image: amazon/aws-cli:2.38.5@sha256:c8156a0e74e13929a42d7e60f0d4e14e7d28d980cd21822505d4bff80e5460c1
     depends_on:
       seaweedfs:
         condition: service_healthy

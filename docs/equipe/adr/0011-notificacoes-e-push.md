@@ -1,6 +1,7 @@
 # ADR 0011: Notificações no app, agregação anônima e push
 
-- Status: proposto · Data: 2026-10-29
+- Status: ~~proposto~~ Aceita (PO, 2026-10-29) · Data: 2026-10-29
+- (revisto em 2026-10-31) Status atualizado: o PO aprovou o plano em 2026-10-29, e as recomendações da §8 do `PROJETO.md` passaram a valer como decididas (`PROJETO.md`, topo).
 
 ## Contexto
 As notificações funcionam como nas redes comuns (curtida, comentário, resposta). Para criadores, novos seguidores aparecem agregados e anônimos ("2 novas pessoas começaram a seguir você"). O push usa o Expo.

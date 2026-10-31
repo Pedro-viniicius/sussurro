@@ -31,7 +31,8 @@ sentry.properties
 
 # Fase 7: Terraform. O state (tem as senhas geradas) fica só no bucket do bootstrap; os tfvars e o
 # backend.hcl reais têm a conta, o domínio e os e-mails. Só os modelos *.example entram no Git.
-# O .terraform.lock.hcl é versionado (fixa os providers).
+# O .terraform.lock.hcl é versionado (fixa os providers; o job "infra" do CI gera o de uma raiz que
+# ainda não o tenha: infra/terraform/README.md, "Versões").
 .terraform/
 *.tfstate
 *.tfstate.*

@@ -72,7 +72,7 @@ Leve o state para o S3:
 
 **DNS**: no registrador (ex.: registro.br), troque os servidores de nome do domínio pelos 4 de `route53_name_servers`. Espere a propagação: `nslookup -type=NS <domínio>` mostra os da AWS (minutos a algumas horas). Não siga para o passo 3 antes disso, ou a validação dos certificados fica esperando.
 
-**Lock dos providers** (para o CI e para outra pessoa usarem exatamente as mesmas versões): em `bootstrap/` e em `envs/prod/`, depois do primeiro `init`, rode `terraform providers lock -platform=linux_amd64 -platform=windows_amd64 -platform=darwin_arm64` e versione o `.terraform.lock.hcl` (quando o PO liberar os commits).
+**Lock dos providers**: o `.terraform.lock.hcl` de `bootstrap/` e de `envs/prod/` vem do Git (gerado pelo job `infra` do CI, sem credencial; `infra/terraform/README.md`, "Versões"). O `terraform init` usa as versões e os hashes dele. Se o `git status` mostrar o `.terraform.lock.hcl` alterado depois de um `init`, pare: a versão de um provider mudou sem o lock acompanhar, e isso volta para o DevOps.
 
 ## 2. Chave do CloudFront (uma vez, e em cada rotação)
 
@@ -139,6 +139,15 @@ aws ecr describe-image-scan-findings --repository-name sussurro-prod/api --image
 
 As tags são imutáveis: o mesmo SHA não pode ser publicado duas vezes. Achado CRITICAL na varredura do ECR: pare e leve ao DevOps.
 
+**Achados aceitos** (revisados pelo `seguranca` em 2026-10-31; não param o deploy). Qualquer outro achado alto ou crítico para o deploy.
+
+| Achado | Pacote nas imagens | Por que é aceito | Até quando |
+|---|---|---|---|
+| GHSA-g3hv-75wg-m249 (moderada) | `minimatch` 10.2.6, por `@sentry/nestjs` → `@sentry/node` → `@sentry/bundler-plugins` → `glob` | O `@sentry/node` só usa o `@sentry/bundler-plugins` nas entradas `bundler-plugin/*` (plugins de esbuild, rollup e vite), que a API e o worker não importam: nada roda em produção | Até o Sentry trazer `minimatch` 11.0.1 ou mais (grupo `sentry` do Dependabot) |
+| GHSA-3g3m-2fjr-6pw4 (moderada) | `glob` 13.0.6, pelo mesmo caminho | O mesmo | Até o Sentry trazer `glob` 14.0.2 ou mais |
+
+A varredura básica do ECR (`scan_on_push` do módulo `ecr`) olha os pacotes do sistema operacional da imagem; esses dois são pacotes npm e aparecem na varredura avançada (Amazon Inspector) ou num `trivy image`. A lista completa e a origem estão no `infra.md` §8.3.
+
 **Teste local da imagem (7.6 CA)**, antes do primeiro push ou quando mudar o Dockerfile, com o compose no ar (`docker compose up -d --wait postgres valkey`; na sua máquina, sem `--platform` a imagem sai na arquitetura do PC):
 
 ```bash
@@ -151,6 +160,8 @@ docker run --rm -p 3000:3000 -e NODE_ENV=development -e DATABASE_URL=postgres://
 curl -i http://localhost:3000/health/ready                           # 200 com {"status":"ok"}
 docker run --rm -e DATABASE_URL=postgres://sussurro:sussurro@host.docker.internal:5432/sussurro sussurro-api:local node dist/migrate.js   # exit 0
 ```
+
+O CI faz este teste em ARM64 nativo (job `images`, infra.md §4.1) na `main` e em todo PR que mexe nas imagens, já com `NODE_ENV=production`, raiz só leitura e init, como no ECS: build das duas imagens, `id` (`node`, uid 1000), a migration pela imagem duas vezes, o `/health/ready` 200, o worker no ar com os emuladores e o desligamento com `SIGTERM` saindo com 0. Um run verde na `main` no commit a publicar dispensa repetir o teste aqui; a varredura do ECR continua valendo.
 
 ## 5. Segredos manuais
 

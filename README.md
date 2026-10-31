@@ -76,7 +76,7 @@ TEST_DB=pglite pnpm test:e2e                # Git Bash
 - Cada arquivo de teste sobe um PGlite (Postgres 18 em WebAssembly) em memória e aplica **as mesmas migrations** do drizzle-kit. Os arquivos de teste são os mesmos nos dois modos. Os utilitários ficam em `@sussurro/db/testing`, e o código de produção não depende do PGlite: ele é só `devDependency` do `packages/db`.
 - O rate limit usa um fake em memória (`apps/api/src/testing/in-memory-rate-limit.store.ts`) que implementa a mesma porta `RateLimitStore` do Valkey.
 - (Fase 2) S3 e SQS: nos dois modos, a suíte principal usa fakes em memória das mesmas portas (`ObjectStorage`, `MediaJobsQueue` na API; `ObjectStorage`, `MessageQueue` no worker). O fake do S3 assina as URLs com o presigner do próprio AWS SDK (sem rede) e reproduz as recusas do S3 (URL vencida, tipo ou tamanho diferente do assinado); o da fila tem visibility timeout, `ApproximateReceiveCount` e redrive para a DLQ. As URLs de leitura saem no formato do CloudFront, assinadas com uma chave RSA gerada no próprio teste e conferidas com a chave pública. As fixtures de imagem (EXIF, GPS, XMP, IPTC, orientação de 90°, HTML e SVG disfarçados, PNG de 30000×30000 px) são geradas pelo sharp e pelo zlib na hora; nada é baixado.
-- Testes pulados nesse modo, com o motivo no arquivo:
+- Testes pulados nesse modo, com o motivo no arquivo. Todos rodam no CI, que usa o modo Postgres (ver "CI"):
   - `client.int.test.ts`: pool do `node-postgres` contra um servidor;
   - `real-services.e2e-spec.ts`: refresh concorrente com `FOR UPDATE` entre várias conexões e o script Lua do rate limit;
   - F0-API-02 (`/health/ready` com Valkey real);
@@ -233,7 +233,7 @@ Também no `.env.example`, sem valores reais e com a mesma validação no boot. 
 
 ## CI
 
-O GitHub Actions (`.github/workflows/ci.yml`) roda em cada PR e em cada push na `main` os jobs `secrets` (gitleaks), `quality` (lint, typecheck, format e título do PR), `test` (unitários e e2e com Postgres e Valkey e, desde a Fase 2, o ElasticMQ e o SeaweedFS do compose), `build` e, desde a Fase 7, `infra` (`terraform fmt -check`, `validate`, `tflint` e `trivy config` no Terraform e nos Dockerfiles, sem credencial da AWS, sem `plan` e sem `apply`). O repositório já existe no GitHub (`Pedro-viniicius/sussurro`), mas o CI só roda depois do primeiro push, que depende de pedido do PO.
+O GitHub Actions (`.github/workflows/ci.yml`) roda em cada PR e em cada push na `main` os jobs `secrets` (gitleaks), `quality` (lint, typecheck, format e título do PR), `test` (unitários e e2e com Postgres e Valkey e, desde a Fase 2, o ElasticMQ e o SeaweedFS do compose), `build` e, desde a Fase 7, `infra` (`terraform fmt -check`, `validate`, `tflint` e `trivy config` no Terraform e nos Dockerfiles, sem credencial da AWS, sem `plan` e sem `apply`). (atualizado em 2026-10-31) O CI roda desde o PR #1 e está verde na `main`. O `test` roda sem `TEST_DB`, no modo Postgres, então os testes pulados no PGlite (seção anterior) rodam todos ali: no run 41211129511, da `main`, foram 414 e2e da API, sem nenhum pulado. O `audit` (`pnpm audit --prod --audit-level high`) só roda na `main`, no agendamento e no `workflow_dispatch`, e o `pnpm audit` só informa. Já o `scripts/audit-exceptions.mjs` falha o job, e também o `quality` de todo PR, se a exceção do GHSA-mrhx-c7xc-m3w5 (o `zod` do `@expo/cli`) mudar de caminho ou passar de 2026-11-30. Desde o PR #4, o `images` faz o build ARM64 das imagens, confere o usuário `node`, roda a migration pela imagem e espera `/health/ready` 200. No PR, ele só roda se o diff mexe no que entra nas imagens (job `changes`). Os services e o compose estão fixados por digest. O que o CI cobre e o que não cobre, caso a caso, está no `testes.md` §9.5, §10 e §10.9.
 
 ## Convenções
 
@@ -252,22 +252,22 @@ Produção (Fase 7): [`docs/deploy/runbook.md`](docs/deploy/runbook.md) (primeir
 
 Formato de [`testes.md` §9.4](docs/equipe/testes.md). Prints em `docs/evidencias/fase-N/`.
 
-| Fase | Estado                                                                                                                                                                                                                                                                                                                                           | Data       | SHA          | CI                  | EAS (Android / iOS)                             | Aparelhos e SO | Roteiros MAN-*                                         | Pendências              |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- | ------------ | ------------------- | ----------------------------------------------- | -------------- | ------------------------------------------------------ | ----------------------- |
-| 0    | ✅ Concluída com pendências de ambiente (iOS pendente aceito pelo PO, A-02); conferida pelo coordenador                                                                                                                                                                                                                                          | 2026-10-29 | sem commit   | pendente (sem push) | pendente / pendente                             | pendente       | MAN-APP-01: não executado                              | ambiente (lista abaixo) |
-| 1    | ✅ Concluída com pendências de ambiente (lista abaixo); conferida pelo coordenador                                                                                                                                                                                                                                                               | 2026-10-29 | sem commit   | pendente (sem push) | pendente / pendente                             | pendente       | MAN-AUTH-01: não executado                             | lista abaixo            |
-| 2    | ✅ Concluída com pendências de ambiente (2a back-end e 2b app, listas abaixo); conferida pelo coordenador                                                                                                                                                                                                                                        | 2026-10-29 | sem commit   | pendente (sem push) | pendente / pendente                             | pendente       | MAN-UP-01, MAN-FEED-01: não executados                 | listas abaixo           |
-| 3    | ✅ Concluída com pendências de ambiente (3a back-end e 3b app, listas abaixo); conferida pelo coordenador, exceto o e2e da API (reconferência interrompida por falta de memória)                                                                                                                                                                 | 2026-10-30 | sem commit   | pendente (sem push) | pendente / pendente                             | pendente       | roteiro de aparelho da 3b: não executado               | listas abaixo           |
-| 4    | 🟡 Implementada (4a back-end, 4b app e 4c "encostar", ADR 0012 com os adendos A1 e A2; 4d, R1-PO-1 e adendo A3, na `main` pelo PR #3, com o CI verde; listas abaixo); módulo BLE nativo (Swift/Kotlin) não compilado nem testado em aparelho, spike 4.1-B pendente; conferida pelo coordenador (unitários, build, e2e direcionado e expo-doctor) | 2026-10-30 | ver PR da 4c | ver PR da 4c        | pendente / pendente (dev build novo necessário) | pendente       | MAN-BLE-01 a 06, MAN-QR-01, MAN-CON-01: não executados | listas abaixo           |
-| 5    | ✅ Concluída com pendências (5a back-end e 5b app, listas abaixo); remoção de GPS do vídeo só verificável depois do apply (A-21); conferida pelo coordenador (unitários, build, e2e da 5a)                                                                                                                                                       | 2026-10-30 | sem commit   | pendente (sem push) | pendente / pendente (dev build novo necessário) | pendente       | MAN-REEL-01: não executado; MID-14 pós-apply           | listas abaixo           |
-| 6    | ✅ Concluída com pendências (6a back-end e 6b app, listas abaixo); push e Sentry sem contas (EAS/APNs/FCM/Sentry) nem aparelho; conferida pelo coordenador (unitários, build, expo-doctor, e2e direcionado da 6a)                                                                                                                                | 2026-10-30 | sem commit   | pendente (sem push) | pendente / pendente (dev build novo necessário) | pendente       | MAN-PUSH-01: não executado                             | listas abaixo           |
-| 7    | 🟡 Código pronto, sem `apply` (Terraform, Dockerfiles, runbook, lojas); `fmt`/`validate`/`tflint`/`trivy`, `plan` e build das imagens pendentes (sem terraform nem Docker aqui); D12 e L3 aguardam o PO; conferida pelo coordenador (unitários, build)                                                                                           | 2026-10-30 | sem commit   | pendente (sem push) | pendente / pendente                             | pendente       | regressão MAN-*: não executada                         | listas abaixo           |
+| Fase | Estado                                                                                                                                                                                                                                                                                                                                           | Data       | SHA                                      | CI                 | EAS (Android / iOS)                             | Aparelhos e SO | Roteiros MAN-*                                         | Pendências              |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- | ---------------------------------------- | ------------------ | ----------------------------------------------- | -------------- | ------------------------------------------------------ | ----------------------- |
+| 0    | ✅ Concluída com pendências de ambiente (iOS pendente aceito pelo PO, A-02); conferida pelo coordenador                                                                                                                                                                                                                                          | 2026-10-29 | 1771c0e (PR #1)                          | ✅ verde na `main` | pendente / pendente                             | pendente       | MAN-APP-01: não executado                              | ambiente (lista abaixo) |
+| 1    | ✅ Concluída com pendências de ambiente (lista abaixo); conferida pelo coordenador                                                                                                                                                                                                                                                               | 2026-10-29 | 1771c0e (PR #1)                          | ✅ verde na `main` | pendente / pendente                             | pendente       | MAN-AUTH-01: não executado                             | lista abaixo            |
+| 2    | ✅ Concluída com pendências de ambiente (2a back-end e 2b app, listas abaixo); conferida pelo coordenador                                                                                                                                                                                                                                        | 2026-10-29 | 1771c0e (PR #1)                          | ✅ verde na `main` | pendente / pendente                             | pendente       | MAN-UP-01, MAN-FEED-01: não executados                 | listas abaixo           |
+| 3    | ✅ Concluída com pendências de ambiente (3a back-end e 3b app, listas abaixo); conferida pelo coordenador, o e2e da API, interrompido aqui por falta de memória, passa no CI                                                                                                                                                                     | 2026-10-30 | 1771c0e (PR #1)                          | ✅ verde na `main` | pendente / pendente                             | pendente       | roteiro de aparelho da 3b: não executado               | listas abaixo           |
+| 4    | 🟡 Implementada (4a back-end, 4b app e 4c "encostar", ADR 0012 com os adendos A1 e A2; 4d, R1-PO-1 e adendo A3, na `main` pelo PR #3, com o CI verde; listas abaixo); módulo BLE nativo (Swift/Kotlin) não compilado nem testado em aparelho, spike 4.1-B pendente; conferida pelo coordenador (unitários, build, e2e direcionado e expo-doctor) | 2026-10-30 | 1771c0e, 74af327 e 8ddc3ea (PRs #1 a #3) | ✅ verde na `main` | pendente / pendente (dev build novo necessário) | pendente       | MAN-BLE-01 a 06, MAN-QR-01, MAN-CON-01: não executados | listas abaixo           |
+| 5    | ✅ Concluída com pendências (5a back-end e 5b app, listas abaixo); remoção de GPS do vídeo só verificável depois do apply (A-21); conferida pelo coordenador (unitários, build, e2e da 5a)                                                                                                                                                       | 2026-10-30 | 1771c0e (PR #1)                          | ✅ verde na `main` | pendente / pendente (dev build novo necessário) | pendente       | MAN-REEL-01: não executado; MID-14 pós-apply           | listas abaixo           |
+| 6    | ✅ Concluída com pendências (6a back-end e 6b app, listas abaixo); push e Sentry sem contas (EAS/APNs/FCM/Sentry) nem aparelho; conferida pelo coordenador (unitários, build, expo-doctor, e2e direcionado da 6a)                                                                                                                                | 2026-10-30 | 1771c0e (PR #1)                          | ✅ verde na `main` | pendente / pendente (dev build novo necessário) | pendente       | MAN-PUSH-01: não executado                             | listas abaixo           |
+| 7    | 🟡 Código pronto, sem `apply` (Terraform, Dockerfiles, runbook, lojas); `fmt`/`validate`/`tflint`/`trivy`, `plan` e build das imagens pendentes (sem terraform nem Docker aqui); D12 e L3 aguardam o PO; conferida pelo coordenador (unitários, build)                                                                                           | 2026-10-30 | 1771c0e (PR #1)                          | ✅ verde na `main` | pendente / pendente                             | pendente       | regressão MAN-*: não executada                         | listas abaixo           |
 
 Pendências de ambiente da Fase 0 (IDs de `testes.md` §10):
 
-- **WSL2 e Docker** não instalados: F0-ENV-01, 02 e 06, F0-DC-01 a 07 (compose e spike S3/SQS), F0-Q-05 (`pnpm test:e2e`) e F0-API-02 a 04 (`/health/ready` com Postgres e Valkey reais).
+- **WSL2 e Docker** não instalados: F0-ENV-01, 02 e 06, F0-DC-01 a 07 (compose e spike S3/SQS), F0-Q-05 (`pnpm test:e2e`) e F0-API-02 a 04 (`/health/ready` com Postgres e Valkey reais). (atualizado em 2026-10-31) O CI cobre o F0-Q-05, o F0-API-02 e o compose do ElasticMQ e do SeaweedFS. Nesta máquina continuam os outros; o detalhe por ID está no `testes.md` §10 e §10.9.
 - **LongPathsEnabled = 0**: F0-ENV-04. O `expo export` e o `expo prebuild` passaram mesmo assim.
-- **CI no GitHub** (D16): F0-CI-01 a 05. O remoto `origin` já existe (`Pedro-viniicius/sussurro`), mas nada foi enviado: commit e push só com pedido do PO.
+- ~~**CI no GitHub** (D16): F0-CI-01 a 05.~~ (atualizado em 2026-10-31) O CI roda desde o PR #1. O F0-CI-01, o 03 e o 05 têm evidência; o F0-CI-04, só evidência natural (um e2e vermelho no PR #1). Falta o F0-CI-02 (PR negativo de propósito); ver `testes.md` §10.
 - **Contas Expo e Apple e aparelhos físicos**: F0-APP-01 a 07 (dev builds, MAN-APP-01 e MAN-A11Y-01).
 - **Cópia limpa testada por outra pessoa** (F0-DOC-01).
 
@@ -290,8 +290,8 @@ Verificado em 2026-10-29, na máquina do PO (Windows 11, Node 26.13.0, pnpm 12.1
 
 Pendente:
 
-- **Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão (Postgres + Valkey), que inclui os 5 testes pulados no PGlite, e `pnpm db:migrate` no Postgres do compose.
-- **CI remoto** (nada enviado ao GitHub).
+- ~~**Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão (Postgres + Valkey), que inclui os 5 testes pulados no PGlite, e `pnpm db:migrate` no Postgres do compose.~~ (atualizado em 2026-10-31) Resolvido pelo CI, que roda as migrations e o `test:e2e` no Postgres 18.6 e no Valkey, sem nenhum teste pulado.
+- ~~**CI remoto** (nada enviado ao GitHub).~~ (atualizado em 2026-10-31) Resolvido: o CI roda desde o PR #1 e está verde na `main`.
 - **Dev build EAS novo** (entraram `expo-secure-store` e `expo-network`) e o roteiro MAN-AUTH-01 em aparelho: Android e iOS (conta Apple, A-02).
 - **Envio real pelo SES**: só o código e o teste com o cliente simulado; a verificação depois do `apply` fica para a Fase 7.
 - **Fora desta fase, por depender de tabelas futuras**: números do perfil (0 até as Fases 2 a 4), listas de conexões e criadores ao tocar nos números (Fases 3 e 4), perfil pessoal visível às conexões (Fase 4), bloqueio parcial de conta com e-mail não confirmado (rotas das Fases 2 a 4), páginas de Termos e de Política de Privacidade.
@@ -321,8 +321,8 @@ Back-end e contratos da Fase 2 (histórias 2.1 a 2.9 e 2.11, mais o back-end do 
 
 Pendente:
 
-- **Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão, com os 11 testes pulados no PGlite (S3 e SQS reais, DLQ, pool do `node-postgres`); no Postgres de verdade, as 50 curtidas e os dois executores da limpeza disputam conexões diferentes do pool (`FOR UPDATE SKIP LOCKED`); `pnpm --filter @sussurro/worker seed:media` no SeaweedFS; FEED-16 no Postgres 18.
-- **CI remoto** (nada enviado ao GitHub). O job `test` passou a subir o ElasticMQ e o SeaweedFS do compose.
+- **Com Docker** (WSL2 ainda não instalado): ~~`pnpm test:e2e` no modo padrão, com os 11 testes pulados no PGlite (S3 e SQS reais, DLQ, pool do `node-postgres`); no Postgres de verdade, as 50 curtidas e os dois executores da limpeza disputam conexões diferentes do pool (`FOR UPDATE SKIP LOCKED`);~~ `pnpm --filter @sussurro/worker seed:media` no SeaweedFS; FEED-16 no Postgres 18. (atualizado em 2026-10-31) O CI resolveu a parte riscada (Postgres 18.6, Valkey, ElasticMQ e SeaweedFS, sem nenhum teste pulado). Falta o `seed:media`, que não tem teste, e o FEED-16, que é manual (`perf:feed`).
+- ~~**CI remoto** (nada enviado ao GitHub).~~ (atualizado em 2026-10-31) Resolvido: o CI roda desde o PR #1, e o job `test` sobe o ElasticMQ e o SeaweedFS do compose.
 - **CloudFront e lifecycle do S3** (Fase 7, depois do `apply`): o 403 do próprio CloudFront para URL adulterada (aqui a assinatura é conferida no teste com a chave pública) e a expiração de `incoming/` em 1 dia.
 - **Aparelho** (Fase 2b, com as telas): MAN-UP-01 (foto real com GPS de iPhone e Android) e MAN-FEED-01.
 
@@ -348,7 +348,7 @@ Pendente:
 
 - **Dev build EAS novo** (Android e iOS, conta Apple, A-02): entraram `expo-image`, `expo-image-picker` e `expo-image-manipulator`, módulos nativos que os builds anteriores não têm.
 - **Aparelho**: MAN-UP-01 (4 fotos reais, HEIC de iPhone com localização; conferir com `exifr` que a imagem servida não tem GPS; 4G fraco e sair do app durante o envio; orientação das fotos depois do `expo-image-manipulator`) e MAN-FEED-01 (ordem, "Você está em dia", puxar para atualizar, offline e os tempos relativos no Hermes). Também o teclado dentro da folha de comentários (iOS) e no modal (Android).
-- **Com Docker**: os mesmos pendentes da 2a.
+- **Com Docker**: os mesmos pendentes da 2a (hoje só o `seed:media` e o FEED-16).
 - **Fora desta fase**: deslizar entre as abas do feed (hoje só pelo toque), grade "Recentes" com a galeria inteira no Criar (pede acesso à biblioteca; hoje é o seletor do sistema, sem permissão), Seguir e Conectados no perfil de outra conta (Fases 3 e 4), ponto de não lidas no coração e notificações (Fase 6), Reels (Fase 5).
 
 ### Fase 3a: verificado × pendente
@@ -390,8 +390,8 @@ Back-end e contratos da Fase 3 (histórias 3.1 a 3.9, mais X.1 Denunciar e X.2 B
 
 Pendente:
 
-- **Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão, com os 2 testes novos pulados no PGlite (cache no Valkey e a corrida entre seguir e bloquear em conexões diferentes). No Postgres do compose, a ordem alfabética da busca é a da collation "C" (o índice e o `ORDER BY` usam `COLLATE "C"`, então não dependem do locale do banco).
-- **CI remoto** (nada enviado ao GitHub).
+- ~~**Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão, com os 2 testes novos pulados no PGlite (cache no Valkey e a corrida entre seguir e bloquear em conexões diferentes).~~ (atualizado em 2026-10-31) Resolvido pelo CI. No Postgres, a ordem alfabética da busca é a da collation "C" (o índice e o `ORDER BY` usam `COLLATE "C"`, então não dependem do locale do banco).
+- ~~**CI remoto** (nada enviado ao GitHub).~~ (atualizado em 2026-10-31) Resolvido: o CI roda desde o PR #1 e está verde na `main`.
 - **Telas (Fase 3b)**: Pesquisar (BUS-11 e a dica do A-04), Seguir/Seguindo no perfil de criador, perfil próprio do criador (3.5), listas próprias ("Só você vê esta lista."), menu ⋯ com Denunciar e Bloquear, lista de bloqueados e os roteiros em aparelho.
 - **Fora desta fase**: o pedido de conexão recusado por bloqueio (a regra já está em `AccessPolicyService.canRequestConnection`; as rotas são da Fase 4), painel de moderação e ações sobre a denúncia (hoje só o e-mail e o banco).
 
@@ -416,7 +416,7 @@ Telas da Fase 3 (histórias 3.1 a 3.6 e 3.9 no app, mais X.1 Denunciar e X.2 Blo
 Pendente:
 
 - **Aparelho** (Android e iOS, com o dev build da 2b; a 3b não trouxe módulo nativo): roteiro manual de busca, seguir, perfil de criador, listas, denunciar e bloquear. Conferir em especial o menu ⋯ (`ActionSheet`, `Modal` do React Native) por cima da folha de comentários no iOS e o Alert de bloquear logo depois de o menu fechar.
-- **Com Docker** e **CI remoto**: os mesmos pendentes da 3a.
+- ~~**Com Docker** e **CI remoto**: os mesmos pendentes da 3a.~~ (atualizado em 2026-10-31) Resolvidos pelo CI.
 - **Fora desta fase**: "Desfazer conexão" na lista de conexões (D8, Fase 4); o Início não recarrega sozinho depois de seguir ou deixar de seguir (os posts entram e saem ao puxar para atualizar; o bloqueio some na hora).
 - **Divergências do protótipo**: p06, p07 e p17 não têm o ⋯ de outras contas (D-UX14 pede); nos comentários o menu é a pressão longa (ux.md §4.3), sem ícone ⋯ por linha; a entrada "Contas bloqueadas" e a tela Denunciar não têm wireframe no ux.md (§4.7 e §4.8 foram a base).
 
@@ -457,8 +457,8 @@ Back-end e contratos da Fase 4 (histórias 4.2, 4.4 no servidor, 4.5, 4.6, 4.8, 
 
 Pendente:
 
-- **Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão, com os 2 testes novos do adaptador Redis no Valkey e a corrida do PROX-13 em conexões diferentes do pool, que é a prova da trava do par.
-- **CI remoto** (nada enviado ao GitHub).
+- ~~**Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão, com os 2 testes novos do adaptador Redis no Valkey e a corrida do PROX-13 em conexões diferentes do pool, que é a prova da trava do par.~~ (atualizado em 2026-10-31) Resolvido pelo CI, sem nenhum teste pulado.
+- ~~**CI remoto** (nada enviado ao GitHub).~~ (atualizado em 2026-10-31) Resolvido: o CI roda desde o PR #1 e está verde na `main`.
 - **Fase 4b**: tela Conectar (seletor "Bluetooth / QR code", radar, "Por perto agora" com as faixas do D13, aguardando, folha do pedido, conectados, p-22), QR cruzado (PROX-24), módulo BLE nativo e o spike da 4.1 com aparelhos (PROX-28, MAN-BLE-01 a 05, MAN-QR-01, MAN-CON-01), "Desfazer conexão" no app, o botão "Simular um pedido recebido" só com `EXPO_PUBLIC_DEV_TOOLS=1`, as mensagens dos códigos novos (já mapeadas em `apps/mobile/src/lib/error-messages.ts`).
 - **Fase 6**: PROX-29 (notificação `connection_created` para os dois) e o push do pedido (6.6).
 - **Política de Privacidade** (`C:\dev\sussurro-site`, `/privacidade`): descrever os dados novos (tokens efêmeros e pedidos de conexão, com prazos), conforme o relatório da Fase 4a.
@@ -514,7 +514,7 @@ Pendente:
 
 - **Não compilado nem testado**: o Swift e o Kotlin do módulo (não há Mac, JDK nem Android SDK aqui). Precisam de um **dev build novo do EAS** (Android e iOS): a 4b trouxe o `expo-camera` e o módulo local.
 - **Aparelhos** (matriz do `testes.md` §8.1, dois iPhones para iOS↔iOS): o spike da 4.1 (descoberta em menos de 10 s por par, MAN-BLE-01), MAN-BLE-02 a 05, MAN-QR-01, MAN-CON-01, PROX-28 com o nRF Connect (sem nome, só o UUID, troca a cada 20 s, para em background) e o PROX-24 em aparelho. Conferir em especial: o iPhone conectável por terceiros expõe o nome GAP do aparelho?; no Android ≤ 11 a varredura exige a localização do sistema ligada (o app não avisa); Android 12+ com `neverForLocation` filtra beacons (o nosso anúncio não é beacon); o `Modal` da folha e da câmera por cima da tab bar no iOS.
-- **Com Docker** e **CI remoto**: os mesmos pendentes da 4a.
+- ~~**Com Docker** e **CI remoto**: os mesmos pendentes da 4a.~~ (atualizado em 2026-10-31) Resolvidos pelo CI.
 - **Política de Privacidade** (`C:\dev\sussurro-site`): Bluetooth, câmera e os dados da Fase 4, conforme o relatório da 4b.
 
 ### Fase 4c: "encostar os celulares" (ADR 0012, adendos A1 e A2): verificado × pendente
@@ -533,7 +533,7 @@ Pendente:
 
 - **Não compilado nem testado**: o Swift e o Kotlin do módulo. Precisam de um **dev build novo do EAS** (Android e iOS).
 - **Spike 4.1-B em aparelhos** (dois iPhones e Androids): calibrar os limiares de `touch-calibration.ts`, MAN-BLE-01 a 06 (inclui a linha "atacante"), MAN-QR-01, MAN-CON-01, foco e anúncios com VoiceOver e TalkBack.
-- **CI**: o PROX-56 (Lua no Valkey real).
+- ~~**CI**: o PROX-56 (Lua no Valkey real).~~ (atualizado em 2026-10-31) Resolvido no CI do PR #3 (`real-services`, sem nenhum teste pulado).
 - ~~**Próximo PR**: "denunciar quem você bloqueou" (R1-PO-1, aprovado pelo PO, depende do `dados`) e os achados MÉDIOS e BAIXOS da varredura de segurança.~~ (atualizado em 2026-10-31) Feito na branch `feat/denunciar-bloqueado`: ver a seção seguinte.
 - **Política de Privacidade** (`C:\dev\sussurro-site`): os itens da `arquitetura.md` §15 (orientações 1 a 8), com a aprovação do PO antes de publicar.
 
@@ -564,8 +564,8 @@ Pendente:
   - S3 do `ux-ui` (foco no T32 no QR; anterior ao PR);
   - exportar o limite de 6 tokens por minuto no `packages/shared`;
   - o 401 repetido com a sessão trocada no meio do voo (BAIXO anterior ao PR, `frontend`);
-  - `pnpm audit` no `@expo/cli` (BAIXO anterior ao PR, `devops`);
-  - `CODEOWNERS` para o `.gitleaksignore` e o `.gitleaks.toml`, com a revisão do dono exigida na proteção da `main`, e o passo a passo do falso positivo no `infra.md` §8 (BAIXO anterior ao PR, `devops`). Hoje qualquer PR pode acrescentar uma impressão digital, e só a revisão do `seguranca` segura;
+  - ~~`pnpm audit` no `@expo/cli` (BAIXO anterior ao PR, `devops`);~~ (atualizado em 2026-10-31) Feito no PR #4: há uma exceção registrada para o GHSA-mrhx-c7xc-m3w5, cobrada no `quality` até 2026-11-30, porque o `@expo/cli` 58.1.18 já não usa o `zod`;
+  - ~~`CODEOWNERS` para o `.gitleaksignore` e o `.gitleaks.toml`, com a revisão do dono exigida na proteção da `main`, e o passo a passo do falso positivo no `infra.md` §8 (BAIXO anterior ao PR, `devops`).~~ (atualizado em 2026-10-31) Feito no PR #4 (`.github/CODEOWNERS` e `infra.md` §8.1 e §8.2). Para ter efeito, falta o PO decidir pelo GitHub Pro e pela proteção da `main`;
   - os riscos R24 e R25 (`arquitetura.md` §16).
 
 ### Fase 5a: verificado × pendente
@@ -610,8 +610,8 @@ Decisões (onde os documentos eram omissos; o mais conservador em privacidade):
 Pendente:
 
 - **A-21 / MID-14 (5.2 CA1)**: a remoção da localização pelo MediaConvert só é verificável depois do `apply` (Fase 7). Roteiro pronto, não executado: [`testes.md` §8.2](docs/equipe/testes.md). A confirmar no mesmo roteiro: vídeo sem áudio (o seletor de áudio padrão) e o primeiro quadro como poster.
-- **Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão, com o teste novo do adaptador S3 do worker (HEAD, leitura por intervalo e `CopyObject` no SeaweedFS) e os pulados das fases anteriores.
-- **CI remoto** (nada enviado ao GitHub).
+- ~~**Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão, com o teste novo do adaptador S3 do worker (HEAD, leitura por intervalo e `CopyObject` no SeaweedFS) e os pulados das fases anteriores.~~ (atualizado em 2026-10-31) Resolvido pelo CI, sem nenhum teste pulado.
+- ~~**CI remoto** (nada enviado ao GitHub).~~ (atualizado em 2026-10-31) Resolvido: o CI roda desde o PR #1 e está verde na `main`.
 - **Fase 5b**: modo REEL no Criar (seletor de vídeo, "Até 90 s", poster com `expo-video-thumbnails`, faixa "Processando o reel…"), `ReelTile` com a duração na aba Reels do feed e do perfil, `ReelViewer` com `expo-video` (sem avançar sozinho), o tile "Falhou" com "Tentar de novo"/"Excluir", MAN-REEL-01 em aparelho e um dev build novo.
 - **Risco aceito**: um `COMPLETE` que chegue depois de o reel com falha por tempo esgotado (60 min) já ter sido apagado de vez deixa as saídas órfãs em `media/{id}/` (nunca servidas). Só acontece se o MediaConvert passar de uma hora.
 - **Política de Privacidade** (`C:\dev\sussurro-site`): vídeo e poster dos reels, metadados e processamento pela AWS, conforme o relatório da Fase 5a.
@@ -660,8 +660,8 @@ Pendente:
 - **Dev build EAS novo** (Android e iOS, conta Apple, A-02): entraram o `expo-video` e o `expo-video-thumbnails`, módulos nativos que os builds anteriores não têm.
 - **Aparelhos**: MAN-REEL-01 (reel de 90 s e de 91 s; `.mov` HEVC do iPhone; não avança sozinho no fim) e, no mesmo roteiro: envio de um vídeo perto de 200 MB no Android (streaming) e no iPhone (memória); sair do app durante o envio; a capa de vídeo gravado em pé no Android (rotação do primeiro quadro); som com o iPhone no silencioso; VoiceOver e TalkBack no visualizador (botão "Pausar", ordem do foco, controles fixos); arrastar para baixo para fechar; a folha de comentários por cima do visualizador (iOS) e o modal (Android).
 - **A-21 / MID-14** (GPS no vídeo): continua só verificável com o MediaConvert de verdade, depois do `apply` (roteiro em [`testes.md` §8.2](docs/equipe/testes.md)). Em dev, o passthrough serve o vídeo com os metadados do original: só vídeos de teste sem localização.
-- **Com Docker** e **CI remoto**: os mesmos pendentes da 5a.
-- **Fora desta fase**: o tile "Processando" de um reel enviado em outra sessão só muda ao puxar para atualizar (sem consulta automática); abrir um reel pelo detalhe `p/[id]` (notificações, Fase 6) deve levar ao visualizador.
+- ~~**Com Docker** e **CI remoto**: os mesmos pendentes da 5a.~~ (atualizado em 2026-10-31) Resolvidos pelo CI.
+- **Fora desta fase**: o tile "Processando" de um reel enviado em outra sessão só muda ao puxar para atualizar (sem consulta automática); abrir um reel pelo detalhe `p/[id]` (notificações, Fase 6) deve levar ao visualizador (feito na 6b, em `PostDetailScreen.tsx`).
 - **Política de Privacidade** (`C:\dev\sussurro-site`): seleção de vídeos e o que sai do aparelho nos reels, conforme o relatório da 5b.
 
 ### Fase 6a: verificado × pendente
@@ -722,8 +722,8 @@ Pendente:
 - **Fase 6b**: tela de Notificações (p09 e p21) com "Hoje"/"Esta semana", ponto azul do coração, `expo-notifications` com o pedido contextual (6.4 CA1 e CA4), registro do token a cada abertura e o `DELETE` antes do logout, toque no push abrindo a rota do `data.url` (6.5 CA5, 6.6), Sentry do app (source maps no EAS, release e ambiente, a mesma limpeza) e um dev build novo.
 - **Contas**: projeto no Expo com push (credenciais APNs pelo EAS para iOS e FCM para Android; `EXPO_ACCESS_TOKEN` se a segurança reforçada for ligada) e os três projetos do Sentry (`SENTRY_DSN`, `SENTRY_AUTH_TOKEN` para os source maps). Nenhum valor real entrou no repositório.
 - **Aparelhos**: MAN-PUSH-01 (permissão, push com o app fechado no iPhone e no Android, tocar e abrir a tela certa, logout para de receber) e o push do pedido de conexão abrindo o Conectar.
-- **Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão, inclusive a fila `push` e a `push-dlq` no ElasticMQ (o `infra/local/elasticmq.conf` já tem as duas) e o upsert de seguidores concorrente em conexões diferentes do pool.
-- **CI remoto** (nada enviado ao GitHub) e o **gitleaks**, que não está instalado nesta máquina (os testes usam só valores fictícios de token, DSN e JWT).
+- ~~**Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão, inclusive a fila `push` e a `push-dlq` no ElasticMQ (o `infra/local/elasticmq.conf` já tem as duas) e o upsert de seguidores concorrente em conexões diferentes do pool.~~ (atualizado em 2026-10-31) Resolvido pelo CI. O modo padrão roda desde o PR #1, e a fila `push`, a `push-dlq` e o upsert concorrente ganharam os testes NOT-10 a NOT-12 no PR #4 (run 41234942342, sem nenhum teste pulado).
+- ~~**CI remoto** (nada enviado ao GitHub) e o **gitleaks**, que não está instalado nesta máquina.~~ (atualizado em 2026-10-31) Resolvidos: o CI roda desde o PR #1, e o job `secrets` passa o gitleaks em todo o histórico (barrou um falso positivo no PR #3). Os testes usam só valores fictícios de token, DSN e JWT.
 - **Política de Privacidade** (`C:\dev\sussurro-site`): notificações guardadas e por quanto tempo, push tokens, o que vai ao Expo, à Apple e ao Google, e o que vai ao Sentry, conforme o relatório da Fase 6a.
 
 ### Fase 6b: verificado × pendente
@@ -786,7 +786,7 @@ Pendente:
   8. "Sair deste dispositivo": uma curtida depois disso não chega (sem `DELETE` no log: o logout apaga o token); entrar de novo registra outra vez.
   9. Android: ícone branco na barra de status; reiniciar o celular e conferir que o push ainda chega (sem o `RECEIVE_BOOT_COMPLETED`); conferir as permissões do APK (`aapt dump permissions`). iPhone: o push chega com o app fechado (APNs de produção no build do EAS).
   10. Sentry (preview com DSN e as três variáveis do upload): "Enviar erro de teste" no catálogo (`EXPO_PUBLIC_DEV_TOOLS=1`) e conferir no Sentry o stack com source maps, a release `app.sussurro.preview@…`, o ambiente `preview` e nenhum token, e-mail ou @ no evento.
-- **Com Docker** e **CI remoto**: os mesmos pendentes da 6a.
+- ~~**Com Docker** e **CI remoto**: os mesmos pendentes da 6a.~~ (atualizado em 2026-10-31) Resolvidos pelo CI (PR #4).
 - **Política de Privacidade** (`C:\dev\sussurro-site`): a permissão de notificações, o token do aparelho e o que vai ao Expo, à Apple e ao Google pelo app, e o que o app manda ao Sentry, conforme o relatório da 6b.
 
 ### Fase 7: verificado × pendente
@@ -821,16 +821,47 @@ Decisões (onde os documentos eram omissos; a mais conservadora):
 Divergências do infra.md (registradas lá, §6):
 
 - Uma execution role por task, em vez de uma só; nomes de bucket com o id da conta (`sussurro-prod-media-<conta>`); módulos novos `ses` (D6), `access-logs` (L3) e `budgets`.
-- Terraform `~> 1.16.0` (o infra.md dizia `~> 1.16`, que aceitaria a 1.17) e provider AWS fixado em 6.69.1 (o lock file só nasce no primeiro `init` com credencial).
+- Terraform `~> 1.16.0` (o infra.md dizia `~> 1.16`, que aceitaria a 1.17) e provider AWS fixado em 6.69.1. (atualizado em 2026-10-31) O lock dos providers não precisa de credencial: o CI o gerou no PR #4, e ele está versionado nas duas raízes.
 - O alarme "tasks abaixo do desejado" (`RunningTaskCount`) exige Container Insights (pago): no lugar, hosts saudáveis no ALB e idade das filas. O de erro do MediaConvert usa a métrica da própria AWS (`JobsErroredCount`), não uma métrica do worker.
 - O DSN do Sentry é variável do Terraform (não é segredo), não um segredo do Secrets Manager.
 
 Pendente:
 
-- **CI ou máquina do PO** (com Terraform, TFLint, Trivy e Docker): `terraform fmt -check`, `terraform validate` das duas raízes, `tflint`, `trivy config` (um achado alto ou crítico não previsto vira correção ou justificativa no código), `terraform providers lock` e o `.terraform.lock.hcl` versionado.
+- ~~**CI ou máquina do PO** (com Terraform, TFLint, Trivy e Docker): `terraform fmt -check`, `terraform validate` das duas raízes, `tflint`, `trivy config` (um achado alto ou crítico não previsto vira correção ou justificativa no código), `terraform providers lock` e o `.terraform.lock.hcl` versionado.~~ (atualizado em 2026-10-31) Resolvidos pelo CI: o job `infra` roda o fmt, o validate, o tflint e o trivy desde o PR #1, e no PR #4 gerou o `.terraform.lock.hcl` das duas raízes (`hashicorp/aws` 6.69.1 e `random` 3.9.1, com os hashes das cinco plataformas), que passou a ser versionado. Agora o `init` usa `-lockfile=readonly`.
 - **`terraform plan`**: exige credencial da AWS e as decisões abaixo.
-- **Imagens**: build real das duas imagens (ARM64, `docker buildx`), `id` mostrando o usuário `node`, `/health/ready` 200 com o compose no ar e a migration pela imagem (runbook, passo 4; 7.6 CA). A varredura do ECR.
+- ~~**Imagens**: build real das duas imagens (ARM64, `docker buildx`), `id` mostrando o usuário `node`, `/health/ready` 200 com o compose no ar e a migration pela imagem (runbook, passo 4; 7.6 CA).~~ (atualizado em 2026-10-31) Resolvido pelo job `images` do CI (PR #4, run 41234942342), em `ubuntu-24.04-arm`. Ele confere `arm64`, o usuário `node` e o uid 1000, roda a migration pela imagem duas vezes e recebe `/health/ready` 200 com Postgres e Valkey. Também sobe o worker em produção contra os emuladores, e os dois saem com 0 no `SIGTERM`, com a raiz só leitura. Falta a varredura do ECR, depois do `apply` (o `minimatch` e o `glob` já estão aceitos no runbook, passo 4).
 - **Depois do apply autorizado**: os testes de fumaça do runbook §9 (PERM-16 no CloudFront, MID-14 em `testes.md` §8.2, e-mail pelo SES fora do sandbox, push e denúncia), o plano flat-rate do CloudFront, o DMARC, o monitor externo e o exercício de restauração.
 - **Só o PO decide**: D12/P5 (região e porte; o padrão é `enxuto`), P6 (domínio e DNS no Route 53), P7 (orçamento), **L3** (guarda de registros de acesso, com o jurídico; os logs do ALB não dizem qual conta fez o acesso), L1 e L2 (Política de Privacidade e idade mínima, antes das lojas), o `EMAIL_LINK_BASE_URL` em produção (`sussurro://` hoje; https exige página ou universal links) e as contas (AWS, Apple, Google Play, Expo, Sentry e GitHub). Commit e push também.
 - **App**: builds `preview` e `production` no EAS e o envio às lojas (`docs/deploy/lojas.md`); conferir no AAB se alguma biblioteca trouxe `READ_MEDIA_IMAGES` ou `READ_MEDIA_VIDEO`.
 - **Política de Privacidade** (`C:\dev\sussurro-site`): o log técnico da API (30 dias) já guarda os cabeçalhos das requisições, inclusive o IP de origem (`X-Forwarded-For`) e o user agent; e, se o L3 for ligado, o texto do runbook §17.
+
+### Fechamento do MVP (PRs #4 a #6): verificado × pendente
+
+Plano do Tech Lead de 2026-10-31, a partir do inventário do `arquiteto`, aprovado pelo PO, que autorizou commit, push, PR e merge com o CI verde e as revisões aprovadas.
+
+**PR #4** (`chore/fechamento-ci-docs`; CI, testes e docs, sem código de produto), verificado no run 41234942342:
+
+- `images`: build ARM64 nativo das duas imagens, usuário `node`, migration pela imagem, `/health/ready` 200, o worker em produção e `SIGTERM` com saída 0 (ver Fase 7).
+- `infra`: o `.terraform.lock.hcl` das duas raízes foi gerado pelo CI e versionado; agora o `init` usa `-lockfile=readonly`.
+- `test`: 419 e2e da API, sem nenhum pulado, com os novos NOT-10 (follows simultâneos na notificação agrupada), NOT-11 (`SqsPushQueue` no ElasticMQ, com o `traceparent`) e NOT-12 (DLQ da fila `push`).
+- `quality`:
+  - exceção do `audit` para o `zod` do `@expo/cli`, com prazo em 2026-11-30;
+  - paridade das imagens dos services com o compose;
+  - services e compose fixados por digest.
+- `CODEOWNERS` para os arquivos de política. Só tem efeito com o GitHub Pro e a proteção da `main`, decisão do PO.
+- Docs com o estado real (README, `PROJETO.md`, `backlog.md`, `arquitetura.md`, ADRs 0001 a 0012 e `testes.md` §9.5, §10 e §10.9) e as decisões do PO de 2026-10-31 sobre a Fase 4d.
+- `ux.md`:
+  - §11.18 (PR #5) e §12 (PR #6);
+  - recomendação do `ux-ui`, seguida pelo Tech Lead e reversível: não fazer na v1 o deslizar entre as abas do feed, porque o gesto briga com o carrossel de fotos, nem o "✓" depois de "Conectados", que era notação de wireframe.
+- Revisões:
+  - `seguranca`: aprovado, com aval à exceção do `audit`; o MÉDIO e os 3 BAIXOS foram corrigidos no próprio PR;
+  - `testes`: aprovado com ressalvas, e a primeira execução real foi o CI.
+- O que o CI ainda não cobre está no `testes.md` §10.9:
+  - F0-API-03/04;
+  - F0-DC-05/06;
+  - `spike:aws`;
+  - `seed:media`;
+  - FEED-16;
+  - os PRs negativos F0-CI-02/04.
+
+**PR #5** (Fase 4d e dívidas registradas) e **PR #6** (fidelidade ao `ux.md`): em andamento.

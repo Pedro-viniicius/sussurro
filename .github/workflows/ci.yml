@@ -1,4 +1,5 @@
-# CI da Fase 0 (infra.md §4.1; testes.md §3.5 e §10.7, casos F0-CI-01 a F0-CI-05).
+# CI (infra.md §4.1; testes.md §3.5 e §10.7, casos F0-CI-01 a F0-CI-05). Desde a Fase 7, também as
+# imagens de produção em ARM64 (job "images") e o lock dos providers do Terraform (job "infra").
 # Actions fixadas por SHA (a tag fica no comentário); o Dependabot propõe as atualizações.
 name: CI
 
@@ -65,6 +66,24 @@ jobs:
           key: turbo-quality-${{ runner.os }}-${{ github.sha }}
           restore-keys: turbo-quality-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
+      # B8: as exceções do audit (audit.ignore) só valem no caminho registrado e até a data de
+      # revisão. Aqui roda em todo PR e bloqueia o merge (infra.md §8.3); sem rede, só o lockfile.
+      - name: Exceções do audit (caminho registrado e data de revisão)
+        run: node scripts/audit-exceptions.mjs
+      # Paridade (B5): o Dependabot atualiza a tag e o digest das imagens do docker-compose.yml,
+      # mas não as dos services deste workflow. Aqui, toda imagem de service precisa ser
+      # exatamente uma do compose.
+      - name: Imagens dos services iguais às do docker-compose.yml
+        run: |
+          compose=$(sed -nE 's/^[[:space:]]+image:[[:space:]]*([^[:space:]#]+).*/\1/p' docker-compose.yml | sort -u)
+          servicos=$(sed -nE 's/^[[:space:]]+image:[[:space:]]*([^[:space:]#]+).*/\1/p' .github/workflows/ci.yml | sort -u)
+          echo "$servicos"
+          test -n "$servicos" -a -n "$compose"
+          fora=$(comm -13 <(echo "$compose") <(echo "$servicos"))
+          if [ -n "$fora" ]; then
+            echo "::error file=.github/workflows/ci.yml::imagem de service diferente do docker-compose.yml: $fora"
+            exit 1
+          fi
       - name: Título do PR em Conventional Commits (vira a mensagem do squash merge)
         if: github.event_name == 'pull_request'
         env:
@@ -82,9 +101,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
-      # Mesmas imagens e tags do docker-compose.yml (paridade com o ambiente local).
+      # Mesmas imagens, tags e digests do docker-compose.yml (paridade com o ambiente local; o job
+      # "quality" confere). Digest do índice multi-arquitetura: vale no x64 e no ARM64.
       postgres:
-        image: postgres:18.6-bookworm
+        image: postgres:18.6-bookworm@sha256:5c4783a8cc3f0074912164f94dfa1be4e043438f0f707cf968d7af9a0d31a2c8
         env:
           POSTGRES_USER: sussurro
           POSTGRES_PASSWORD: sussurro
@@ -94,7 +114,7 @@ jobs:
           --health-cmd "pg_isready -U sussurro -d sussurro"
           --health-interval 5s --health-timeout 3s --health-retries 20
       valkey:
-        image: valkey/valkey:8.1-alpine
+        image: valkey/valkey:8.1-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a
         ports: ['6379:6379']
         options: >-
           --health-cmd "valkey-cli ping"
@@ -185,12 +205,50 @@ jobs:
           terraform_wrapper: false
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff infra/terraform
-      - name: terraform validate (sem backend e sem credenciais)
+      # B6: com o .terraform.lock.hcl versionado, o init roda com -lockfile=readonly: não muda o lock
+      # e falha se um provider não estiver nele ou se o pacote baixado não bater com o hash
+      # registrado. Uma raiz sem lock no Git ainda passa (init normal) e entra na lista "sem_lock",
+      # que os dois passos seguintes usam para gerar o lock e publicá-lo como artefato.
+      - name: terraform init e validate (sem backend e sem credenciais)
+        id: tf
         run: |
+          sem_lock=""
           for dir in infra/terraform/bootstrap infra/terraform/envs/prod; do
-            terraform -chdir="$dir" init -backend=false -input=false -no-color
+            if [ -f "$dir/.terraform.lock.hcl" ]; then
+              terraform -chdir="$dir" init -backend=false -input=false -no-color -lockfile=readonly
+            else
+              echo "::warning title=Terraform sem lock::$dir não tem .terraform.lock.hcl no Git; o CI gera um no artefato terraform-lock (infra/terraform/README.md, Versões)"
+              terraform -chdir="$dir" init -backend=false -input=false -no-color
+              sem_lock="$sem_lock $dir"
+            fi
             terraform -chdir="$dir" validate -no-color
           done
+          echo "sem_lock=${sem_lock# }" >> "$GITHUB_OUTPUT"
+      # Só fala com o registry da HashiCorp (baixa o pacote de cada plataforma para calcular o hash):
+      # não precisa de credencial da AWS. Plataformas do time (Windows, Mac Intel e Apple Silicon)
+      # e do CI (Linux x64 e ARM64).
+      - name: terraform providers lock (só nas raízes sem o lock no Git)
+        if: steps.tf.outputs.sem_lock != ''
+        env:
+          SEM_LOCK: ${{ steps.tf.outputs.sem_lock }}
+        run: |
+          for dir in $SEM_LOCK; do
+            terraform -chdir="$dir" providers lock \
+              -platform=linux_amd64 -platform=linux_arm64 \
+              -platform=darwin_amd64 -platform=darwin_arm64 -platform=windows_amd64
+          done
+      # O Tech Lead baixa o artefato e o DevOps versiona os arquivos (bootstrap/ e envs/prod/).
+      - name: Publica o lock gerado (artefato terraform-lock)
+        if: steps.tf.outputs.sem_lock != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: terraform-lock
+          path: |
+            infra/terraform/bootstrap/.terraform.lock.hcl
+            infra/terraform/envs/prod/.terraform.lock.hcl
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
       - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
         with:
           tflint_version: v0.64.0
@@ -210,6 +268,195 @@ jobs:
           config --exit-code 1 --severity HIGH,CRITICAL
           --skip-dirs node_modules --skip-dirs docs .
 
+  # B5: o "images" é o job mais caro (repositório privado: os minutos contam). No PR, ele só roda
+  # quando o diff mexe em algo que entra nas imagens ou no próprio CI; na main e no
+  # workflow_dispatch, sempre. Caminho desconhecido conta como relevante, e se este job falhar o
+  # "images" roda do mesmo jeito.
+  changes:
+    name: changes (o PR mexe nas imagens?)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      images: ${{ steps.diff.outputs.images }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # O merge commit do PR (refs/pull/N/merge) e os pais: HEAD^1 é a ponta da main.
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Arquivos do PR que afetam as imagens
+        id: diff
+        run: |
+          # quotepath=off: caminho com acento sai como está, sem aspas, e casa com os padrões.
+          arquivos=$(git -c core.quotepath=off diff --name-only HEAD^1 HEAD)
+          images=false
+          while IFS= read -r f; do
+            case "$f" in
+              # Fora do contexto das imagens (.dockerignore) ou sem efeito no build e no teste delas.
+              infra/local/*) images=true ;;
+              docs/* | infra/* | .claude/* | *.md) ;;
+              apps/*/test/* | *.spec.ts | *.test.ts | *.test.tsx | */vitest*.config.ts) ;;
+              apps/mobile/package.json | packages/ui/package.json) images=true ;;
+              apps/mobile/* | packages/ui/*) ;;
+              .github/CODEOWNERS | .github/dependabot.yml | .github/pull_request_template.md) ;;
+              .gitleaks.toml | .gitleaksignore | scripts/audit-exceptions.mjs) ;;
+              *) images=true ;;
+            esac
+          done <<< "$arquivos"
+          echo "images=$images" | tee -a "$GITHUB_OUTPUT"
+
+  # B5 (7.6 CA; runbook, passo 4): as imagens de produção, construídas e testadas em ARM64 nativo,
+  # a arquitetura do Fargate (Graviton). O ubuntu-24.04-arm é runner "standard" também em
+  # repositório privado (GitHub, 2026-01-29): gasta a franquia do plano como o x64 e, fora dela,
+  # custa US$ 0,005/min (x64: US$ 0,006). Build por QEMU num runner x64 levaria várias vezes mais
+  # minutos, e um smoke em amd64 testaria uma arquitetura que não roda em produção (infra.md §4.1).
+  images:
+    name: images (build ARM64, usuário, migration e /health/ready)
+    needs: changes
+    if: >-
+      !cancelled() && github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.images != 'false')
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    services:
+      # As mesmas imagens, tags e digests do docker-compose.yml, em portas do host fora das padrão (sem
+      # colisão com um Postgres do próprio runner). Os containers das imagens usam --network host.
+      postgres:
+        image: postgres:18.6-bookworm@sha256:5c4783a8cc3f0074912164f94dfa1be4e043438f0f707cf968d7af9a0d31a2c8
+        env:
+          POSTGRES_USER: sussurro
+          POSTGRES_PASSWORD: sussurro
+          POSTGRES_DB: sussurro
+        ports: ['15432:5432']
+        options: >-
+          --health-cmd "pg_isready -U sussurro -d sussurro"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      valkey:
+        image: valkey/valkey:8.1-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a
+        ports: ['16379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      # Credencial descartável do container de teste (a mesma do .env.example), não é segredo.
+      DATABASE_URL: postgres://sussurro:sussurro@127.0.0.1:15432/sussurro
+      REDIS_URL: redis://127.0.0.1:16379
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # --platform explícito: num runner x64 (sem QEMU) o build falha em vez de sair amd64. O cache
+      # do store do pnpm (RUN --mount=type=cache) é compartilhado entre os dois builds.
+      - name: Build da imagem da API (linux/arm64)
+        run: docker buildx build --platform linux/arm64 --load -f apps/api/Dockerfile -t sussurro-api:ci .
+      - name: Build da imagem do worker (linux/arm64)
+        run: docker buildx build --platform linux/arm64 --load -f apps/worker/Dockerfile -t sussurro-worker:ci .
+      - name: Arquitetura e usuário das imagens (arm64, node, uid 1000)
+        run: |
+          for app in api worker; do
+            img="sussurro-$app:ci"
+            arch=$(docker image inspect --format '{{.Architecture}}' "$img")
+            usuario=$(docker run --rm --entrypoint id "$img" -un)
+            uid=$(docker run --rm --entrypoint id "$img" -u)
+            echo "$img: arquitetura=$arch usuário=$usuario uid=$uid"
+            test "$arch" = arm64
+            test "$usuario" = node
+            test "$uid" = 1000
+          done
+      # Runbook, passos 4 e 7: a task "migrate" do ECS roda esta imagem com `node dist/migrate.js`.
+      # A segunda execução não tem nada a aplicar e também precisa sair com 0.
+      - name: Migration pela imagem da API (duas vezes)
+        run: |
+          for vez in 1 2; do
+            docker run --rm --network host --read-only --tmpfs /tmp -e DATABASE_URL \
+              sussurro-api:ci node dist/migrate.js
+          done
+      # Como no ECS: NODE_ENV=production (o da imagem), raiz só leitura com /tmp gravável e init.
+      # Os valores de produção que o boot exige são fictícios e gerados aqui; SES e CloudFront não
+      # são chamados para responder ao /health/ready.
+      - name: API pela imagem responde /health/ready 200 (Postgres e Valkey)
+        run: |
+          JWT_ACCESS_SECRET=$(openssl rand -hex 32)
+          CLOUDFRONT_PRIVATE_KEY=$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null)
+          export JWT_ACCESS_SECRET CLOUDFRONT_PRIVATE_KEY
+          docker run -d --name api --network host --read-only --tmpfs /tmp --init \
+            -e DATABASE_URL -e REDIS_URL -e JWT_ACCESS_SECRET -e CLOUDFRONT_PRIVATE_KEY \
+            -e EMAIL_SENDER=ses -e MODERATION_EMAIL=moderacao@example.com \
+            -e MEDIA_URL_SIGNER=cloudfront -e CLOUDFRONT_DOMAIN=media.example.com \
+            -e CLOUDFRONT_KEY_PAIR_ID=KCIFICTICIO \
+            sussurro-api:ci
+          status=000
+          for tentativa in $(seq 1 30); do
+            status=$(curl -s -o "$RUNNER_TEMP/ready.json" -w '%{http_code}' http://127.0.0.1:3000/health/ready || true)
+            [ "$status" = 200 ] && break
+            sleep 2
+          done
+          echo "GET /health/ready -> $status $(cat "$RUNNER_TEMP/ready.json" 2>/dev/null)"
+          test "$status" = 200
+          grep -q '"status":"ok"' "$RUNNER_TEMP/ready.json"
+      - name: Emuladores S3/SQS (compose) para o worker
+        run: docker compose up -d --wait elasticmq seaweedfs s3-init
+      # Também como em produção: MediaConvert (ARN fictício) e Expo, que só seriam chamados com
+      # mensagem na fila. Confere a subida (o sharp ARM64 carrega no import) e a primeira
+      # manutenção, 5 s depois (banco e S3).
+      - name: Worker pela imagem sobe e fica no ar
+        env:
+          # Credencial local dos emuladores (infra/local/s3.json), não é segredo.
+          AWS_REGION: sa-east-1
+          AWS_ACCESS_KEY_ID: local
+          AWS_SECRET_ACCESS_KEY: local
+          AWS_ENDPOINT_URL_S3: http://127.0.0.1:8333
+          AWS_ENDPOINT_URL_SQS: http://127.0.0.1:9324
+          S3_FORCE_PATH_STYLE: 'true'
+          S3_BUCKET_MEDIA: sussurro-media
+        run: |
+          docker run -d --name worker --network host --read-only --tmpfs /tmp --init \
+            -e DATABASE_URL -e REDIS_URL -e AWS_REGION -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+            -e AWS_ENDPOINT_URL_S3 -e AWS_ENDPOINT_URL_SQS -e S3_FORCE_PATH_STYLE -e S3_BUCKET_MEDIA \
+            -e VIDEO_PROCESSOR=mediaconvert -e MEDIACONVERT_ROLE_ARN=arn:aws:iam::123456789012:role/ci-ficticia \
+            -e PUSH_SENDER=expo \
+            sussurro-worker:ci
+          # O log vai para uma variável antes do grep: "docker logs | grep -q" pode morrer de
+          # SIGPIPE e, com pipefail, falhar à toa.
+          for tentativa in $(seq 1 30); do
+            logs=$(docker logs worker 2>&1)
+            if grep -q 'Worker iniciado' <<< "$logs"; then break; fi
+            sleep 2
+          done
+          sleep 10
+          logs=$(docker logs worker 2>&1)
+          grep 'Worker iniciado (production' <<< "$logs"
+          test "$(docker inspect --format '{{.State.Running}}' worker)" = true
+          if grep 'Falha na manuten' <<< "$logs"; then exit 1; fi
+      # SIGTERM, como no deploy e no aviso do Spot: os dois fecham as conexões e saem com 0.
+      - name: Desligamento gracioso (SIGTERM e exit 0)
+        run: |
+          docker stop --time 60 api worker
+          for c in api worker; do
+            codigo=$(docker inspect --format '{{.State.ExitCode}}' "$c")
+            echo "$c saiu com $codigo"
+            test "$codigo" = 0
+          done
+      - name: Tamanho das imagens (resumo do run)
+        run: |
+          {
+            echo '### Imagens de produção (linux/arm64)'
+            echo
+            echo '| Imagem | Tamanho |'
+            echo '| --- | --- |'
+            docker image ls --filter 'reference=sussurro-*:ci' --format '| {{.Repository}}:{{.Tag}} | {{.Size}} |'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Logs dos containers (só em falha)
+        if: failure()
+        run: |
+          for c in api worker; do
+            echo "::group::docker logs $c"
+            docker logs "$c" 2>&1 || true
+            echo "::endgroup::"
+          done
+          docker compose logs --no-color || true
+
   audit:
     name: audit (dependências de produção)
     if: >-
@@ -217,8 +464,6 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # Fase 0: só informa (infra.md §4.1).
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -227,4 +472,12 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-      - run: pnpm audit --prod --audit-level high
+      # Lê o lockfile e o audit.ignore do pnpm-workspace.yaml (sem pnpm install). Só informa
+      # (infra.md §4.1): um aviso novo não deixa o job vermelho.
+      - name: pnpm audit (só informa)
+        continue-on-error: true
+        run: pnpm audit --prod --audit-level high
+      # B8: este passo, sim, deixa o job vermelho (inclusive no agendado): GHSA sem registro, caminho
+      # fora da exceção ou data de revisão vencida (infra.md §8.3).
+      - name: Exceções do audit (caminho registrado e data de revisão)
+        run: node scripts/audit-exceptions.mjs

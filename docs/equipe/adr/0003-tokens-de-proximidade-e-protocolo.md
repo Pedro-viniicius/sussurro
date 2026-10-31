@@ -1,6 +1,7 @@
 # ADR 0003: Tokens de proximidade e protocolo de conexão mútua
 
-- Status: proposto · Data: 2026-10-29
+- Status: ~~proposto~~ Aceita (PO, 2026-10-29) · Data: 2026-10-29
+- (revisto em 2026-10-31) Status atualizado: o PO aprovou o plano em 2026-10-29, e as recomendações da §8 do `PROJETO.md` passaram a valer como decididas (`PROJETO.md`, topo).
 - Em parte substituída pela ADR 0012 (2026-10-30, Conectar encostando). Mudam:
   - um token por canal (`bleToken` e `qrToken`);
   - o `resolve` passa a servir só ao QR;

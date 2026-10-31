@@ -1,6 +1,7 @@
 # ADR 0008: Regras de tipo de conta no banco e na aplicação
 
-- Status: proposto · Data: 2026-10-29
+- Status: ~~proposto~~ Aceita (PO, 2026-10-29) · Data: 2026-10-29
+- (revisto em 2026-10-31) Status atualizado: o PO aprovou o plano em 2026-10-29, e as recomendações da §8 do `PROJETO.md` passaram a valer como decididas (`PROJETO.md`, topo).
 
 ## Contexto
 Criador não segue nem conecta. Follow só vai de personal para creator. Conexões só existem entre contas pessoais. Essas regras precisam valer no servidor e têm testes obrigatórios na Fase 3.
