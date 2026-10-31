@@ -120,6 +120,58 @@ export function isTouchActionAllowed(
 }
 
 /**
+ * Uma das duas contas de um encosto como a política a vê (ADR 0012, A3-1, R22): os fatos chegam em
+ * colunas (`ProximityRepository.findTouchPair`), e não no `WHERE`, para o banco fazer o mesmo
+ * trabalho com ou sem bloqueio. `blocked` é do **par**: o mesmo valor nas duas linhas.
+ */
+export interface TouchParty {
+  id: string;
+  /** Conta pessoal (`account_type = 'personal'`). */
+  personal: boolean;
+  /** Conta não excluída (`deleted_at is null`). */
+  active: boolean;
+  /** Há bloqueio entre as duas contas, em qualquer sentido. */
+  blocked: boolean;
+}
+
+/** As duas contas de um encosto que pode revelar os cartões. */
+export interface TouchRevealParties<T extends TouchParty> {
+  /** O dono do `bleToken` relatado. */
+  owner: T;
+  /** Quem relatou. */
+  caller: T;
+}
+
+/**
+ * Revelar os cartões no encosto (ADR 0012 §3 e A3-1; X.2 CA2): o dono do token e quem chama
+ * existem, são contas diferentes, pessoais e ativas, e não há bloqueio entre elas em nenhum
+ * sentido. É a regra do `findNearby` com o `hideBlockedFor` (o mesmo filtro do QR), decidida sobre
+ * as colunas. Regra pura: devolve as duas linhas, ou `null` na recusa, e quem chama só tem o cartão
+ * de uma conta por este retorno (a linha recusada, com @, nome e foto, não sai daqui).
+ */
+export function touchRevealParties<T extends TouchParty>(
+  viewer: AuthContext,
+  ownerId: string,
+  rows: readonly T[],
+): TouchRevealParties<T> | null {
+  const owner = rows.find((row) => row.id === ownerId);
+  const caller = rows.find((row) => row.id === viewer.userId);
+  if (
+    owner === undefined ||
+    caller === undefined ||
+    owner.id === caller.id ||
+    !owner.personal ||
+    !owner.active ||
+    !caller.personal ||
+    !caller.active ||
+    owner.blocked
+  ) {
+    return null;
+  }
+  return { owner, caller };
+}
+
+/**
  * Único ponto que decide visibilidade (arquitetura.md §5 e §7). Quem não pode ver recebe o mesmo
  * 404 de um recurso inexistente (PERM-13, PERM-14). Coberto por testes de permissão.
  */
@@ -199,16 +251,17 @@ export class AccessPolicyService {
   }
 
   /**
-   * (ADR 0012, A2 rev. 1, R1-5) Bloquear (`POST /me/blocks {handle}`) e denunciar a conta pelo @:
-   * quem o leitor vê, como sempre, **ou**, entre contas pessoais, quem tem par encostado vivo com
-   * ele (o cartão do encosto, 60 s). `target`: a conta ativa do @ (`undefined` para @ inexistente,
-   * excluído ou inválido). `touchPair(targetId)`: o fato "o par vive", do `proximity`.
+   * (ADR 0012, A2 rev. 1, R1-5) Bloquear pelo @ (`POST /me/blocks {handle}`), e a base da denúncia
+   * de conta (`canReportAccount`): quem o leitor vê, como sempre, **ou**, entre contas pessoais,
+   * quem tem par encostado vivo com ele (o cartão do encosto, 60 s). `target`: a conta ativa do @
+   * (`undefined` para @ inexistente, excluído ou inválido). `touchPair(targetId)`: o fato "o par
+   * vive", do `proximity`.
    *
    * Sem oráculo: alvo visível decide sem consultar o par (o bloqueio de uma conexão nunca depende do
    * Valkey); qualquer outro alvo consulta o par **sempre**, mesmo sem conta (com `undefined`), para o
    * tempo e a falha (503) serem os mesmos para @ existente, inexistente, excluído e inválido. Ninguém
    * consome o par: bloquear e denunciar, em qualquer ordem e nos dois sentidos, passam enquanto ele
-   * vive.
+   * vive. A regra "denunciar quem você bloqueou" (R1-PO-1) é só da denúncia, não do bloqueio.
    */
   async canBlockOrReport(
     viewer: AuthContext,
@@ -218,6 +271,51 @@ export class AccessPolicyService {
     if (target !== undefined && (await this.canViewProfile(viewer, target))) {
       return true;
     }
+    return this.touchPairAllows(viewer, target, touchPair);
+  }
+
+  /**
+   * Denunciar a conta pelo @ (`POST /reports`, `target.type = 'account'`): a regra de
+   * `canBlockOrReport` **mais** "quem denuncia bloqueou o alvo" (R1-PO-1, aprovada pelo PO em
+   * 2026-10-30), sem prazo. Só nesse sentido: ter sido bloqueado pelo alvo não conta. Post e
+   * comentário não mudam (seguem a visibilidade de sempre).
+   *
+   * Ordem, sem oráculo:
+   * 1. perfil visível → pode, sem consultar o par (como em `canBlockOrReport`);
+   * 2. alvo existente que o leitor bloqueou → pode, **sem** consultar o par: com o Valkey fora, a
+   *    denúncia de quem você bloqueou não dá 503. Não revela nada novo a quem denuncia: o
+   *    `GET /me/blocks` já lhe mostra as contas ativas que bloqueou, com o @ atual. E a linha em
+   *    `blocks` só existe se o bloqueio foi gravado, o que já exigiu ver o perfil ou o par vivo;
+   * 3. senão, o par encostado, consultado **sempre** (também com `undefined`), como em
+   *    `canBlockOrReport`: o 503 e o tempo continuam iguais para @ inexistente, excluído, inválido
+   *    e para quem só foi bloqueado pelo alvo.
+   *
+   * `hasBlocked` roda para **todo** alvo existente que o leitor não vê, sem atalho pelo `blocked`
+   * da relação já lida: pular a consulta quando não há bloqueio em nenhum sentido deixaria mais
+   * lento só o caso "o alvo bloqueou quem denuncia", e o tempo revelaria esse bloqueio.
+   */
+  async canReportAccount(
+    viewer: AuthContext,
+    target: ProfileTarget | undefined,
+    touchPair: (targetId: string | undefined) => Promise<boolean>,
+  ): Promise<boolean> {
+    if (target !== undefined) {
+      if (await this.canViewProfile(viewer, target)) {
+        return true;
+      }
+      if (await this.relations.hasBlocked(viewer.userId, target.id)) {
+        return true;
+      }
+    }
+    return this.touchPairAllows(viewer, target, touchPair);
+  }
+
+  /** O par encostado, consultado sempre, mesmo sem conta (R1-5; ver `canBlockOrReport`). */
+  private async touchPairAllows(
+    viewer: AuthContext,
+    target: ProfileTarget | undefined,
+    touchPair: (targetId: string | undefined) => Promise<boolean>,
+  ): Promise<boolean> {
     const paired = await touchPair(target?.id);
     return target !== undefined && isTouchActionAllowed(viewer, target, paired);
   }
@@ -273,6 +371,19 @@ export class AccessPolicyService {
    */
   hideBlockedFor(viewer: AuthContext, accountColumn: SQL | { getSQL(): SQL }): SQL {
     return this.relations.notBlockedWith(viewer.userId, accountColumn);
+  }
+
+  /**
+   * (ADR 0012, A3-1, R22) O encosto pode revelar os cartões? A regra de `touchRevealParties`, sobre
+   * as duas linhas do `findTouchPair` (já lidas: aqui não há consulta, para o caminho do `touches`
+   * ter as mesmas idas em todo caso).
+   */
+  touchRevealParties<T extends TouchParty>(
+    viewer: AuthContext,
+    ownerId: string,
+    rows: readonly T[],
+  ): TouchRevealParties<T> | null {
+    return touchRevealParties(viewer, ownerId, rows);
   }
 
   /**

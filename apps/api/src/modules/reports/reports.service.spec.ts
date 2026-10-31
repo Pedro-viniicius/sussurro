@@ -38,8 +38,9 @@ function account(handle: string): CreateReportRequest {
 }
 
 /**
- * A denúncia com o banco e o e-mail dublados. A política é a de verdade, sobre relações dubladas;
- * o par vivo vem de `proximity.hasLiveTouchPair` (ADR 0012, A2 rev. 1, R1-5).
+ * A denúncia com o banco e o e-mail dublados. A política é a de verdade, sobre relações dubladas
+ * (`relation` e os bloqueios com sentido em `blocks`, R1-PO-1); o par vivo vem de
+ * `proximity.hasLiveTouchPair` (ADR 0012, A2 rev. 1, R1-5).
  */
 function setup() {
   const inserted: unknown[] = [];
@@ -59,7 +60,22 @@ function setup() {
     findActiveAccount: vi.fn((handle: string) => Promise.resolve(ACCOUNTS[handle])),
   };
   const relation = { connected: false, blocked: false };
-  const relations = { relationship: vi.fn(() => Promise.resolve({ ...relation })) };
+  /** Bloqueios gravados, com sentido: `"{quem bloqueou}>{quem foi bloqueado}"` (R1-PO-1). */
+  const blocks = new Set<string>();
+  const relations = {
+    relationship: vi.fn((viewerId: string, otherId: string) =>
+      Promise.resolve({
+        connected: relation.connected,
+        blocked:
+          relation.blocked ||
+          blocks.has(`${viewerId}>${otherId}`) ||
+          blocks.has(`${otherId}>${viewerId}`),
+      }),
+    ),
+    hasBlocked: vi.fn((blockerId: string, blockedId: string) =>
+      Promise.resolve(blocks.has(`${blockerId}>${blockedId}`)),
+    ),
+  };
   const policy = new AccessPolicyService(relations as unknown as RelationsRepository);
   const pair = { live: false, down: false };
   const proximity = {
@@ -87,7 +103,7 @@ function setup() {
     new FakeClock(),
     new AppConfig(testEnv({ MODERATION_EMAIL: 'moderacao@sussurro.app' })),
   );
-  return { service, inserted, sent, proximity, relation, pair };
+  return { service, inserted, sent, proximity, relation, relations, blocks, pair };
 }
 
 async function failure(promise: Promise<unknown>): Promise<{ status: number; body: unknown }> {
@@ -207,5 +223,99 @@ describe('ReportsService: denunciar a conta pelo cartão do encosto (ADR 0012, A
       ).status,
     ).toBe(404);
     expect(t.proximity.hasLiveTouchPair).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReportsService: denunciar a conta de quem você bloqueou (R1-PO-1)', () => {
+  const UNAVAILABLE = {
+    status: 503,
+    body: {
+      code: ErrorCode.PROXIMITY_UNAVAILABLE,
+      message: 'Conectar está indisponível agora. Tente de novo em instantes.',
+    },
+  };
+
+  it('[PROX-65] [PROX-62] [X.1] V bloqueou M, sem par: 202, grava a denúncia da conta e manda o e-mail, sem consultar o par', async () => {
+    const t = setup();
+    t.blocks.add(`${V}>${M}`);
+    await t.service.create(viewer, account('mallory'));
+    expect(t.relations.hasBlocked).toHaveBeenCalledWith(V, M);
+    expect(t.proximity.hasLiveTouchPair).not.toHaveBeenCalled();
+    expect(t.inserted).toEqual([
+      expect.objectContaining({
+        reporterId: V,
+        targetType: 'account',
+        targetUserId: M,
+        postId: null,
+        commentId: null,
+      }),
+    ]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(t.sent).toHaveLength(1);
+    expect(t.sent[0]!.text).toContain('Alvo: conta @mallory');
+  });
+
+  it('[PROX-65] [PROX-62] [X.1] V bloqueou M e o Valkey está fora → 202 (sem 503), gravado; também com bloqueio nos dois sentidos', async () => {
+    const t = setup();
+    t.blocks.add(`${V}>${M}`);
+    t.blocks.add(`${M}>${V}`);
+    t.pair.down = true;
+    await t.service.create(viewer, account('mallory'));
+    expect(t.inserted).toHaveLength(1);
+  });
+
+  it('[PROX-65] [PROX-62] [X.1] só M bloqueou V: não conta; sem par, o mesmo 404 de @ inexistente; Valkey fora, o mesmo 503 de @ inexistente; nada gravado nem enviado', async () => {
+    const t = setup();
+    t.blocks.add(`${M}>${V}`);
+    expect([
+      await failure(t.service.create(viewer, account('mallory'))),
+      await failure(t.service.create(viewer, account('ninguem'))),
+    ]).toEqual([NOT_FOUND, NOT_FOUND]);
+    t.pair.down = true;
+    expect([
+      await failure(t.service.create(viewer, account('mallory'))),
+      await failure(t.service.create(viewer, account('ninguem'))),
+    ]).toEqual([UNAVAILABLE, UNAVAILABLE]);
+    expect(t.proximity.hasLiveTouchPair.mock.calls).toEqual([
+      [V, M],
+      [V, undefined],
+      [V, M],
+      [V, undefined],
+    ]);
+    expect(t.inserted).toEqual([]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(t.sent).toEqual([]);
+  });
+
+  it('[PROX-65] [PROX-62] [X.1] depois do desbloqueio, sem par → o 404 de @ inexistente de novo', async () => {
+    const t = setup();
+    t.blocks.add(`${V}>${M}`);
+    await t.service.create(viewer, account('mallory'));
+    t.blocks.delete(`${V}>${M}`);
+    expect(await failure(t.service.create(viewer, account('mallory')))).toEqual(NOT_FOUND);
+    expect(t.proximity.hasLiveTouchPair.mock.calls).toEqual([[V, M]]);
+    expect(t.inserted).toHaveLength(1);
+  });
+
+  it('[PROX-65] [PROX-62] [X.1] post e comentário não ganham a regra: não consultam o bloqueio', async () => {
+    const t = setup();
+    t.blocks.add(`${V}>${M}`);
+    await t.service.create(viewer, {
+      target: { type: 'post', id: POST },
+      reason: 'spam',
+      details: null,
+    });
+    expect(
+      (
+        await failure(
+          t.service.create(viewer, {
+            target: { type: 'comment', id: POST },
+            reason: 'spam',
+            details: null,
+          }),
+        )
+      ).status,
+    ).toBe(404);
+    expect(t.relations.hasBlocked).not.toHaveBeenCalled();
   });
 });

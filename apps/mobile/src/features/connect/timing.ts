@@ -34,11 +34,31 @@ export const connectTiming = {
    */
   formDismissFallbackMs: 1_000,
   /**
+   * A câmera do QR que fecha porque o cartão chegou (ux.md §11.15): no iOS, o foco e o anúncio do
+   * cartão esperam o `onDismiss` do `Modal`. Se ele não vier até aqui, seguem mesmo assim.
+   */
+  cameraDismissFallbackMs: 1_000,
+  /**
    * "Bloquear" confirmado a menos disto do fim do cartão (11, 14) é recusado como o M7 (ADR 0012,
    * R1-11; BAIXO 6): o pedido chegaria com o par já vencido, e o servidor responderia o 204 de
    * sempre sem gravar ("Você bloqueou" sem ter bloqueado).
    */
   blockConfirmMarginMs: 3_000,
+  /**
+   * A renovação dos tokens com falha repetível (sem rede, 5xx) tenta de novo a cada 3 s, até 3 vezes,
+   * antes de parar a tela (ADR 0012, A3-3 item 4). As três cabem nos 10 s entre a renovação (20 s)
+   * e o fim da validade (30 s).
+   */
+  tokenRetryMs: 3_000,
+  tokenRetries: 3,
+  /**
+   * Teto das emissões de tokens (PROX-68): o servidor aceita 6 por minuto por conta (o limite
+   * `prox-tokens:user` da API, PROX-20) e responde 429 acima disso, que a tela mostra como "Muitas
+   * tentativas" (20). O app conta as próprias emissões numa janela móvel de 60 s, e a tentativa de
+   * novo que passaria do teto não sai. A renovação normal (3 por minuto) nunca chega a ele.
+   */
+  tokenIssueLimit: 6,
+  tokenIssueWindowMs: 60_000,
   /** O Spinner do "Verificando" só aparece depois de 300 ms. */
   checkingSpinnerMs: 300,
   /** Deep link do QR sem sessão: o token é descartado depois de 30 s (4.7 CA6). */

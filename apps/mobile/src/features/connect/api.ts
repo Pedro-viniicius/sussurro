@@ -37,13 +37,20 @@ export function issueProximityTokens(api: ApiClient): Promise<ProximityToken> {
 
 /**
  * `POST /proximity/touches` com **um** token: o `bleToken` encostado de menor perda (P8). O cartão
- * só volta com o encosto mútuo (ADR 0012 §3). Nada além do token vai no corpo.
+ * só volta com o encosto mútuo (ADR 0012 §3). Nada além do token vai no corpo. É a única chamada com
+ * prazo (`timeoutMs`, o `reportTimeoutMs` de 4 s; A3-3 item 1): uma conexão que trava prenderia o
+ * relato em voo, e o portão do relato é do processo inteiro.
  */
-export function reportTouch(api: ApiClient, bleToken: string): Promise<ProximityTouchResult> {
+export function reportTouch(
+  api: ApiClient,
+  bleToken: string,
+  timeoutMs: number,
+): Promise<ProximityTouchResult> {
   return api.request('/v1/proximity/touches', {
     method: 'POST',
     body: { tokens: [bleToken] },
     schema: ProximityTouchResultSchema,
+    timeoutMs,
   });
 }
 

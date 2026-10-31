@@ -3,8 +3,9 @@ import { MONTHS_SHORT } from '@sussurro/ui';
 /**
  * Textos da tela Conectar: os do protótipo (p10–p14, p22), os do ux.md (§4.10 a §4.12, §5.2 e §7.3)
  * e, para o "encostar" (ADR 0012), os T1 a T42 e os anúncios A1 a A6 do ux.md §11.8 e §11.9,
- * aprovados pelo PO em 2026-10-30 como estão. Onde os documentos não dão texto, a decisão está
- * marcada com "(4b)" e registrada no README.
+ * aprovados pelo PO em 2026-10-30 como estão (os T47 e T48, dos anúncios A7 e A8, estão propostos,
+ * a aprovar pelo PO). Onde os documentos não dão texto, a decisão está marcada com "(4b)" e
+ * registrada no README.
  */
 
 /** Primeiro nome para "Aguardando Caio confirmar" (o @ completo aparece na folha). */
@@ -59,11 +60,19 @@ export const COPY = {
   cancel: 'Cancelar',
   alreadyConnected: 'Vocês já estão conectados.',
   // T46 (aprovado pelo PO em 2026-10-30): o prazo da denúncia, só no formulário aberto pelo cartão
-  // (11, 14 e Bloqueado), nunca no 12 nem na rota `/denunciar` (ux.md §11.14).
+  // 11, 14 ou 22. Nunca no 12, no Bloqueado (quem bloqueou denuncia sem prazo, R1-PO-1) nem na rota
+  // `/denunciar` (ux.md §11.14 e §11.15).
   reportDeadline: 'Envie em até 1 minuto depois do encosto.',
   // Cartão venceu (17): T20, no Toast e no leitor de tela.
   cardExpired: (first: string) =>
     `O tempo para conectar com ${first} acabou. Encostem os celulares de novo.`,
+  // T47 (cartão atrasado, 21) e T48 (cartão sem Conectar, 22): no lugar do T15 e como os anúncios
+  // A7 e A8 (ux.md §11.9 e §11.15). Proposto, a aprovar pelo PO (A3-PO-2): se o PO mudar o texto,
+  // só muda aqui.
+  lateCardText: (first: string) =>
+    `O tempo para conectar acabou. Para tentar de novo, toque em Voltar e encoste o seu celular no de ${first}.`,
+  noConnectCardText: (first: string) =>
+    `Para conectar, toque em Voltar e encoste de novo o seu celular no de ${first}.`,
   // (dev, D15) Simulações e a calibração: só no build de desenvolvimento.
   simulate: 'Simular um pedido recebido',
   simulateTouch: 'Simular o outro celular encostando',

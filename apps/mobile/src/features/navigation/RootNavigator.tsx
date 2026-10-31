@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useConnectivityBanner } from '../../lib/network';
 import { useAuth } from '../auth/AuthProvider';
+import { useTouchSessionScope } from '../connect/useTouch';
 import { PublishingProvider } from '../create/PublishingProvider';
 import { NotificationsProvider } from '../notifications/NotificationsProvider';
 import { PostStoreProvider } from '../posts/post-store';
@@ -28,14 +29,17 @@ const COMMENTS_OPTIONS =
  * Pilha raiz do app (ux.md §3.1). Os portões de sessão e de tipo de conta ficam nos layouts de
  * cada grupo (`(auth)`, `pessoal`, `criador`, `conta`), que redirecionam para a rota certa. Os
  * posts e os follows em memória e as publicações em andamento são por conta: trocam quando a
- * sessão troca. As notificações (ponto azul, push do aparelho e toques nos pushes) também.
+ * sessão troca. As notificações (ponto azul, push do aparelho e toques nos pushes) também, e o
+ * último cartão do encostar, que fica no módulo (ADR 0012, A3-3 item 5).
  */
 export function RootNavigator() {
   const banner = useConnectivityBanner();
   const { user } = useAuth();
+  const userId = user?.id ?? null;
+  useTouchSessionScope(userId);
   return (
-    <PostStoreProvider userId={user?.id ?? null}>
-      <FollowStoreProvider userId={user?.id ?? null}>
+    <PostStoreProvider userId={userId}>
+      <FollowStoreProvider userId={userId}>
         <NotificationsProvider>
           <PublishingProvider>
             <View style={styles.root}>

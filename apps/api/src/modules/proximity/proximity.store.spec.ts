@@ -409,16 +409,19 @@ describe('MemoryProximityStore (validades sobre o Clock)', () => {
     expect(await claim(store, 'a', 'p4', at, limits)).toBe('created');
   });
 
-  it('[PROX-49] takeOwedCard: entrega única, marca a conta como ocupada; sem cartão → null e nada muda; ilegível → null e apagado', async () => {
+  it('[PROX-67] [PROX-49] [PROX-43] takeOwedCard (A3-2): a 1ª retirada devolve o cartão (redelivered false), grava "!{hash}|{json}" com prazo de 10 s e o ocupado por 10 s; a retirada em menos de 10 s devolve o mesmo cartão (redelivered true), sem mudar prazo nem ocupado; aos 10 s, nada; sem cartão → null e nada muda', async () => {
     const clock = new FakeClock();
     const store = new MemoryProximityStore(clock);
     const at = clock.now().getTime();
+    const expiry = (key: string) => rawValues(store).get(key)?.expiresAt;
     expect(await store.takeOwedCard('a', BUSY_MS)).toBeNull();
     expect(store.entries()).toEqual([]);
 
     await observed(store, 'a', 'b', at);
     await claim(store, 'b', 'a', at);
-    expect(await store.takeOwedCard('a', BUSY_MS)).toEqual({
+    const value = `hash-de-b|{"s":"b","at":${String(at)},"h":"h.b","n":"Nome b","a":"avatars/b.jpg","c":false}`;
+    expect(store.entries()).toContainEqual({ key: proximityKeys.owed('a'), value });
+    const card = {
       tokenHash: 'hash-de-b',
       subjectId: 'b',
       atMs: at,
@@ -426,15 +429,120 @@ describe('MemoryProximityStore (validades sobre o Clock)', () => {
       name: 'Nome b',
       avatarKey: 'avatars/b.jpg',
       connected: false,
-    });
-    expect(store.entries()).toContainEqual({ key: proximityKeys.busy('a'), value: '1' });
-    expect(await store.takeOwedCard('a', BUSY_MS)).toBeNull();
+    };
 
+    clock.advance(1_000);
+    expect(await store.takeOwedCard('a', BUSY_MS)).toEqual({ ...card, redelivered: false });
+    expect(store.entries()).toContainEqual({ key: proximityKeys.owed('a'), value: `!${value}` });
+    expect(store.entries()).toContainEqual({ key: proximityKeys.busy('a'), value: '1' });
+    const delivered = at + 1_000;
+    expect(expiry(proximityKeys.owed('a'))).toBe(delivered + BUSY_MS);
+    expect(expiry(proximityKeys.busy('a'))).toBe(delivered + BUSY_MS);
+
+    // A reentrega: o mesmo cartão, sem regravar nada (o mesmo prazo e o mesmo ocupado).
+    for (const elapsed of [1, 5_000, BUSY_MS - 1]) {
+      clock.set(new Date(delivered + elapsed));
+      expect(await store.takeOwedCard('a', BUSY_MS)).toEqual({ ...card, redelivered: true });
+      expect(store.entries()).toContainEqual({ key: proximityKeys.owed('a'), value: `!${value}` });
+      expect(expiry(proximityKeys.owed('a'))).toBe(delivered + BUSY_MS);
+      expect(expiry(proximityKeys.busy('a'))).toBe(delivered + BUSY_MS);
+    }
+
+    clock.set(new Date(delivered + BUSY_MS));
+    expect(await store.takeOwedCard('a', BUSY_MS)).toBeNull();
+    expect(store.entries().map((entry) => entry.key)).not.toContain(proximityKeys.owed('a'));
+    expect(store.entries().map((entry) => entry.key)).not.toContain(proximityKeys.busy('a'));
+  });
+
+  it('[PROX-67] takeOwedCard: o cartão com menos de 10 s de vida não ganha prazo (min(o que falta, 10 s)); o ocupado dura os 10 s', async () => {
+    const clock = new FakeClock();
+    const store = new MemoryProximityStore(clock);
+    const at = clock.now().getTime();
+    const expiry = (key: string) => rawValues(store).get(key)?.expiresAt;
+    await observed(store, 'a', 'b', at);
+    await claim(store, 'b', 'a', at);
+
+    clock.advance(PAIR_MS - 3_000);
+    expect((await store.takeOwedCard('a', BUSY_MS))?.redelivered).toBe(false);
+    expect(expiry(proximityKeys.owed('a'))).toBe(at + PAIR_MS);
+    expect(expiry(proximityKeys.busy('a'))).toBe(at + PAIR_MS - 3_000 + BUSY_MS);
+    clock.advance(2_999);
+    expect((await store.takeOwedCard('a', BUSY_MS))?.redelivered).toBe(true);
+    clock.advance(1);
+    expect(await store.takeOwedCard('a', BUSY_MS)).toBeNull();
+    expect(store.entries().map((entry) => entry.key)).toContain(proximityKeys.busy('a'));
+  });
+
+  it('[PROX-67] [PROX-49] takeOwedCard: valor ilegível → null, sem apagar (como o script, que não lê o JSON: marcado e com o ocupado, vence em até 10 s)', async () => {
     for (const value of ['sem-separador', '|{"s":"b"}', 'h|não é json', 'h|{"s":"b","at":1}']) {
+      const clock = new FakeClock();
+      const store = new MemoryProximityStore(clock);
+      const at = clock.now().getTime();
       rawValues(store).set(proximityKeys.owed('c'), { value, expiresAt: at + PAIR_MS });
-      expect(await store.takeOwedCard('c', BUSY_MS)).toBeNull();
+      expect(await store.takeOwedCard('c', BUSY_MS), value).toBeNull();
+      expect(store.entries()).toContainEqual({ key: proximityKeys.owed('c'), value: `!${value}` });
+      expect(store.entries()).toContainEqual({ key: proximityKeys.busy('c'), value: '1' });
+      expect(await store.takeOwedCard('c', BUSY_MS), value).toBeNull();
+      clock.advance(BUSY_MS - 1);
+      expect(store.entries().map((entry) => entry.key)).toContain(proximityKeys.owed('c'));
+      clock.advance(1);
       expect(store.entries().map((entry) => entry.key)).not.toContain(proximityKeys.owed('c'));
     }
+  });
+
+  it('[PROX-67] [PROX-53] o cartão à espera da reentrega ("!") ocupa a conta sozinho, mesmo sem o prox:c: ninguém casa com ela, e ela não casa com ninguém, até ele vencer', async () => {
+    const clock = new FakeClock();
+    const store = new MemoryProximityStore(clock);
+    const at = clock.now().getTime();
+    await observed(store, 'v', 'm', at);
+    expect(await claim(store, 'm', 'v', at)).toBe('created');
+    expect((await store.takeOwedCard('v', BUSY_MS))?.redelivered).toBe(false);
+    rawValues(store).delete(proximityKeys.busy('v'));
+
+    await observed(store, 'v', 'x', at);
+    expect(await claim(store, 'x', 'v', at)).toBe('busy');
+    await observed(store, 'x', 'v', at);
+    expect(await claim(store, 'v', 'x', at)).toBe('busy');
+    clock.advance(BUSY_MS);
+    await observed(store, 'v', 'x', at + BUSY_MS);
+    expect(await claim(store, 'x', 'v', at + BUSY_MS)).toBe('created');
+  });
+
+  it('[PROX-66] [PROX-46] claimTouchPair com callerCard nulo (a política recusou, A3-1): refused logo depois do gone, sem ler nem gravar par, contadores, cartão devido ou ocupado', async () => {
+    const clock = new FakeClock();
+    const store = new MemoryProximityStore(clock);
+    const at = clock.now().getTime();
+    const internals = store as unknown as {
+      read: (key: string) => string | null;
+      count: (key: string) => number;
+      counters: Map<string, { count: number; resetAt: number }>;
+    };
+    const snapshot = () => ({
+      values: [...rawValues(store)].map(([key, entry]) => [key, { ...entry }]),
+      counters: [...internals.counters].map(([key, entry]) => [key, { ...entry }]),
+    });
+    // Sem a observação do outro, ou fora da janela: `gone`, como sempre (o passo 1 vem antes).
+    expect(await claim(store, 'b', 'a', at, { callerCard: null })).toBe('gone');
+    await observed(store, 'a', 'b', at);
+    expect(await claim(store, 'b', 'a', at + WINDOW_MS, { callerCard: null })).toBe('gone');
+
+    // b com par vivo com a, ocupado, com contadores e um cartão devido a p: nada disso é lido.
+    await store.markTouchPair('a', 'b', PAIR_MS, 7);
+    await observed(store, 'p', 'b', at);
+    expect(await claim(store, 'b', 'p', at)).toBe('created');
+    const before = snapshot();
+    const reads = vi.spyOn(internals, 'read');
+    const counts = vi.spyOn(internals, 'count');
+
+    clock.advance(1);
+    expect(await claim(store, 'b', 'a', at + 1, { callerCard: null })).toBe('refused');
+    expect(reads.mock.calls).toEqual([[proximityKeys.touch('a', 'b')]]);
+    expect(counts).not.toHaveBeenCalled();
+    expect(snapshot()).toEqual(before);
+    expect(store.entries()).toContainEqual({ key: proximityKeys.pair('a', 'b'), value: '7' });
+
+    // Com o cartão, o mesmo relato seguiria para o ocupado (b recebeu um cartão há pouco).
+    expect(await claim(store, 'b', 'a', at + 1)).toBe('busy');
   });
 
   it('[PROX-42] forgetTouchState (só dev): apaga o cartão devido e a marca de ocupado da conta, e nada mais', async () => {
@@ -752,9 +860,12 @@ describe('RedisProximityStore (comandos)', () => {
     );
   });
 
-  it('[PROX-54] claimTouchPair: um script só, com as 10 chaves e os 9 argumentos do A2, na ordem; resposta fora das cinco → erro (503)', async () => {
+  it('[PROX-54] [PROX-66] claimTouchPair: um script só, com as 10 chaves e os 9 argumentos do A2, na ordem; o cartão nulo vai como "" e volta refused (A3-1); resposta fora das seis → erro (503)', async () => {
     const { redis } = fakeRedis();
-    redis.eval.mockResolvedValueOnce('created' as never).mockResolvedValueOnce('OK' as never);
+    redis.eval
+      .mockResolvedValueOnce('created' as never)
+      .mockResolvedValueOnce('refused' as never)
+      .mockResolvedValueOnce('OK' as never);
     const store = new RedisProximityStore(redis as never);
     const input = {
       callerId: 'b',
@@ -791,9 +902,34 @@ describe('RedisProximityStore (comandos)', () => {
       '{"s":"b","at":124,"h":"h.b","n":"Nome b","a":"avatars/b.jpg","c":false}',
       '10000',
     );
+    expect(await store.claimTouchPair({ ...input, callerCard: null })).toBe('refused');
+    expect(redis.eval).toHaveBeenLastCalledWith(
+      CLAIM_TOUCH_SCRIPT,
+      10,
+      'prox:m:a:b',
+      'prox:o:a:b',
+      'rl:prox-pairs:hour:b',
+      'rl:prox-pairs:day:b',
+      'rl:prox-pairs:hour:a',
+      'rl:prox-pairs:day:a',
+      'prox:v:a',
+      'prox:v:b',
+      'prox:c:a',
+      'prox:c:b',
+      '124',
+      '60000',
+      '5000',
+      '10',
+      '3600000',
+      '30',
+      '86400000',
+      '',
+      '10000',
+    );
     await expect(store.claimTouchPair(input)).rejects.toThrow(/casamento/);
     for (const step of [
       "return 'gone'",
+      "if ARGV[8] == '' then return 'refused' end",
       "return 'busy'",
       "return 'capped'",
       "redis.call('INCR', KEYS[index + 2])",
@@ -804,18 +940,31 @@ describe('RedisProximityStore (comandos)', () => {
     ]) {
       expect(CLAIM_TOUCH_SCRIPT).toContain(step);
     }
+    // A3-1: o `refused` vem logo depois do `gone` e antes de qualquer leitura de ocupado, par ou
+    // contador (os `EXISTS` e o `GET` dos contadores).
+    const refused = CLAIM_TOUCH_SCRIPT.indexOf("return 'refused'");
+    expect(refused).toBeGreaterThan(CLAIM_TOUCH_SCRIPT.indexOf("return 'gone'"));
+    expect(refused).toBeLessThan(CLAIM_TOUCH_SCRIPT.indexOf("redis.call('EXISTS'"));
+    expect(refused).toBeLessThan(CLAIM_TOUCH_SCRIPT.indexOf("redis.call('GET', KEYS[index + 2])"));
+    // [PROX-66] Entre o `gone` e o `refused`, nenhum comando: o `refused` não lê nem grava nada
+    // (o `real-services` confere no Valkey; aqui, sem ele, pelo texto do script).
+    expect(
+      CLAIM_TOUCH_SCRIPT.slice(CLAIM_TOUCH_SCRIPT.indexOf("return 'gone'"), refused),
+    ).not.toContain('redis.call');
   });
 
-  it('[PROX-49] takeOwedCard: um script só (GET, DEL e a marca de ocupado); decodifica o cartão; nil ou ilegível → null', async () => {
+  it('[PROX-67] [PROX-49] takeOwedCard (A3-2): um script só (GET; já marcado → devolve sem gravar; senão, marca "!" com o prazo menor e grava o ocupado; sem DEL); "{hash}|{json}" → redelivered false, "!{hash}|{json}" → redelivered true; nil ou ilegível → null', async () => {
     const { redis } = fakeRedis();
+    const json = '{"s":"b","at":124,"h":"h.b","n":"Nome b","a":null,"c":true}';
     redis.eval
-      .mockResolvedValueOnce(
-        'hb|{"s":"b","at":124,"h":"h.b","n":"Nome b","a":null,"c":true}' as never,
-      )
+      .mockResolvedValueOnce(`hb|${json}` as never)
+      .mockResolvedValueOnce(`!hb|${json}` as never)
       .mockResolvedValueOnce(null as never)
-      .mockResolvedValueOnce('ilegível' as never);
+      .mockResolvedValueOnce('ilegível' as never)
+      .mockResolvedValueOnce('!ilegível' as never)
+      .mockResolvedValueOnce('!' as never);
     const store = new RedisProximityStore(redis as never);
-    expect(await store.takeOwedCard('a', BUSY_MS)).toEqual({
+    const card = {
       tokenHash: 'hb',
       subjectId: 'b',
       atMs: 124,
@@ -823,7 +972,8 @@ describe('RedisProximityStore (comandos)', () => {
       name: 'Nome b',
       avatarKey: null,
       connected: true,
-    });
+    };
+    expect(await store.takeOwedCard('a', BUSY_MS)).toEqual({ ...card, redelivered: false });
     expect(redis.eval).toHaveBeenLastCalledWith(
       TAKE_OWED_CARD_SCRIPT,
       2,
@@ -831,10 +981,26 @@ describe('RedisProximityStore (comandos)', () => {
       'prox:c:a',
       '10000',
     );
-    expect(await store.takeOwedCard('a', BUSY_MS)).toBeNull();
-    expect(await store.takeOwedCard('a', BUSY_MS)).toBeNull();
-    expect(TAKE_OWED_CARD_SCRIPT).toContain("redis.call('DEL', KEYS[1])");
-    expect(TAKE_OWED_CARD_SCRIPT).toContain("redis.call('SET', KEYS[2], '1', 'PX', ARGV[1])");
+    expect(await store.takeOwedCard('a', BUSY_MS)).toEqual({ ...card, redelivered: true });
+    for (let index = 0; index < 4; index++) {
+      expect(await store.takeOwedCard('a', BUSY_MS)).toBeNull();
+    }
+    expect(TAKE_OWED_CARD_SCRIPT).not.toContain("'DEL'");
+    for (const step of [
+      'if not card then return false end',
+      "if string.sub(card, 1, 1) == '!' then return card end",
+      'local keep = tonumber(ARGV[1])',
+      "local ttl = redis.call('PTTL', KEYS[1])",
+      'if ttl > 0 and ttl < keep then keep = ttl end',
+      "redis.call('SET', KEYS[1], '!' .. card, 'PX', keep)",
+      "redis.call('SET', KEYS[2], '1', 'PX', ARGV[1])",
+    ]) {
+      expect(TAKE_OWED_CARD_SCRIPT).toContain(step);
+    }
+    // A reentrega sai antes de qualquer gravação: não mexe em prazo nem em ocupado.
+    expect(TAKE_OWED_CARD_SCRIPT.indexOf("== '!' then return card end")).toBeLessThan(
+      TAKE_OWED_CARD_SCRIPT.indexOf("redis.call('SET'"),
+    );
   });
 
   it('[PROX-42] forgetTouchState (só dev): DEL do cartão devido e da marca de ocupado', async () => {

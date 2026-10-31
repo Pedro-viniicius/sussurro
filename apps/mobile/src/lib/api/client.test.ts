@@ -1,6 +1,6 @@
 import { MeSchema, NoContentSchema } from '@sussurro/shared';
 
-import { ApiClient } from './client';
+import { ApiClient, type FetchLike } from './client';
 import { ApiError, NetworkError } from './errors';
 import { BASE_URL, createFakeApi, personalMe, tokenPair } from '../../test-utils/fake-api';
 import { createMemorySessionStore } from '../session/secure-session-store';
@@ -135,5 +135,102 @@ describe('ApiClient (ADR 0007)', () => {
     await expect(client.request('/v1/users/x', { schema: MeSchema })).rejects.toMatchObject({
       code: 'SERVICE_UNAVAILABLE',
     });
+  });
+});
+
+describe('ApiClient: prazo da chamada (ADR 0012, A3-3 item 1)', () => {
+  /** Um `fetch` que só termina quando abortado (`honorSignal`) ou nunca. */
+  function hangingFetch(honorSignal: boolean) {
+    const signals: (AbortSignal | undefined)[] = [];
+    const fetch: FetchLike = (_url, init) => {
+      signals.push(init.signal);
+      return new Promise((_resolve, reject) => {
+        if (!honorSignal) return;
+        init.signal?.addEventListener('abort', () => {
+          reject(new Error('AbortError'));
+        });
+      });
+    };
+    return { fetch, signals };
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it.each([
+    ['o fetch respeita o signal', true],
+    ['o fetch ignora o signal', false],
+  ] as const)(
+    'PROX-68: sem resposta no prazo → aborta a conexão e falha com NetworkError (%s)',
+    async (_case, honorSignal) => {
+      const { fetch, signals } = hangingFetch(honorSignal);
+      const client = new ApiClient({
+        baseUrl: BASE_URL,
+        fetch,
+        tokens: createMemorySessionStore(),
+      });
+      const call = client.request('/v1/proximity/touches', {
+        method: 'POST',
+        body: { tokens: ['CaioTokenBBBBBB1'] },
+        schema: NoContentSchema,
+        timeoutMs: 4000,
+      });
+      const settled = jest.fn();
+      call.then(settled, settled);
+      await jest.advanceTimersByTimeAsync(3999);
+      expect(settled).not.toHaveBeenCalled();
+      expect(signals[0]?.aborted).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      await expect(call).rejects.toBeInstanceOf(NetworkError);
+      // O `signal` do fetch foi abortado: a conexão não fica aberta por trás.
+      expect(signals[0]?.aborted).toBe(true);
+    },
+  );
+
+  it('PROX-68: resposta antes do prazo → resolve e não deixa relógio pendente; sem timeoutMs, nenhum signal vai ao fetch', async () => {
+    const { api, client } = setup();
+    api.on('POST /v1/auth/logout', { status: 204 });
+    await expect(
+      client.request('/v1/auth/logout', {
+        method: 'POST',
+        schema: NoContentSchema,
+        timeoutMs: 4000,
+      }),
+    ).resolves.toBeUndefined();
+    expect(jest.getTimerCount()).toBe(0);
+
+    const { fetch, signals } = hangingFetch(true);
+    const plain = new ApiClient({ baseUrl: BASE_URL, fetch, tokens: createMemorySessionStore() });
+    void plain.request('/v1/me', { schema: MeSchema }).catch(() => undefined);
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(signals).toEqual([undefined]);
+  });
+
+  it('PROX-68: o prazo acaba durante o refresh do 401 → NetworkError, sem repetir a chamada; o refresh termina para as outras', async () => {
+    const { api, client, store } = setup('r0');
+    await client.setSession({ ...tokenPair(), accessToken: 'vencido' });
+    const fresh = tokenPair();
+    api.on('POST /v1/auth/refresh', async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      return { status: 200, body: fresh };
+    });
+    api.on('POST /v1/proximity/touches', unauthorized);
+    const call = client.request('/v1/proximity/touches', {
+      method: 'POST',
+      body: { tokens: ['CaioTokenBBBBBB1'] },
+      schema: NoContentSchema,
+      timeoutMs: 4000,
+    });
+    const rejected = expect(call).rejects.toBeInstanceOf(NetworkError);
+    await jest.advanceTimersByTimeAsync(4000);
+    await rejected;
+    await jest.advanceTimersByTimeAsync(2000);
+    expect(api.callsTo('POST /v1/proximity/touches')).toHaveLength(1);
+    await expect(store.getRefreshToken()).resolves.toBe(fresh.refreshToken);
   });
 });

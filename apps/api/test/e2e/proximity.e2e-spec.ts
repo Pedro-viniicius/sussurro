@@ -11,9 +11,13 @@ import {
   ProximityResolveResultSchema,
   ProximityTokenSchema,
 } from '@sussurro/shared';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { hashProximityToken } from '../../src/modules/proximity/proximity-token.js';
+import {
+  generateProximityToken,
+  hashProximityToken,
+} from '../../src/modules/proximity/proximity-token.js';
+import { ProximityRepository } from '../../src/modules/proximity/proximity.repository.js';
 import { proximityKeys } from '../../src/modules/proximity/proximity.store.js';
 import { bearer, directSession, loginViaApi } from '../support/auth.js';
 import {
@@ -316,6 +320,72 @@ describe('POST /proximity/resolve (4.4)', () => {
     ).toEqual([]);
   });
 
+  it('[PROX-05] [PROX-66] [X.2] (regressão do BAIXO 1) o resolve continua no findNearby, com o filtro da política no WHERE: dos cinco donos enviados ao banco (livre, bloqueio em cada sentido, excluída e criadora), só a conta livre volta; as idas são lockRemainingMs, hit, isScreenOpen, findValid e findNearby, sem o findTouchPair do encosto', async () => {
+    const helena = await person(t);
+    const free = await person(t, 'livre');
+    const blockedByHelena = await person(t);
+    const blockedHelena = await person(t);
+    const deleted = await person(t);
+    const creator = await createUser(t.database.db, {
+      accountType: 'creator',
+      emailVerifiedAt: new Date(),
+    });
+    await block(t.database.db, helena.user, blockedByHelena.user);
+    await block(t.database.db, blockedHelena.user, helena.user);
+    await issueToken(t, helena);
+    const tokens = [
+      await issueToken(t, free),
+      await issueToken(t, blockedByHelena),
+      await issueToken(t, blockedHelena),
+      await issueToken(t, deleted),
+    ];
+    // A rota não emite token para criador (PROX-08): o `qrToken` dele vai direto no fake.
+    const creatorToken = generateProximityToken();
+    await t.proximity.issue(
+      hashProximityToken(creatorToken),
+      { userId: creator.id, issuedAt: t.clock.now().getTime(), channel: 'qr' },
+      { validMs: 30 * SECOND, recentMs: 120 * SECOND, screenMs: 30 * SECOND },
+    );
+    await t.database.db
+      .update(users)
+      .set({ deletedAt: t.clock.now() })
+      .where(eq(users.id, deleted.user.id));
+
+    const repository = t.app.get(ProximityRepository);
+    const nearby = vi.spyOn(repository, 'findNearby');
+    const touchPair = vi.spyOn(repository, 'findTouchPair');
+    try {
+      t.proximity.calls.length = 0;
+      const response = await resolveTokens(t, helena, [...tokens, creatorToken]).expect(200);
+      expect(items(response.body)).toEqual([
+        expect.objectContaining({ token: tokens[0], handle: 'livre' }),
+      ]);
+      expect(t.proximity.calls).toEqual([
+        'lockRemainingMs',
+        'hit',
+        'isScreenOpen',
+        'findValid',
+        'findNearby',
+      ]);
+      expect(touchPair).not.toHaveBeenCalled();
+      expect(nearby).toHaveBeenCalledTimes(1);
+      // Os cinco donos vão ao banco; o filtro (pessoal, ativa, sem bloqueio) é do WHERE.
+      const [viewerId, ids] = nearby.mock.calls[0]!;
+      expect(viewerId).toBe(helena.user.id);
+      expect([...ids].sort()).toEqual(
+        [free, blockedByHelena, blockedHelena, deleted]
+          .map((who) => who.user.id)
+          .concat(creator.id)
+          .sort(),
+      );
+      const rows = (await nearby.mock.results[0]!.value) as { id: string }[];
+      expect(rows.map((row) => row.id)).toEqual([free.user.id]);
+    } finally {
+      nearby.mockRestore();
+      touchPair.mockRestore();
+    }
+  });
+
   it('[PROX-20] 31º resolve no minuto → 429; o resolve de outra pessoa não é afetado', async () => {
     const helena = await person(t);
     const caio = await person(t);
@@ -406,7 +476,9 @@ describe('POST /proximity/touches: o encosto mútuo (ADR 0012 §3)', () => {
       },
     ]);
     expect(await hasPair(helena, caio)).toBe(true);
-    expect(t.proximity.claims).toEqual(['created']);
+    // (ADR 0012, A3-1) O primeiro relato de Helena também chegou ao script do casamento (`gone`:
+    // Caio ainda não tinha relatado); o de Caio casou.
+    expect(t.proximity.claims).toEqual(['gone', 'created']);
 
     // Revelação simétrica (A2-2): Helena recebe o cartão de Caio no relato seguinte (cerca de 1 s).
     // É a entrega do cartão devido, não um casamento novo: o par não é renovado. O prazo é o mesmo
@@ -422,7 +494,8 @@ describe('POST /proximity/touches: o encosto mútuo (ADR 0012 §3)', () => {
         pairExpiresInS: 55,
       },
     ]);
-    expect(t.proximity.claims).toEqual(['created']);
+    // A entrega do cartão devido não chega ao script.
+    expect(t.proximity.claims).toEqual(['gone', 'created']);
 
     // O par (PROX_TOUCH_PAIR_TTL_S = 60 s) conta do casamento (o relato de Caio, 1 s atrás).
     t.clock.advance(59 * SECOND - 1);
@@ -475,7 +548,9 @@ describe('POST /proximity/touches: o encosto mútuo (ADR 0012 §3)', () => {
       items: [],
     });
     expect(await hasPair(helena, caio)).toBe(false);
-    expect(t.proximity.claims).toEqual([]);
+    // Os dois relatos chegaram ao script (A3-1) e voltaram `gone`: o de Helena, sem o relato de
+    // Caio; o de Caio, com o primeiro relato de Helena a 5 s.
+    expect(t.proximity.claims).toEqual(['gone', 'gone']);
 
     // Helena relata de novo 1 s depois do relato de Caio: agora sim, mútuo (a observação de Caio
     // abriu a janela dele aos 5 s).
@@ -729,30 +804,40 @@ describe('POST /proximity/touches: o encosto mútuo (ADR 0012 §3)', () => {
       { key: proximityKeys.busy(caio.user.id), value: '1' },
     ];
     // Caio casou: o cartão dele fica devido a Helena, com o hash do token dele que ela relatou.
+    const owedValue = `${hashProximityToken(caioTokens.bleToken)}|${JSON.stringify({
+      s: caio.user.id,
+      at: matched,
+      h: 'caio.r',
+      n: caio.user.name,
+      a: null,
+      c: false,
+    })}`;
     expect(byKey(touchEntries())).toEqual(
-      byKey([
-        ...observations,
-        {
-          key: proximityKeys.owed(helena.user.id),
-          value: `${hashProximityToken(caioTokens.bleToken)}|${JSON.stringify({
-            s: caio.user.id,
-            at: matched,
-            h: 'caio.r',
-            n: caio.user.name,
-            a: null,
-            c: false,
-          })}`,
-        },
-      ]),
+      byKey([...observations, { key: proximityKeys.owed(helena.user.id), value: owedValue }]),
     );
 
-    // Helena recebe o cartão: o devido some (entrega única) e ela fica ocupada; a observação dela
+    // Helena recebe o cartão: (ADR 0012, A3-2) o devido não some, fica marcado como entregue
+    // (`"!{hash}|{json}"`, por até 10 s, para a reentrega), e ela fica ocupada; a observação dela
     // não muda (a entrega não grava relato).
     t.clock.advance(SECOND);
     await reportTouch(t, helena, [caioTokens.bleToken]).expect(200);
     expect(byKey(touchEntries())).toEqual(
-      byKey([...observations, { key: proximityKeys.busy(helena.user.id), value: '1' }]),
+      byKey([
+        ...observations,
+        { key: proximityKeys.owed(helena.user.id), value: `!${owedValue}` },
+        { key: proximityKeys.busy(helena.user.id), value: '1' },
+      ]),
     );
+    // O cartão entregue e o ocupado somem juntos, 10 s depois da 1ª entrega.
+    const helenaKeys = [proximityKeys.owed(helena.user.id), proximityKeys.busy(helena.user.id)];
+    const liveHelenaKeys = () =>
+      touchEntries()
+        .map((entry) => entry.key)
+        .filter((key) => helenaKeys.includes(key));
+    t.clock.advance(10 * SECOND - 1);
+    expect(liveHelenaKeys().sort()).toEqual([...helenaKeys].sort());
+    t.clock.advance(1);
+    expect(liveHelenaKeys()).toEqual([]);
 
     // (A2 rev. 1, R1-6) Os bloqueios pelo cartão (desconhecidos com o par vivo, R1-5) marcam o
     // sentido no valor do par: `a` = o menor id bloqueou o maior, `b` = o contrário, na ordem da

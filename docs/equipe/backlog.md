@@ -654,7 +654,7 @@ Nenhuma destas entra em fase até o PO decidir. Estimativas para ajudar a decis�
 ### Critérios de aceite (QA): EX (provisórios, valem se o PO aprovar)
 
 **X.1 Denunciar (resumido)**
-- **CA1** Dado um post, comentário ou perfil visível para mim, quando denuncio, então a denúncia é registrada e a pessoa denunciada não é avisada; denunciar algo que não vejo → 404.
+- **CA1** Dado um post, comentário ou perfil visível para mim, quando denuncio, então a denúncia é registrada e a pessoa denunciada não é avisada; denunciar algo que não vejo → 404. (atualizado em 2026-10-31) Duas exceções, só para a conta: a conta que eu bloqueei, sem prazo (R1-PO-1, aprovada pelo PO em 2026-10-30), e a do par encostado vivo, até 60 s depois do encosto (R1-5). `[PROX-62, PROX-65]`
 
 **X.2 Bloquear (completo, permissões)**
 - **CA1** Dado que A bloqueia B, quando B consulta perfil, posts, comentários ou a busca (se A for criador), então recebe o mesmo 404 de conteúdo inexistente.

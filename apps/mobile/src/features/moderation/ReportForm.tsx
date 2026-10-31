@@ -58,7 +58,7 @@ export interface ReportFormProps {
    * dele (ux.md §11.14).
    */
   errorMode: 'toast' | 'inline';
-  /** Nota logo abaixo da pergunta, com o relógio (o T46 no formulário aberto pelo cartão). */
+  /** Nota abaixo da pergunta, com o relógio (o T46 no formulário aberto pelo cartão 11, 14 ou 22). */
   note?: string | undefined;
   /** O cabeçalho da pergunta, para quem abriu mover o foco até ele (Conectar, M8). */
   questionRef?: Ref<ViewInstance> | undefined;

@@ -62,9 +62,12 @@ export const PROXIMITY_TOUCH_REPORT_INTERVAL_S = 1;
 export const PROXIMITY_TOUCH_REPORT_FOR_S = 8;
 /**
  * Limite de relatos (`POST /proximity/touches`) por conta e por minuto no servidor; o 61º dá 429,
- * salvo quando há um cartão devido (ele sai antes de qualquer recusa, A2 rev. 1, R1-4). O app fica
- * em no máximo 2/3 disso (R1-3: orçamento de 40, com reserva de 10) e nunca recebe 429 dos próprios
- * relatos.
+ * salvo na primeira entrega de um cartão devido (ela sai antes de qualquer recusa, A2 rev. 1, R1-4).
+ * (ADR 0012, A3-2) A reentrega do mesmo cartão, por até 10 s depois da primeira entrega, conta no
+ * limite. O app fica abaixo disso (ADR 0012, A3-8, item 1): no pior caso, 51 inícios por admissão
+ * sem alternância, e até 56 em 60 s com uma rede que alterna (cada 200 que encerra uma sequência
+ * de falhas depois de ≥ 5 s sem aceite estende o prazo de novo). A folga de 4 cobre a janela fixa
+ * do servidor e a latência, e o app não recebe 429 dos próprios relatos (PROX-68).
  */
 export const PROXIMITY_TOUCH_LIMIT_PER_MIN = 60;
 
@@ -152,12 +155,14 @@ export type ProximityTouchRequest = z.infer<typeof ProximityTouchRequestSchema>;
 /**
  * Um cartão do encosto (`touches`): o `NearbyPerson` e (ADR 0012, A2 rev. 1, R1-9)
  * `pairExpiresInS`, quantos segundos faltam para o par encostado vencer no servidor, **arredondados
- * para baixo num múltiplo de 5** (entre 0 e a validade do par). Enquanto o par vale, o cartão pode
- * pedir a conexão, bloquear e denunciar pelo @; o app conta o prazo do cartão por este campo, e não
- * pela chegada da resposta (um cartão devido pode chegar tarde). A conta é a mesma para o casamento
- * na hora e para o cartão devido, a partir do horário do casamento: com o degrau de 5 s, os dois
- * dão o mesmo valor (55 com a validade de 60 s), e o campo não revela quem casou primeiro
- * (PROX-37). O cartão pode vencer no app até 5 s antes do par, o que a margem do app já cobre.
+ * para baixo num múltiplo de 5** (entre 0 e a validade do par menos 5; A3-5: no máximo 55 com a
+ * validade de 60 s, mesmo com o relógio de outra instância da API). Enquanto o par vale, o cartão
+ * pode pedir a conexão, bloquear e denunciar pelo @; o app conta o prazo do cartão por este campo, e
+ * não pela chegada da resposta (um cartão devido pode chegar tarde). A conta é a mesma para o
+ * casamento na hora, para o cartão devido e para a reentrega dele (A3-2), a partir do horário do
+ * casamento: com o degrau de 5 s, os dois primeiros dão o mesmo valor (55 com a validade de 60 s), e
+ * o campo não revela quem casou primeiro (PROX-37). O cartão pode vencer no app até 5 s antes do
+ * par, o que a margem do app já cobre.
  */
 export const ProximityTouchItemSchema = NearbyPersonSchema.extend({
   pairExpiresInS: z.int().min(0),
@@ -167,11 +172,14 @@ export type ProximityTouchItem = z.infer<typeof ProximityTouchItemSchema>;
 /**
  * Resposta de `touches`, sempre 200, com **no máximo um** cartão (A2-2): o de quem também relatou o
  * encosto com quem chama na janela (**encosto mútuo**), ou o cartão que essa pessoa deixou guardado
- * para quem chama no casamento (entregue uma vez, mesmo que ela tenha bloqueado, excluído a conta ou
- * saído depois). Quem relata primeiro recebe `items: []` e, no relato seguinte, o cartão (revelação
- * simétrica). Token não mútuo, vencido, inexistente, do QR, do próprio chamador, de criador, de conta
- * excluída, com bloqueio, acima do teto de pessoas novas ou com alguém ocupado é indistinguível:
- * simplesmente não aparece (PROX-32, PROX-36, PROX-46). Cada cartão traz `pairExpiresInS` (PROX-64).
+ * para quem chama no casamento (entregue mesmo que ela tenha bloqueado, excluído a conta ou saído
+ * depois). (ADR 0012, A3-2) Depois da primeira entrega, esse cartão fica guardado por mais até 10 s
+ * e é entregue de novo, só a quem chama, a cada relato nesse tempo (se a resposta se perder na rede);
+ * a reentrega conta no limite de relatos. Quem relata primeiro recebe `items: []` e, no relato
+ * seguinte, o cartão (revelação simétrica). Token não mútuo, vencido, inexistente, do QR, do próprio
+ * chamador, de criador, de conta excluída, com bloqueio, acima do teto de pessoas novas ou com
+ * alguém ocupado é indistinguível: simplesmente não aparece (PROX-32, PROX-36, PROX-46). Cada cartão
+ * traz `pairExpiresInS` (PROX-64).
  */
 export const ProximityTouchResultSchema = z.object({
   items: z.array(ProximityTouchItemSchema),

@@ -15,9 +15,13 @@ import { FakeClock } from '../../testing/fake-clock.js';
 import { testEnv } from '../../testing/test-env.js';
 import type { MediaService } from '../media/media.service.js';
 import type { NotificationsService } from '../notifications/notifications.service.js';
-import type { AccessPolicyService } from '../policies/access-policy.service.js';
+import { type AccessPolicyService, touchRevealParties } from '../policies/access-policy.service.js';
 import { hashProximityToken } from '../proximity/proximity-token.js';
-import type { NearbyRow, ProximityRepository } from '../proximity/proximity.repository.js';
+import type {
+  NearbyRow,
+  ProximityRepository,
+  TouchPairRow,
+} from '../proximity/proximity.repository.js';
 import { ProximityService } from '../proximity/proximity.service.js';
 import { MemoryProximityStore, proximityKeys } from '../proximity/proximity.store.js';
 import type { ProfileRow } from '../users/profile.mapper.js';
@@ -68,9 +72,25 @@ function setup() {
         })),
       ),
     ),
+    // (ADR 0012, A3-1) O encosto: as duas contas, pessoais, ativas e sem bloqueio.
+    findTouchPair: vi.fn((viewerId: string, ownerId: string) =>
+      Promise.resolve(
+        [viewerId, ownerId].map((id): TouchPairRow => ({
+          id,
+          handle: HANDLES[id]!,
+          name: HANDLES[id]!,
+          avatarKey: null,
+          personal: true,
+          active: true,
+          connected: false,
+          blocked: false,
+        })),
+      ),
+    ),
   };
   const policy = {
     hideBlockedFor: vi.fn(() => 'filtro-de-bloqueio'),
+    touchRevealParties: vi.fn(touchRevealParties),
     connectionRequestState: vi.fn(() => Promise.resolve('allowed' as const)),
   };
   const media = { signUrl: vi.fn(() => Promise.resolve(null)) };

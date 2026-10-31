@@ -50,13 +50,33 @@ export interface OwedCard extends TouchCard {
 }
 
 /**
+ * (ADR 0012, A3-2) O cartão devido retirado: `redelivered` = ele já tinha sido entregue antes (a
+ * reentrega, por até 10 s depois da primeira entrega, que conta no limite do `touches`).
+ */
+export type DeliveredOwedCard = OwedCard & { redelivered: boolean };
+
+/**
+ * (A3-2) Marca do cartão devido já entregue, no começo do valor de `prox:v`: `"!{hash}|{json}"`.
+ * Nunca aparece no hash (base64url).
+ */
+const REDELIVERY_MARK = '!';
+
+/**
  * Resultado do casamento (A2-2): `created` (par novo, conta no teto), `renewed` (o par já existia),
  * `capped` (alguém no teto de pessoas novas), `busy` (alguém com cartão a receber ou que recebeu um
- * há menos de 10 s) e `gone` (a observação do outro passou da janela). Só os dois primeiros casam.
+ * há menos de 10 s), `gone` (a observação do outro passou da janela) e (ADR 0012, A3-1) `refused`
+ * (a política recusou: `callerCard` nulo). Só os dois primeiros casam.
  */
-export type TouchClaim = 'created' | 'renewed' | 'capped' | 'busy' | 'gone';
+export type TouchClaim = 'created' | 'renewed' | 'capped' | 'busy' | 'gone' | 'refused';
 
-const TOUCH_CLAIMS: readonly TouchClaim[] = ['created', 'renewed', 'capped', 'busy', 'gone'];
+const TOUCH_CLAIMS: readonly TouchClaim[] = [
+  'created',
+  'renewed',
+  'capped',
+  'busy',
+  'gone',
+  'refused',
+];
 
 /** Entrada do casamento (A2-2 §6). `callerCard` vira o cartão devido ao outro. */
 export interface ClaimTouchPairInput {
@@ -72,7 +92,12 @@ export interface ClaimTouchPairInput {
   /** Teto de pares novos por conta (A2-1): por hora e por dia. */
   perHour: number;
   perDay: number;
-  callerCard: TouchCard;
+  /**
+   * O cartão de quem chama, ou (ADR 0012, A3-1) `null` quando a política recusou o par (bloqueio em
+   * qualquer sentido, conta excluída ou de criador): o script roda do mesmo jeito, para o tempo não
+   * distinguir a recusa, e volta `refused` (ou `gone`, se a janela já passou).
+   */
+  callerCard: TouchCard | null;
 }
 
 /** Janelas fixas do teto de pessoas novas (A2-1): 1 h e 24 h desde o primeiro par novo. */
@@ -110,9 +135,16 @@ export const proximityKeys = {
    */
   pair: (first: string, second: string) =>
     first < second ? `prox:m:${first}:${second}` : `prox:m:${second}:${first}`,
-  /** (A2-2) O cartão devido à conta: `"{hash}|{json}"`, no máximo um, entrega única, 60 s. */
+  /**
+   * (A2-2) O cartão devido à conta: `"{hash}|{json}"`, no máximo um, 60 s. (ADR 0012, A3-2) A
+   * primeira entrega não o apaga: vira `"!{hash}|{json}"`, com o prazo encurtado para
+   * `min(o que falta, 10 s)`, e é entregue de novo à mesma pessoa até vencer (a reentrega).
+   */
   owed: (userId: string) => `prox:v:${userId}`,
-  /** (A2-2) A conta recebeu um cartão há pouco (ocupada): ninguém casa com ela; "1", 10 s. */
+  /**
+   * (A2-2) A conta recebeu um cartão há pouco (ocupada): ninguém casa com ela; "1", 10 s. (A3-2)
+   * Gravado só na primeira entrega; a reentrega não o renova.
+   */
   busy: (userId: string) => `prox:c:${userId}`,
   /** (A2-1) Pares novos da conta na hora e no dia (só o contador). */
   pairsPerHour: (userId: string) => `rl:prox-pairs:hour:${userId}`,
@@ -176,17 +208,23 @@ export abstract class ProximityStore {
     windowMs: number,
   ): Promise<boolean>;
   /**
-   * (A2-2) O casamento, atômico: confere a janela da observação do outro (`gone`), quem está
-   * ocupado (`busy`) e o teto de pares novos dos dois (`capped`; a renovação não conta); grava o
-   * par, o cartão de quem chama devido ao outro (com o hash da observação do outro) e marca quem
-   * chama como ocupado. Em `capped`, `busy` e `gone`, nada é gravado.
+   * (A2-2) O casamento, atômico: confere a janela da observação do outro (`gone`), (ADR 0012, A3-1)
+   * se a política recusou (`callerCard` nulo → `refused`, sem ler nem gravar par, contadores, cartão
+   * devido ou ocupado), quem está ocupado (`busy`) e o teto de pares novos dos dois (`capped`; a
+   * renovação não conta); grava o par, o cartão de quem chama devido ao outro (com o hash da
+   * observação do outro) e marca quem chama como ocupado. Em `capped`, `busy`, `gone` e `refused`,
+   * nada é gravado.
    */
   abstract claimTouchPair(input: ClaimTouchPairInput): Promise<TouchClaim>;
   /**
-   * (A2-2) Entrega única do cartão devido: lê e apaga, e marca a conta como ocupada por `busyMs`.
-   * Sem cartão → `null`. Valor ilegível → `null` (e apagado).
+   * (A2-2; ADR 0012, A3-2) Retira o cartão devido, atômico. Sem cartão → `null`, sem gravar nada.
+   * - **Primeira entrega:** não apaga; marca como entregue (`!`), encurta o prazo para
+   *   `min(o que falta, busyMs)` e marca a conta como ocupada por `busyMs`. `redelivered: false`.
+   * - **Reentrega** (já marcado): o mesmo cartão, sem mexer em prazo nem em ocupado.
+   *   `redelivered: true`.
+   * Valor ilegível → `null`, sem apagar (vence em até `busyMs`).
    */
-  abstract takeOwedCard(recipientId: string, busyMs: number): Promise<OwedCard | null>;
+  abstract takeOwedCard(recipientId: string, busyMs: number): Promise<DeliveredOwedCard | null>;
   /**
    * Grava (ou renova) o par encostado, que libera o pedido `ble` entre os dois por `ttlMs`. (A2) Só
    * para o `/dev/simulate-request`: o casamento de verdade é o `claimTouchPair`.
@@ -316,6 +354,19 @@ function decodeOwedCard(value: string | null): OwedCard | null {
 }
 
 /**
+ * (A3-2) O valor que o `TAKE_OWED_CARD_SCRIPT` devolve: `"{hash}|{json}"` na primeira entrega,
+ * `"!{hash}|{json}"` na reentrega. Tira a marca e diz se era reentrega. Ilegível → `null` (fecha).
+ */
+function decodeDeliveredOwedCard(value: string | null): DeliveredOwedCard | null {
+  if (value === null) {
+    return null;
+  }
+  const redelivered = value.startsWith(REDELIVERY_MARK);
+  const card = decodeOwedCard(redelivered ? value.slice(REDELIVERY_MARK.length) : value);
+  return card === null ? null : { ...card, redelivered };
+}
+
+/**
  * Relato do encosto (ADR 0012 §3, A2-2; A2 rev. 1, R1-1), atômico.
  * KEYS[1] = `prox:o:{observador}:{dono}`, KEYS[2] = `prox:o:{dono}:{observador}`;
  * ARGV[1] = agora (ms), ARGV[2] = janela (ms), ARGV[3] = hash do token relatado.
@@ -343,9 +394,13 @@ return 0
  * 5, 6 `rl:prox-pairs:hour|day:{outro}`; 7, 8 `prox:v:{outro}`, `prox:v:{quemChama}`;
  * 9, 10 `prox:c:{outro}`, `prox:c:{quemChama}`.
  * ARGV: 1 agora (ms), 2 TTL do par, 3 janela, 4 teto por hora, 5 janela da hora, 6 teto por dia,
- * 7 janela do dia, 8 o cartão de quem chama (JSON), 9 tempo de ocupado.
+ * 7 janela do dia, 8 o cartão de quem chama (JSON; `''` quando a política recusou, A3-1),
+ * 9 tempo de ocupado.
  * 1. sem a observação do outro, ilegível ou fora da janela → `gone`;
- * 2. cartão devido ou marca de ocupado de qualquer um dos dois → `busy`;
+ *    (ADR 0012, A3-1) sem o cartão de quem chama (`ARGV[8] == ''`) → `refused`, sem ler nem gravar
+ *    par, contadores, cartão devido ou ocupado;
+ * 2. cartão devido (inclusive o já entregue, à espera da reentrega, A3-2) ou marca de ocupado de
+ *    qualquer um dos dois → `busy`;
  * 3. par novo com qualquer contador no teto → `capped`; senão, `INCR` dos quatro (com `PEXPIRE` na
  *    primeira vez, como o `RATE_LIMIT_SCRIPT`). Par existente = renovação, não conta;
  * 4 a 6. grava o par, o cartão devido ao outro (`"{hash da observação}|{cartão}"`, com o TTL do
@@ -363,6 +418,7 @@ end
 if not first or now - tonumber(first) >= tonumber(ARGV[3]) then
   return 'gone'
 end
+if ARGV[8] == '' then return 'refused' end
 for index = 7, 10 do
   if redis.call('EXISTS', KEYS[index]) == 1 then
     return 'busy'
@@ -392,16 +448,24 @@ return outcome
 `;
 
 /**
- * Entrega única do cartão devido (A2-2 §3, passo 2), atômica.
- * KEYS[1] = `prox:v:{uid}`, KEYS[2] = `prox:c:{uid}`; ARGV[1] = tempo de ocupado (ms).
- * Sem cartão → nil, sem gravar nada. Com cartão: apaga, marca a conta como ocupada e o devolve.
+ * Retirada do cartão devido (A2-2 §3, passo 2; ADR 0012, A3-2), atômica.
+ * KEYS[1] = `prox:v:{uid}`, KEYS[2] = `prox:c:{uid}`; ARGV[1] = tempo de ocupado (ms), que é também
+ * o da reentrega.
+ * - sem cartão → nil, sem gravar nada;
+ * - já entregue (começa com `!`) → o valor marcado, sem mexer em prazo nem em ocupado (reentrega);
+ * - primeira entrega → marca com `!`, encurta o prazo para `min(o que falta, ARGV[1])`, marca a
+ *   conta como ocupada por `ARGV[1]` e devolve o valor sem a marca.
+ * O script não lê o JSON: um valor ilegível também é marcado e vence em até `ARGV[1]` (o adaptador
+ * devolve `null`).
  */
 export const TAKE_OWED_CARD_SCRIPT = `
 local card = redis.call('GET', KEYS[1])
-if not card then
-  return false
-end
-redis.call('DEL', KEYS[1])
+if not card then return false end
+if string.sub(card, 1, 1) == '!' then return card end
+local keep = tonumber(ARGV[1])
+local ttl = redis.call('PTTL', KEYS[1])
+if ttl > 0 and ttl < keep then keep = ttl end
+redis.call('SET', KEYS[1], '!' .. card, 'PX', keep)
 redis.call('SET', KEYS[2], '1', 'PX', ARGV[1])
 return card
 `;
@@ -543,7 +607,8 @@ export class RedisProximityStore extends ProximityStore {
       String(TOUCH_PAIRS_HOUR_MS),
       String(input.perDay),
       String(TOUCH_PAIRS_DAY_MS),
-      encodeCard(input.callerCard),
+      // A3-1: `''` = a política recusou (o script volta `refused` depois do passo do `gone`).
+      input.callerCard === null ? '' : encodeCard(input.callerCard),
       String(input.busyMs),
     );
     if (!TOUCH_CLAIMS.includes(outcome as TouchClaim)) {
@@ -552,7 +617,7 @@ export class RedisProximityStore extends ProximityStore {
     return outcome as TouchClaim;
   }
 
-  async takeOwedCard(recipientId: string, busyMs: number): Promise<OwedCard | null> {
+  async takeOwedCard(recipientId: string, busyMs: number): Promise<DeliveredOwedCard | null> {
     const value = await this.redis.eval(
       TAKE_OWED_CARD_SCRIPT,
       2,
@@ -560,7 +625,7 @@ export class RedisProximityStore extends ProximityStore {
       proximityKeys.busy(recipientId),
       String(busyMs),
     );
-    return decodeOwedCard(typeof value === 'string' ? value : null);
+    return decodeDeliveredOwedCard(typeof value === 'string' ? value : null);
   }
 
   async markTouchPair(first: string, second: string, ttlMs: number, atMs: number): Promise<void> {
@@ -759,10 +824,14 @@ export class MemoryProximityStore extends ProximityStore {
 
   /** O mesmo do `CLAIM_TOUCH_SCRIPT`, passo a passo. */
   claimTouchPair(input: ClaimTouchPairInput): Promise<TouchClaim> {
-    const { callerId, otherId, atMs } = input;
+    const { callerId, otherId, atMs, callerCard } = input;
     const observed = decodeObservation(this.read(proximityKeys.touch(otherId, callerId)));
     if (observed === null || atMs - observed.firstMs >= input.windowMs) {
       return Promise.resolve('gone');
+    }
+    // A3-1: a política recusou. Depois do `gone`, antes de ler par, contadores, devido ou ocupado.
+    if (callerCard === null) {
+      return Promise.resolve('refused');
     }
     const occupied = [
       proximityKeys.owed(otherId),
@@ -794,23 +863,35 @@ export class MemoryProximityStore extends ProximityStore {
     this.write(pairKey, String(atMs), input.pairTtlMs);
     this.write(
       proximityKeys.owed(otherId),
-      `${observed.hash}|${encodeCard(input.callerCard)}`,
+      `${observed.hash}|${encodeCard(callerCard)}`,
       input.pairTtlMs,
     );
     this.write(proximityKeys.busy(callerId), '1', input.busyMs);
     return Promise.resolve(outcome);
   }
 
-  /** O mesmo do `TAKE_OWED_CARD_SCRIPT`. */
-  takeOwedCard(recipientId: string, busyMs: number): Promise<OwedCard | null> {
+  /**
+   * O mesmo do `TAKE_OWED_CARD_SCRIPT` (A3-2): a primeira entrega marca com `!`, encurta o prazo
+   * para `min(expiresAt, agora + busyMs)` e grava o ocupado; a reentrega só lê. Como o script, não
+   * olha o JSON: o valor ilegível também é marcado (e o adaptador devolve `null`).
+   */
+  takeOwedCard(recipientId: string, busyMs: number): Promise<DeliveredOwedCard | null> {
     const key = proximityKeys.owed(recipientId);
     const value = this.read(key);
     if (value === null) {
       return Promise.resolve(null);
     }
-    this.values.delete(key);
+    if (value.startsWith(REDELIVERY_MARK)) {
+      return Promise.resolve(decodeDeliveredOwedCard(value));
+    }
+    const now = this.now();
+    const expiresAt = this.values.get(key)?.expiresAt ?? now + busyMs;
+    this.values.set(key, {
+      value: `${REDELIVERY_MARK}${value}`,
+      expiresAt: Math.min(expiresAt, now + busyMs),
+    });
     this.write(proximityKeys.busy(recipientId), '1', busyMs);
-    return Promise.resolve(decodeOwedCard(value));
+    return Promise.resolve(decodeDeliveredOwedCard(value));
   }
 
   markTouchPair(first: string, second: string, ttlMs: number, atMs: number): Promise<void> {

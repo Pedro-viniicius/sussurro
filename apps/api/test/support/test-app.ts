@@ -26,6 +26,7 @@ import { REDIS } from '../../src/infra/redis/redis.providers.js';
 import { MediaJobsQueue } from '../../src/infra/storage/media-jobs-queue.js';
 import { ObjectStorage } from '../../src/infra/storage/object-storage.js';
 import { PushQueue } from '../../src/infra/storage/push-queue.js';
+import { ProximityRepository } from '../../src/modules/proximity/proximity.repository.js';
 import { ProximityStore } from '../../src/modules/proximity/proximity.store.js';
 import { CapturingEmailSender } from '../../src/testing/capturing-email-sender.js';
 import { ClockSyncedRateLimitStore } from '../../src/testing/clock-synced-rate-limit.store.js';
@@ -99,6 +100,31 @@ function fakeRedis() {
   };
 }
 
+/**
+ * (ADR 0012, A3-1, PROX-66) O repositório de produção (as mesmas consultas) que anota cada
+ * `findTouchPair` (a política do `touches`, BAIXO 1 do `seguranca`) e cada `findNearby` (o
+ * `resolve` do QR) no `calls` do fake da proximidade, na mesma lista das idas ao Valkey: é assim
+ * que o e2e confere a sequência de idas do `touches` sem medir a rede. O `findNearby` continua
+ * anotado para uma volta acidental dele ao `touches` aparecer na sequência.
+ */
+function recordingProximityRepository(
+  handle: TestDatabase['handle'],
+  proximity: TestProximityStore,
+): ProximityRepository {
+  class RecordingProximityRepository extends ProximityRepository {
+    override findNearby(...args: Parameters<ProximityRepository['findNearby']>) {
+      proximity.noteCall('findNearby');
+      return super.findNearby(...args);
+    }
+
+    override findTouchPair(...args: Parameters<ProximityRepository['findTouchPair']>) {
+      proximity.noteCall('findTouchPair');
+      return super.findTouchPair(...args);
+    }
+  }
+  return new RecordingProximityRepository(handle);
+}
+
 /** Valor da variável; vazia conta como ausente. */
 function envOr(name: string, fallback: string): string {
   const value = process.env[name]?.trim();
@@ -157,6 +183,8 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     .useValue(counters)
     .overrideProvider(ProximityStore)
     .useValue(proximity)
+    .overrideProvider(ProximityRepository)
+    .useValue(recordingProximityRepository(database.handle, proximity))
     // Fase 6: a fila push é sempre o fake (o consumo e o Expo ficam no worker, também com fakes).
     .overrideProvider(PushQueue)
     .useValue(push);

@@ -32,6 +32,33 @@ export function announceAfterFocus(message: string): () => void {
 }
 
 /**
+ * O anúncio que acompanha o foco (`announceAfterFocus`), uma vez por `key`, mas que espera enquanto
+ * `held`: o cartão que chega com a folha de outra pessoa aberta, com a câmera saindo no iOS ou com o
+ * app em segundo plano (ux.md §11.15). Sai junto com o foco do `useFocusOnShowUnlessHeld`, que
+ * espera pelo mesmo motivo: os dois relógios começam quando a espera acaba, e o anúncio sai depois
+ * do foco. `key` ou `message` nulos: nada a anunciar.
+ */
+export function useAnnounceAfterFocusUnlessHeld(
+  key: string | null,
+  message: string | null,
+  held: boolean,
+): void {
+  const announcedKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (key === null || message === null || held || announcedKey.current === key) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      announcedKey.current = key;
+      AccessibilityInfo.announceForAccessibilityWithOptions(message, { queue: true });
+    }, announceAfterFocusMs());
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [held, key, message]);
+}
+
+/**
  * Move o foco do leitor de tela para `ref` uns 300 ms depois de montar (ou de `key` mudar): o nome
  * no cartão, o título no pedido recebido (cartão ou folha), o título do p14 e o do Pronto quando o
  * controle focado sumiu da tela (ux.md §11.8).

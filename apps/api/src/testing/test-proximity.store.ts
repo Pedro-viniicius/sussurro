@@ -2,8 +2,8 @@ import type { RateLimitHit } from '../common/rate-limit/rate-limit.store.js';
 import {
   type BlockSignalCounts,
   type ClaimTouchPairInput,
+  type DeliveredOwedCard,
   MemoryProximityStore,
-  type OwedCard,
   type ProximityStore,
   type ProximityTokenRecord,
   type ProximityTtls,
@@ -12,6 +12,14 @@ import {
 
 /** Nome de uma operação da porta (para derrubar só ela, `failing`). */
 export type ProximityStoreOperation = keyof ProximityStore;
+
+/**
+ * Uma ida registrada em `calls`: uma operação da porta ou uma consulta do `ProximityRepository`,
+ * que o `createTestApp` anota aqui: (ADR 0012, A3-1, BAIXO 1 do `seguranca`) o `findTouchPair`, a
+ * consulta da política do `touches`, e o `findNearby`, a do `resolve` (QR). O `findNearby` fica na
+ * lista para uma volta acidental dele ao `touches` aparecer na sequência (PROX-66).
+ */
+export type RecordedProximityCall = ProximityStoreOperation | 'findTouchPair' | 'findNearby';
 
 /**
  * O fake em memória da proximidade (validades sobre o relógio de teste, sem `sleep`), com três
@@ -26,17 +34,27 @@ export type ProximityStoreOperation = keyof ProximityStore;
  * falha aberta, PROX-55 e PROX-63) e o `hasTouchPair` (o par que o bloqueio e a denúncia pelo cartão
  * consultam em falha fechada, PROX-61 e PROX-62).
  *
- * E um registro só de leitura para os e2e (ADR 0012, A2): `claims` guarda o resultado de cada
- * casamento (`created`, `renewed`, `capped`, `busy` ou `gone`), que a resposta HTTP não distingue
- * de propósito (PROX-46). Assim o teste prova **por que** o encosto não confirmou, e não só que não
- * confirmou. Usado nos dois modos de `TEST_DB`; o adaptador Redis tem teste próprio contra o Valkey
+ * E três registros só de leitura para os e2e:
+ * - `calls` (ADR 0012, A3-1, PROX-66): cada ida, na ordem em que chegou, **antes** de qualquer
+ *   queda simulada (a operação que falha também foi tentada), com as consultas do repositório
+ *   (`findTouchPair` no `touches`, `findNearby` no `resolve`) na mesma lista. É o teste de tempo do
+ *   R22 sem medir a rede: com token válido de outra conta, a lista é a mesma em todo caminho;
+ * - `claims` (A2): o resultado de **todo** `claimTouchPair` que respondeu, na ordem, inclusive o
+ *   `gone` (sem a observação do outro na janela) e o `refused` (a política recusou, A3-1). A
+ *   resposta HTTP não distingue nenhum deles de propósito (PROX-46); assim o teste prova **por que**
+ *   o encosto não confirmou, e que todo relato com token válido de outra conta chegou ao script;
+ * - `blockSignals` (A2 rev. 1, R1-6): o resultado de cada `countBlockSignal`.
+ *
+ * Usado nos dois modos de `TEST_DB`; o adaptador Redis tem teste próprio contra o Valkey
  * (`real-services`, PROX-56).
  */
 export class TestProximityStore extends MemoryProximityStore {
   down = false;
   readonly failing = new Set<ProximityStoreOperation>();
   readonly stalling = new Set<ProximityStoreOperation>();
-  /** Resultado de cada `claimTouchPair` que chegou ao fake, na ordem. */
+  /** (A3-1) Cada ida ao fake (e as consultas do repositório), na ordem. */
+  readonly calls: RecordedProximityCall[] = [];
+  /** Resultado de cada `claimTouchPair` que respondeu, na ordem (os seis, `gone` e `refused` também). */
   readonly claims: TouchClaim[] = [];
   /**
    * (A2 rev. 1, R1-6) Resultado de cada `countBlockSignal` que chegou ao fake, na ordem: os dois
@@ -45,7 +63,16 @@ export class TestProximityStore extends MemoryProximityStore {
    */
   readonly blockSignals: (BlockSignalCounts | null)[] = [];
 
+  /**
+   * Anota uma ida que não é da porta (o `findTouchPair` ou o `findNearby` do repositório; ver
+   * `createTestApp`).
+   */
+  noteCall(name: RecordedProximityCall): void {
+    this.calls.push(name);
+  }
+
   private outage<T>(name: ProximityStoreOperation, operation: () => Promise<T>): Promise<T> {
+    this.calls.push(name);
     if (this.stalling.has(name)) {
       return new Promise<T>(() => undefined);
     }
@@ -106,7 +133,7 @@ export class TestProximityStore extends MemoryProximityStore {
     });
   }
 
-  override takeOwedCard(recipientId: string, busyMs: number): Promise<OwedCard | null> {
+  override takeOwedCard(recipientId: string, busyMs: number): Promise<DeliveredOwedCard | null> {
     return this.outage('takeOwedCard', () => super.takeOwedCard(recipientId, busyMs));
   }
 
@@ -144,6 +171,7 @@ export class TestProximityStore extends MemoryProximityStore {
     this.down = false;
     this.failing.clear();
     this.stalling.clear();
+    this.calls.length = 0;
     this.claims.length = 0;
     this.blockSignals.length = 0;
   }

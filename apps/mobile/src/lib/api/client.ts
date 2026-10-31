@@ -15,9 +15,10 @@ export interface HttpResponse {
   text: () => Promise<string>;
 }
 
+/** `signal`: aborta a conexão no fim do prazo da chamada (`RequestOptions.timeoutMs`). */
 export type FetchLike = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body?: string },
+  init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal },
 ) => Promise<HttpResponse>;
 
 /**
@@ -44,6 +45,13 @@ export interface RequestOptions<T> {
   schema: ResponseParser<T>;
   /** `false` nas rotas públicas: não manda token e não tenta refresh. */
   auth?: boolean;
+  /**
+   * Prazo da chamada inteira (envio, refresh e leitura da resposta), em ms. No fim, a conexão é
+   * abortada pelo `AbortController` (o `signal` vai no `fetch`) e a chamada falha com
+   * `NetworkError`. Sem ele, a chamada espera o sistema desistir (ADR 0012, A3-3 item 1: só o relato
+   * do encosto usa).
+   */
+  timeoutMs?: number;
 }
 
 export interface ApiClientOptions {
@@ -64,17 +72,12 @@ async function readJson(response: HttpResponse): Promise<unknown> {
   }
 }
 
-async function toApiError(response: HttpResponse): Promise<ApiError> {
-  const parsed = ErrorResponseSchema.safeParse(await readJson(response));
+function toApiError(status: number, body: unknown): ApiError {
+  const parsed = ErrorResponseSchema.safeParse(body);
   if (parsed.success) {
-    return new ApiError(
-      response.status,
-      parsed.data.code,
-      parsed.data.message,
-      parsed.data.details,
-    );
+    return new ApiError(status, parsed.data.code, parsed.data.message, parsed.data.details);
   }
-  return new ApiError(response.status, errorCodeFromHttpStatus(response.status), 'Erro HTTP');
+  return new ApiError(status, errorCodeFromHttpStatus(status), 'Erro HTTP');
 }
 
 /**
@@ -113,17 +116,47 @@ export class ApiClient {
   }
 
   async request<T>(path: string, options: RequestOptions<T>): Promise<T> {
-    return this.execute(path, options, false);
+    const { timeoutMs } = options;
+    if (timeoutMs === undefined) {
+      return this.execute(path, options, false, undefined);
+    }
+    // O `abort` fecha a conexão (um `Promise.race` sozinho a deixaria aberta por trás); a corrida
+    // com o prazo garante que a chamada termina no prazo mesmo com um `fetch` que ignore o `signal`.
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new NetworkError(new Error(`Sem resposta em ${String(timeoutMs)} ms`)));
+      }, timeoutMs);
+    });
+    try {
+      return await Promise.race([this.execute(path, options, false, controller.signal), expired]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
-  private async execute<T>(path: string, options: RequestOptions<T>, retried: boolean): Promise<T> {
+  private async execute<T>(
+    path: string,
+    options: RequestOptions<T>,
+    retried: boolean,
+    signal: AbortSignal | undefined,
+  ): Promise<T> {
     const auth = options.auth !== false;
     const tokenUsed = auth ? this.accessToken : null;
-    const response = await this.send(path, options.method ?? 'GET', options.body, tokenUsed);
+    const response = await this.send(
+      path,
+      options.method ?? 'GET',
+      options.body,
+      tokenUsed,
+      signal,
+    );
+    const body = await readJson(response);
     if (response.ok) {
-      return options.schema.parse(await readJson(response));
+      return options.schema.parse(body);
     }
-    const error = await toApiError(response);
+    const error = toApiError(response.status, body);
     if (auth && !retried && error.status === 401 && error.code === ErrorCode.UNAUTHORIZED) {
       // Se outra chamada já renovou o token enquanto esta voava, só repete.
       const renewed =
@@ -131,7 +164,9 @@ export class ApiClient {
           ? true
           : await this.refreshSingleFlight();
       if (renewed) {
-        return this.execute(path, options, true);
+        // O prazo acabou durante o refresh: a chamada já falhou, e a repetição nem sai.
+        if (signal?.aborted === true) throw new NetworkError(new Error('Prazo esgotado'));
+        return this.execute(path, options, true, signal);
       }
       this.sessionExpiredListener?.();
     }
@@ -152,14 +187,15 @@ export class ApiClient {
       this.accessToken = null;
       return false;
     }
-    const response = await this.send('/v1/auth/refresh', 'POST', { refreshToken }, null);
+    // Sem `signal`: o refresh é de todas as chamadas que esperam por ele, não só de uma.
+    const response = await this.send('/v1/auth/refresh', 'POST', { refreshToken }, null, undefined);
     if (response.status === 401) {
       await this.clearSession();
       return false;
     }
     if (!response.ok) {
       // 429/5xx: a sessão continua guardada; quem chamou mostra o erro.
-      throw await toApiError(response);
+      throw toApiError(response.status, await readJson(response));
     }
     await this.setSession(TokenPairSchema.parse(await readJson(response)));
     return true;
@@ -170,6 +206,7 @@ export class ApiClient {
     method: HttpMethod,
     body: unknown,
     accessToken: string | null,
+    signal: AbortSignal | undefined,
   ): Promise<HttpResponse> {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (body !== undefined) {
@@ -183,6 +220,7 @@ export class ApiClient {
         method,
         headers,
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        ...(signal === undefined ? {} : { signal }),
       });
     } catch (error) {
       throw new NetworkError(error);

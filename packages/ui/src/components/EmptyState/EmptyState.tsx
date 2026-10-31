@@ -1,4 +1,5 @@
-import { StyleSheet, View } from 'react-native';
+import type { Ref } from 'react';
+import { StyleSheet, View, type ViewInstance } from 'react-native';
 
 import { theme } from '../../theme';
 import { Button } from '../Button/Button';
@@ -17,6 +18,13 @@ export interface EmptyStateProps {
   primaryAction?: EmptyStateAction;
   /** Link abaixo do botão primário. */
   secondaryAction?: EmptyStateAction;
+  /**
+   * Para a tela mover o foco do leitor de tela até o título (no Conectar, quando o botão tocado
+   * some e o estado aparece no lugar dele, ux.md §11.15). Com ele, o título fica num `View`
+   * acessível com o papel de cabeçalho (`{testID}-titulo`), como o título do Pronto; sem ele, nada
+   * muda.
+   */
+  titleRef?: Ref<ViewInstance> | undefined;
   testID?: string;
 }
 
@@ -27,6 +35,7 @@ export function EmptyState({
   description,
   primaryAction,
   secondaryAction,
+  titleRef,
   testID = 'empty-state',
 }: EmptyStateProps) {
   return (
@@ -34,9 +43,23 @@ export function EmptyState({
       <View style={styles.circle}>
         <Icon name={icon} size={theme.size.icon.lg} />
       </View>
-      <Text variant="titleMd" align="center" accessibilityRole="header" style={styles.title}>
-        {title}
-      </Text>
+      {titleRef === undefined ? (
+        <Text variant="titleMd" align="center" accessibilityRole="header" style={styles.title}>
+          {title}
+        </Text>
+      ) : (
+        <View
+          ref={titleRef}
+          accessible
+          accessibilityRole="header"
+          style={styles.title}
+          testID={`${testID}-titulo`}
+        >
+          <Text variant="titleMd" align="center">
+            {title}
+          </Text>
+        </View>
+      )}
       {description === undefined ? null : (
         <Text variant="bodySm" color="grey" align="center" style={styles.description}>
           {description}

@@ -1,7 +1,7 @@
-import { UiPreferencesProvider } from '@sussurro/ui';
+import { theme, UiPreferencesProvider } from '@sussurro/ui';
 import { act, render, screen, userEvent, within } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, Animated, StyleSheet } from 'react-native';
 
 import { COPY } from './copy';
 import { connectTiming } from './timing';
@@ -146,6 +146,141 @@ describe('TouchCard (ux.md §11.5)', () => {
     expect(onAccept).toHaveBeenCalledTimes(1);
     expect(onDecline).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('TouchCard: cartão atrasado e cartão sem Conectar (ux.md §11.15; PROX-70)', () => {
+  it('PROX-70 (21): nome (header), @, o T47 com o primeiro nome e só o (Voltar) — sem Conectar, sem ‹Cancelar› e sem a linha; o foco vai ao nome', async () => {
+    const onBack = jest.fn();
+    await renderCard(
+      <TouchCard
+        variant="late"
+        person={CAIO}
+        onBack={onBack}
+        moderation={moderation()}
+        {...COMMON}
+      />,
+    );
+    const card = screen.getByTestId('conectar-encostado-atrasado');
+    expect(within(card).getByRole('header', { name: 'Caio Ribeiro' })).toBeOnTheScreen();
+    expect(screen.getByText('@caio.r')).toBeOnTheScreen();
+    expect(screen.getByText(COPY.lateCardText('Caio'))).toBeOnTheScreen();
+    expect(COPY.lateCardText('Caio')).toBe(
+      'O tempo para conectar acabou. Para tentar de novo, toque em Voltar e encoste o seu celular no de Caio.',
+    );
+    expect(screen.queryByText(COPY.cardCheck)).toBeNull();
+    // Ordem de leitura: nome → @ → T47 → Voltar.
+    expect(buttonLabels()).toEqual([COPY.back]);
+    expect(screen.queryByTestId('cartao-denunciar', { includeHiddenElements: true })).toBeNull();
+    expect(screen.queryByTestId('cartao-bloquear', { includeHiddenElements: true })).toBeNull();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(connectTiming.focusDelayMs);
+    });
+    expect(
+      (
+        jest.mocked(AccessibilityInfo.sendAccessibilityEvent).mock.calls[0]?.[0] as unknown as {
+          props?: { testID?: string };
+        }
+      ).props?.testID,
+    ).toBe('cartao-nome');
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    await user.press(screen.getByRole('button', { name: COPY.back }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('PROX-70 (22): o T48 no lugar do T15, o (Voltar) no lugar do Conectar e do ‹Cancelar›, e a linha ‹Denunciar› ‹Bloquear› por último', async () => {
+    const onBack = jest.fn();
+    const lineActions = moderation();
+    await renderCard(
+      <TouchCard
+        variant="noConnect"
+        person={CAIO}
+        onBack={onBack}
+        moderation={lineActions}
+        {...COMMON}
+      />,
+    );
+    expect(screen.getByTestId('conectar-encostado-sem-conectar')).toBeOnTheScreen();
+    expect(screen.getByText(COPY.noConnectCardText('Caio'))).toBeOnTheScreen();
+    expect(COPY.noConnectCardText('Caio')).toBe(
+      'Para conectar, toque em Voltar e encoste de novo o seu celular no de Caio.',
+    );
+    expect(screen.queryByText(COPY.cardCheck)).toBeNull();
+    expect(screen.queryByText('Conectar com Caio')).toBeNull();
+    // Ordem de leitura: nome → @ → T48 → Voltar → Denunciar → Bloquear.
+    expect(buttonLabels()).toEqual([COPY.back, 'Denunciar', 'Bloquear']);
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    await user.press(screen.getByRole('button', { name: COPY.back }));
+    await user.press(screen.getByTestId('cartao-bloquear'));
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(lineActions.onBlock).toHaveBeenCalledTimes(1);
+  });
+
+  it('PROX-70 (22, M3): bloqueando, o (Voltar) e o ‹Denunciar› ficam desativados e o ‹Bloquear› em loading', async () => {
+    await renderCard(
+      <TouchCard
+        variant="noConnect"
+        person={CAIO}
+        onBack={jest.fn()}
+        moderation={moderation({ blocking: true })}
+        {...COMMON}
+      />,
+    );
+    expect(screen.getByRole('button', { name: COPY.back })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Denunciar' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Bloquear' })).toBeBusy();
+  });
+
+  it('PROX-70 (14 do cartão atrasado): a linha que nunca esteve na tela não aparece, nem para sumir com o fade', async () => {
+    await renderCard(
+      <TouchCard
+        variant="incoming"
+        person={CAIO}
+        secondsLeft={100}
+        busy={false}
+        error={null}
+        onAccept={jest.fn()}
+        onDecline={jest.fn()}
+        moderation={moderation({ visible: false })}
+        {...COMMON}
+      />,
+      false,
+    );
+    expect(screen.queryByTestId('cartao-denunciar', { includeHiddenElements: true })).toBeNull();
+    expect(buttonLabels()).toEqual([COPY.accept, COPY.decline]);
+  });
+
+  it.each([
+    ['sem Reduzir movimento', false],
+    ['com Reduzir movimento', true],
+  ] as const)(
+    'PROX-69 (§11.15, %s): o cartão (também o que chega no QR) entra com fade de 200 ms; com Reduzir movimento, sem fade',
+    async (_case, reduceMotion) => {
+      const timing = jest.spyOn(Animated, 'timing');
+      await renderCard(
+        <TouchCard
+          variant="late"
+          person={CAIO}
+          onBack={jest.fn()}
+          moderation={moderation()}
+          {...COMMON}
+        />,
+        reduceMotion,
+      );
+      const opacity = StyleSheet.flatten(
+        screen.getByTestId('conectar-encostado-atrasado').props.style,
+      ).opacity as number;
+      const fades = timing.mock.calls.filter(([, config]) => config.toValue === 1);
+      if (reduceMotion) {
+        expect(opacity).toBe(1);
+        expect(fades).toHaveLength(0);
+      } else {
+        expect(opacity).toBe(0);
+        expect(fades.map(([, config]) => config.duration)).toEqual([theme.motion.base]);
+        expect(theme.motion.base).toBe(200);
+      }
+      timing.mockRestore();
+    },
+  );
 });
 
 describe('TouchCard: bloquear e denunciar pelo cartão (ux.md §11.14)', () => {

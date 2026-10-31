@@ -10,7 +10,10 @@ import { BLOCK_ACTION, REPORT_ACTION } from '../moderation/useModerationMenu';
 
 /** A linha ‹Denunciar› ‹Bloquear› do cartão (ux.md §11.14). */
 export interface TouchCardModeration {
-  /** A linha está na tela. No 14, some no `expiresAt` do cartão, com fade de 200 ms (M14). */
+  /**
+   * A linha está na tela. No 14, some no `actionsUntil` do cartão, com fade de 200 ms (M14); no 14
+   * de um cartão atrasado, nunca aparece (§11.15).
+   */
   visible: boolean;
   /** No Bloqueado só há o ‹Denunciar›. */
   canBlock: boolean;
@@ -32,14 +35,17 @@ interface CommonProps {
 }
 
 /**
- * As variantes do cartão (ux.md §11.5 e §11.14): `touched` (11, quem encostou), `alreadyConnected`
- * (12, quem já é conexão), `incoming` (14, o pedido dessa mesma pessoa, no próprio cartão) e
- * `blocked` (o Bloqueado, depois do "Bloquear" no 11 ou no 14).
+ * As variantes do cartão (ux.md §11.5, §11.14 e §11.15): `touched` (11, quem encostou),
+ * `alreadyConnected` (12, quem já é conexão), `incoming` (14, o pedido dessa mesma pessoa, no
+ * próprio cartão), `blocked` (o Bloqueado, depois do "Bloquear" no 11, no 14 ou no 22), `late` (21,
+ * o cartão atrasado: sem ação nenhuma) e `noConnect` (22, o cartão sem Conectar: só a linha).
  */
 export type TouchCardProps = CommonProps &
   (
     | { variant: 'touched'; busy: boolean; onConnect: () => void; onCancel: () => void }
     | { variant: 'alreadyConnected'; onBack: () => void }
+    | { variant: 'late'; onBack: () => void }
+    | { variant: 'noConnect'; onBack: () => void }
     | {
         variant: 'incoming';
         secondsLeft: number;
@@ -77,13 +83,17 @@ function useFadeIn() {
 /**
  * ‹Denunciar› ‹Bloquear›: dois `link sm` centralizados, 32 abaixo do último elemento e 32 entre
  * eles, quebrando em duas linhas com fonte grande. Nenhum fica vermelho (o vermelho é o do `Alert`).
- * Quando some (M14), sai com fade de 200 ms, já fora do leitor de tela.
+ * Quando some (M14), sai com fade de 200 ms, já fora do leitor de tela. A que nunca esteve na tela
+ * (o 14 de um cartão atrasado, §11.15) não aparece nem para sumir.
  */
 function ModerationLine({ moderation }: { moderation: TouchCardModeration }) {
   const { visible, canBlock, blocking, disabled, onReport, onBlock } = moderation;
   const reduceMotion = useReducedMotion();
   const [opacity] = useState(() => new Animated.Value(1));
   const [faded, setFaded] = useState(false);
+  // Guarda se a linha já esteve na tela (o padrão do React para o estado que vem do render anterior).
+  const [everShown, setEverShown] = useState(visible);
+  if (visible && !everShown) setEverShown(true);
   useEffect(() => {
     if (visible) {
       opacity.setValue(1);
@@ -103,7 +113,7 @@ function ModerationLine({ moderation }: { moderation: TouchCardModeration }) {
     };
   }, [opacity, reduceMotion, visible]);
 
-  if (!visible && (reduceMotion || faded)) return null;
+  if (!visible && (!everShown || reduceMotion || faded)) return null;
   const leaving = !visible;
   return (
     <Animated.View
@@ -220,10 +230,6 @@ export function TouchCard(props: TouchCardProps) {
     );
   }
 
-  let testID = 'conectar-encostado';
-  if (props.variant === 'alreadyConnected') testID = 'conectar-encostado-conectados';
-  else if (props.variant === 'blocked') testID = 'conectar-encostado-bloqueado';
-
   let body;
   switch (props.variant) {
     case 'touched':
@@ -257,10 +263,13 @@ export function TouchCard(props: TouchCardProps) {
       break;
     case 'alreadyConnected':
     case 'blocked':
+    case 'late':
+    case 'noConnect':
+      // O (Voltar) secundário no lugar do botão principal, com as medidas do 12 (a 24 do texto).
       body = (
         <>
           <Text variant="bodySm" color="grey" align="center" style={styles.check}>
-            {props.variant === 'blocked' ? blockedMessage(person.handle) : COPY.alreadyConnected}
+            {backCardText(props.variant, person.handle, first)}
           </Text>
           <View style={styles.actions}>
             <Button
@@ -277,7 +286,7 @@ export function TouchCard(props: TouchCardProps) {
   }
 
   return (
-    <Animated.View style={[styles.card, { opacity }]} testID={testID}>
+    <Animated.View style={[styles.card, { opacity }]} testID={TEST_ID[props.variant]}>
       {avatar}
       <View ref={focusRef} accessible accessibilityRole="header" testID="cartao-nome">
         <Text variant="titleMd" align="center">
@@ -288,9 +297,36 @@ export function TouchCard(props: TouchCardProps) {
         {`@${person.handle}`}
       </Text>
       {body}
-      {line}
+      {/* O 21 não tem ação nenhuma: o par venceu ou vence em menos de 10 s (A3-4). */}
+      {props.variant === 'late' ? null : line}
     </Animated.View>
   );
+}
+
+const TEST_ID: Record<Exclude<TouchCardProps['variant'], 'incoming'>, string> = {
+  touched: 'conectar-encostado',
+  alreadyConnected: 'conectar-encostado-conectados',
+  blocked: 'conectar-encostado-bloqueado',
+  late: 'conectar-encostado-atrasado',
+  noConnect: 'conectar-encostado-sem-conectar',
+};
+
+/** O texto no lugar do T15 nos cartões só com (Voltar): o T18, o Bloqueado, o T47 e o T48. */
+function backCardText(
+  variant: 'alreadyConnected' | 'blocked' | 'late' | 'noConnect',
+  handle: string,
+  first: string,
+): string {
+  switch (variant) {
+    case 'alreadyConnected':
+      return COPY.alreadyConnected;
+    case 'blocked':
+      return blockedMessage(handle);
+    case 'late':
+      return COPY.lateCardText(first);
+    case 'noConnect':
+      return COPY.noConnectCardText(first);
+  }
 }
 
 const styles = StyleSheet.create({

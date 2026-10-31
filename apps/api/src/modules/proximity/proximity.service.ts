@@ -18,10 +18,11 @@ import {
 import { type NearbyRow, ProximityRepository } from './proximity.repository.js';
 import {
   type BlockSignalRole,
-  type OwedCard,
+  type DeliveredOwedCard,
   type ProximityChannel,
   ProximityStore,
   type ProximityTtls,
+  type TouchCard,
 } from './proximity.store.js';
 import { withTimeout } from '../../common/async/with-timeout.js';
 import type { AuthContext } from '../../common/auth/auth-context.js';
@@ -92,12 +93,16 @@ export interface ProximityAbuseFlag {
   role: ProximityAbuseRole;
 }
 
-/** A resposta de `touches` sem cartão: a mesma para não mútuo, teto, ocupado e janela vencida. */
+/**
+ * A resposta de `touches` sem cartão: a mesma para não mútuo, recusa pela política, teto, ocupado e
+ * janela vencida.
+ */
 const NO_CARD: ProximityTouchResult = { items: [] };
 
 /**
  * Degrau do `pairExpiresInS` (PROX-64): o prazo do par sai arredondado para baixo em múltiplos de
- * 5 s, para o casamento na hora e o cartão devido darem o mesmo valor (PROX-37).
+ * 5 s, para o casamento na hora e o cartão devido darem o mesmo valor (PROX-37). (ADR 0012, A3-5)
+ * Também o teto: nunca acima de `validade − degrau` (55).
  */
 export const PAIR_EXPIRES_STEP_S = 5;
 
@@ -114,8 +119,9 @@ export const PROXIMITY_TOUCH_CAPPED = 'PROXIMITY_TOUCH_CAPPED';
  * Privacidade (ADR 0012): nenhuma rota recebe dado de sinal (RSSI, potência, modelo); um token BLE
  * só vira pessoa no encosto mútuo, e o encosto vive só no Redis, por até 60 s, sem ir para o
  * Postgres nem para o log. (A2) O cartão devido (@, nome, chave da foto, `alreadyConnected`) também
- * vive só no Redis, até 60 s e com entrega única; os contadores do teto e do sinal de abuso guardam
- * só números, sem a outra parte.
+ * vive só no Redis, até 60 s, e (A3-2) depois da primeira entrega fica mais até 10 s, para a
+ * reentrega à mesma pessoa; os contadores do teto e do sinal de abuso guardam só números, sem a
+ * outra parte.
  */
 @Injectable()
 export class ProximityService {
@@ -395,25 +401,35 @@ export class ProximityService {
    * do dono do `bleToken` `t` (exatamente 1 por chamada; o schema garante, e só o primeiro conta).
    * Os guards e o schema vêm antes (conta pessoal, e-mail confirmado, 1 token). Depois:
    * 1. **o cartão devido** (A2-2): se alguém casou com quem chama e deixou o próprio cartão, ele é
-   *    entregue agora, uma vez, sem passar de novo pela política (a decisão foi no casamento), e o
-   *    relato para aqui. É o que garante a revelação simétrica mesmo que o outro bloqueie, exclua a
-   *    conta ou saia logo depois. (A2 rev. 1, R1-4) Sai **antes de qualquer recusa**: não consome o
-   *    limite, não exige a tela aberta e sai mesmo com a proximidade bloqueada. Fail-closed: sem o
-   *    Redis, 503, e o cartão continua guardado;
+   *    entregue agora, sem passar de novo pela política (a decisão foi no casamento), e o relato para
+   *    aqui. É o que garante a revelação simétrica mesmo que o outro bloqueie, exclua a conta ou saia
+   *    logo depois. (A2 rev. 1, R1-4) A **primeira entrega** sai **antes de qualquer recusa**: não
+   *    consome o limite, não exige a tela aberta e sai mesmo com a proximidade bloqueada. (ADR 0012,
+   *    A3-2) Depois dela, o mesmo cartão é **entregue de novo** por até 10 s, se a resposta se perder
+   *    na rede; a reentrega passa só pelo limite de 60 por minuto (429 acima dele, sem mexer em chave
+   *    nenhuma). O rótulo e o `pairExpiresInS` são recalculados em cada entrega (o rótulo da
+   *    reentrega só confere o hash guardado; ver `owedCardLabel`). Fail-closed: sem o Redis, 503, e
+   *    o cartão continua guardado;
    * 2. sem cartão devido: sem bloqueio de proximidade (429), 60 por minuto (429) e a tela aberta
    *    (409, PROX-04);
    * 3. `t` precisa ser **válido** (até 30 s), do canal `ble` e de outra conta, O; senão, ignorado em
-   *    silêncio, sem contar como falha;
-   * 4. atômico: grava a observação de quem chama sobre O (o horário do primeiro relato não muda; o
-   *    prazo desliza a cada relato, R1-1) e confere se a de O sobre quem chama está na janela (5 s
-   *    desde o primeiro relato de O);
-   * 5. a política, numa consulta só: O e quem chama, pessoais, ativos e sem bloqueio em nenhum
-   *    sentido (o mesmo `findNearby` do `resolve`; a linha de quem chama vira o cartão dele);
-   * 6. o casamento (`claimTouchPair`): janela, ocupado, teto de pessoas novas, par, cartão devido a
-   *    O e quem chama ocupado, num script só;
-   * 7. responde sempre 200 `{items}`, com no máximo um cartão. Não mútuo, vencido, inexistente, do
+   *    silêncio, sem contar como falha (o caminho que depende só do token, não da relação);
+   * 4. (A3-1, R22) daqui em diante, **sempre as mesmas idas, na mesma ordem**, e o resultado de cada
+   *    passo só decide a resposta no fim:
+   *    a. atômico: grava a observação de quem chama sobre O (o horário do primeiro relato não muda; o
+   *       prazo desliza a cada relato, R1-1). O booleano da janela que a porta devolve não decide
+   *       nada aqui: o script do casamento confere a janela de novo;
+   *    b. a política, numa consulta só (`findTouchPair`, as duas linhas sempre que as contas
+   *       existem, com os fatos em colunas): O e quem chama, pessoais, ativos e sem bloqueio em
+   *       nenhum sentido (`touchRevealParties`, a mesma regra do `findNearby` do `resolve`); a linha
+   *       de quem chama vira o cartão dele;
+   *    c. o casamento (`claimTouchPair`): janela (`gone`), recusa da política (`refused`, com o
+   *       cartão nulo), ocupado, teto de pessoas novas, par, cartão devido a O e quem chama ocupado,
+   *       num script só;
+   * 5. responde sempre 200 `{items}`, com no máximo um cartão. Não mútuo, vencido, inexistente, do
    *    QR, próprio, de criador, de conta excluída, com bloqueio, no teto, ocupado ou com a janela
-   *    vencida são indistinguíveis (PROX-32, PROX-36, PROX-46).
+   *    vencida são indistinguíveis no corpo (PROX-32, PROX-36, PROX-46) e, com token válido de outra
+   *    conta, também nas idas ao Valkey e ao Postgres e nas linhas que o Postgres devolve (R22).
    *
    * Nenhum dado de sinal chega aqui (PROX-43).
    */
@@ -424,6 +440,11 @@ export class ProximityService {
     // devido a ela mesma, então isto não abre força bruta.
     const owed = await this.guarded(() => this.store.takeOwedCard(viewer.userId, this.touchBusyMs));
     if (owed !== null) {
+      if (owed.redelivered) {
+        // A3-2: a reentrega conta no limite (sem isso, um cliente modificado chamaria sem limite por
+        // 10 s a cada casamento). O 429 não perde nada: a reentrega não mexeu em chave nenhuma.
+        await this.consume(PROXIMITY_LIMITS.touches, viewer);
+      }
       return { items: [await this.owedCard(owed, token)] };
     }
 
@@ -439,8 +460,10 @@ export class ProximityService {
     if (ownerId === undefined) {
       return NO_CARD;
     }
+    // A3-1 (R22): com token válido de outra conta, a observação, a política e o casamento rodam
+    // sempre, uma vez cada, nesta ordem. Nenhum retorno antes do casamento.
     const at = this.clock.now().getTime();
-    const inWindow = await this.guarded(() =>
+    await this.guarded(() =>
       this.store.recordTouch(
         viewer.userId,
         ownerId,
@@ -449,20 +472,25 @@ export class ProximityService {
         this.touchWindowMs,
       ),
     );
-    if (!inWindow) {
-      return NO_CARD;
-    }
-
-    const rows = await this.repository.findNearby(
-      viewer.userId,
-      [ownerId, viewer.userId],
-      this.policy.hideBlockedFor(viewer, users.id),
-    );
-    const owner = rows.find((row) => row.id === ownerId);
-    const caller = rows.find((row) => row.id === viewer.userId);
-    if (owner === undefined || caller === undefined) {
-      return NO_CARD;
-    }
+    // As duas linhas voltam sempre que as duas contas existem, com bloqueio, exclusão ou criador
+    // (o número de linhas e o plano não revelam a recusa). Elas trazem o @, o nome e a foto até de
+    // conta recusada: só o retorno da política (as duas linhas, ou `null`) chega ao cartão, ao
+    // script e à resposta; `rows` não vai para log, erro nem Valkey.
+    const rows = await this.repository.findTouchPair(viewer.userId, ownerId);
+    const parties = this.policy.touchRevealParties(viewer, ownerId, rows);
+    // Recusa da política: o cartão nulo, e o script volta `refused` (ou `gone`).
+    const callerCard: TouchCard | null =
+      parties === null
+        ? null
+        : {
+            subjectId: parties.caller.id,
+            atMs: at,
+            handle: parties.caller.handle,
+            name: parties.caller.name,
+            avatarKey: parties.caller.avatarKey,
+            // A conexão é do par: o mesmo `connected` nas duas linhas.
+            connected: parties.owner.connected,
+          };
     const outcome = await this.guarded(() =>
       this.store.claimTouchPair({
         callerId: viewer.userId,
@@ -473,26 +501,20 @@ export class ProximityService {
         busyMs: this.touchBusyMs,
         perHour: this.touchPairsPerHour,
         perDay: this.touchPairsPerDay,
-        callerCard: {
-          subjectId: caller.id,
-          atMs: at,
-          handle: caller.handle,
-          name: caller.name,
-          avatarKey: caller.avatarKey,
-          // A conexão é do par: o `connected` da linha de O (vista por quem chama) vale para O.
-          connected: owner.connected,
-        },
+        callerCard,
       }),
     );
     if (outcome === 'capped') {
       // Para calibrar o teto: sem ids e sem tokens (A2-1).
       this.logger.warn(`${PROXIMITY_TOUCH_CAPPED}: teto de pessoas novas, encosto não confirmado`);
     }
-    if (outcome !== 'created' && outcome !== 'renewed') {
+    // `created` e `renewed` só saem com o cartão de quem chama (a política aceitou); a conferência
+    // aqui é a defesa, depois de todas as idas.
+    if ((outcome !== 'created' && outcome !== 'renewed') || parties === null) {
       return NO_CARD;
     }
     // A mesma conta do cartão devido, a partir do horário deste casamento (PROX-37, PROX-64).
-    const people = await this.cards([owner], newest);
+    const people = await this.cards([parties.owner], newest);
     return {
       items: people.map((person) => ({ ...person, pairExpiresInS: this.pairExpiresInS(at) })),
     };
@@ -500,30 +522,32 @@ export class ProximityService {
 
   /**
    * Quanto falta para o par do casamento feito em `marriedAtMs` vencer (PROX-64), arredondado para
-   * baixo num múltiplo de 5 s e limitado a [0, validade do par]: `5 × floor(max(0, restante − 1) /
-   * 5000)`. A mesma conta vale para o casamento na hora e para o cartão devido: sem o degrau de
-   * 5 s, 60 contra 59 diria a quem recebe quem casou primeiro (PROX-37). O cartão pode vencer até
-   * 5 s antes no app, que já desconta essa margem. O par e o cartão devido foram gravados no mesmo
-   * script, com a mesma validade, a partir desse horário.
+   * baixo num múltiplo de 5 s e limitado a [0, validade do par − 5 s] (A3-5: 55 com a validade de
+   * 60 s): `5 × floor(max(0, restante − 1) / 5000)`. A mesma conta vale para o casamento na hora, o
+   * cartão devido e a reentrega dele: sem o degrau de 5 s, 60 contra 59 diria a quem recebe quem
+   * casou primeiro (PROX-37); sem o teto, o 60 da instância com o relógio atrasado em relação à que
+   * casou denunciaria o cartão devido. O cartão pode vencer até 5 s antes no app, que já desconta
+   * essa margem. O par e o cartão devido foram gravados no mesmo script, com a mesma validade, a
+   * partir desse horário.
    */
   private pairExpiresInS(marriedAtMs: number): number {
     const remainingMs = marriedAtMs + this.touchPairTtlMs - this.clock.now().getTime();
     const stepped =
       PAIR_EXPIRES_STEP_S * Math.floor(Math.max(0, remainingMs - 1) / (PAIR_EXPIRES_STEP_S * 1000));
-    return Math.min(this.touchPairTtlS, Math.max(0, stepped));
+    return Math.min(Math.max(0, this.touchPairTtlS - PAIR_EXPIRES_STEP_S), Math.max(0, stepped));
   }
 
   /**
    * O cartão devido como `ProximityTouchItem` (A2-2 passo 2), indistinguível do cartão do
-   * casamento. A foto é assinada agora (se o objeto já foi apagado, a imagem só não carrega). O
-   * `token` segue a regra do rótulo: é o `t` relatado só quando se sabe que ele é do dono do cartão
-   * (o hash é o guardado no casamento, ou o `findRecent` diz que `t` é dele); em qualquer outro caso
-   * (`t` revogado, vencido, inexistente, de **outra** pessoa ou sem resposta do Redis), um token
-   * novo que nunca foi emitido nem gravado. Assim o "Conectar" desse cartão dá o 400 genérico e nunca
-   * pede conexão a outra pessoa com quem a conta tenha par. (A2 rev. 1) `pairExpiresInS` conta do
-   * horário do casamento guardado no cartão: o cartão que chega tarde mostra o prazo que sobra.
+   * casamento, na primeira entrega e na reentrega (A3-2). A foto é assinada agora (se o objeto já
+   * foi apagado, a imagem só não carrega). O `token` segue a regra do rótulo (`owedCardLabel`).
+   * (A2 rev. 1) `pairExpiresInS` conta do horário do casamento guardado no cartão: o cartão que
+   * chega tarde mostra o prazo que sobra.
    */
-  private async owedCard(owed: OwedCard, token: string | undefined): Promise<ProximityTouchItem> {
+  private async owedCard(
+    owed: DeliveredOwedCard,
+    token: string | undefined,
+  ): Promise<ProximityTouchItem> {
     return {
       token: await this.owedCardLabel(owed, token),
       handle: owed.handle,
@@ -534,13 +558,30 @@ export class ProximityService {
     };
   }
 
-  private async owedCardLabel(owed: OwedCard, token: string | undefined): Promise<string> {
+  /**
+   * O rótulo do cartão devido: o `t` relatado só quando se sabe que ele é do dono do cartão; em
+   * qualquer outro caso (`t` revogado, vencido, inexistente, de **outra** pessoa ou sem resposta do
+   * Redis), um token novo que nunca foi emitido nem gravado. Assim o "Conectar" desse cartão dá o
+   * 400 genérico e nunca pede conexão a outra pessoa com quem a conta tenha par.
+   * - **Primeira entrega:** `t` serve quando o hash é o guardado no casamento ou quando o
+   *   `findRecent` diz que `t` é do dono (válido ou recente, até 120 s: o dono girou o token).
+   * - **Reentrega** (A3-2): `t` serve **só** quando o hash é o guardado; senão, o token nunca
+   *   emitido, **sem** o `findRecent`. Com ele, em cada reentrega (até 60 por minuto, por 10 s) quem
+   *   chama poderia testar um token qualquer de até 120 s e descobrir quais eram do dono do cartão.
+   *   O custo, raro: o dono girou o token entre a primeira entrega (cuja resposta se perdeu) e a
+   *   reentrega, e quem chama relata o token novo; o cartão chega com o token nunca emitido, e o
+   *   app mostra o estado 22 do `ux.md` (cartão sem Conectar, com Denunciar e Bloquear).
+   */
+  private async owedCardLabel(owed: DeliveredOwedCard, token: string | undefined): Promise<string> {
     if (token === undefined) {
       return generateProximityToken();
     }
     const hash = hashProximityToken(token);
     if (hash === owed.tokenHash) {
       return token;
+    }
+    if (owed.redelivered) {
+      return generateProximityToken();
     }
     try {
       // O cartão já foi retirado: sem o Redis aqui, ele sai com o token que nunca existiu, em vez
