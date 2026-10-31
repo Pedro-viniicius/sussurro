@@ -6,6 +6,7 @@ import {
   isFollowAllowed,
   isPostVisible,
   isProfileVisible,
+  isTouchActionAllowed,
   type PostTarget,
   type Relationship,
 } from './access-policy.service.js';
@@ -199,6 +200,76 @@ describe('seguir e pedir conexão (ADR 0008, X.2 CA2)', () => {
     await expect(policy.isFollowing(creatorViewer, OTHER)).resolves.toBe(false);
     expect(relations.isFollowing).not.toHaveBeenCalled();
     await expect(policy.isFollowing(viewer, OTHER)).resolves.toBe(true);
+  });
+});
+
+describe('bloquear e denunciar pelo cartão do encosto (ADR 0012, A2 rev. 1, R1-5)', () => {
+  const person = { id: OTHER, accountType: 'personal' as const };
+  const creator = { id: OTHER, accountType: 'creator' as const };
+  const self = { id: viewer.userId, accountType: 'personal' as const };
+
+  it('[PROX-61] [PROX-62] isTouchActionAllowed: só com o par vivo, entre duas contas pessoais diferentes', () => {
+    expect(isTouchActionAllowed(viewer, person, true)).toBe(true);
+    expect(isTouchActionAllowed(viewer, person, false)).toBe(false);
+    expect(isTouchActionAllowed(viewer, creator, true)).toBe(false);
+    expect(isTouchActionAllowed(creatorViewer, person, true)).toBe(false);
+    expect(isTouchActionAllowed(viewer, self, true)).toBe(false);
+  });
+
+  it('[PROX-61] [PROX-62] perfil visível (conexão, criador, a própria conta) → pode, sem consultar o par', async () => {
+    const touchPair = vi.fn((_targetId: string | undefined) => Promise.resolve(false));
+    await expect(
+      policyWith({ connected: [OTHER] }).policy.canBlockOrReport(viewer, person, touchPair),
+    ).resolves.toBe(true);
+    await expect(policyWith().policy.canBlockOrReport(viewer, creator, touchPair)).resolves.toBe(
+      true,
+    );
+    await expect(policyWith().policy.canBlockOrReport(viewer, self, touchPair)).resolves.toBe(true);
+    expect(touchPair).not.toHaveBeenCalled();
+  });
+
+  it('[PROX-61] [PROX-62] perfil que não se vê: pode só com o par vivo, também quando um já bloqueou o outro', async () => {
+    const paired = vi.fn((_targetId: string | undefined) => Promise.resolve(true));
+    const unpaired = vi.fn((_targetId: string | undefined) => Promise.resolve(false));
+    await expect(policyWith().policy.canBlockOrReport(viewer, person, paired)).resolves.toBe(true);
+    expect(paired).toHaveBeenLastCalledWith(OTHER);
+    await expect(policyWith().policy.canBlockOrReport(viewer, person, unpaired)).resolves.toBe(
+      false,
+    );
+    await expect(
+      policyWith({ blocked: [OTHER] }).policy.canBlockOrReport(viewer, person, paired),
+    ).resolves.toBe(true);
+    // Criador que não se vê (bloqueio) ou leitor criador: o par não vale (não há encosto com criador).
+    await expect(
+      policyWith({ blocked: [OTHER] }).policy.canBlockOrReport(viewer, creator, paired),
+    ).resolves.toBe(false);
+    await expect(policyWith().policy.canBlockOrReport(creatorViewer, person, paired)).resolves.toBe(
+      false,
+    );
+  });
+
+  it('[PROX-61] [PROX-62] sem conta (@ inexistente, excluído ou inválido): consulta o par mesmo assim, com undefined, e nunca pode', async () => {
+    const touchPair = vi.fn((_targetId: string | undefined) => Promise.resolve(true));
+    await expect(policyWith().policy.canBlockOrReport(viewer, undefined, touchPair)).resolves.toBe(
+      false,
+    );
+    expect(touchPair).toHaveBeenCalledTimes(1);
+    expect(touchPair).toHaveBeenCalledWith(undefined);
+  });
+
+  it('[PROX-61] [PROX-62] a falha da consulta do par (Valkey fora, 503) sobe igual para alvo com e sem conta', async () => {
+    const failure = new Error('503');
+    const touchPair = vi.fn((_targetId: string | undefined) => Promise.reject(failure));
+    await expect(policyWith().policy.canBlockOrReport(viewer, person, touchPair)).rejects.toBe(
+      failure,
+    );
+    await expect(policyWith().policy.canBlockOrReport(viewer, undefined, touchPair)).rejects.toBe(
+      failure,
+    );
+    // Alvo visível não depende do Valkey.
+    await expect(
+      policyWith({ connected: [OTHER] }).policy.canBlockOrReport(viewer, person, touchPair),
+    ).resolves.toBe(true);
   });
 });
 

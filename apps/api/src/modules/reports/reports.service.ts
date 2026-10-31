@@ -11,8 +11,10 @@ import { RATE_LIMITS, RateLimiterService } from '../../common/rate-limit/rate-li
 import { AppConfig } from '../../config/config.module.js';
 import { EmailSender } from '../../infra/email/email-sender.js';
 import { CommentsService } from '../comments/comments.service.js';
+import { AccessPolicyService } from '../policies/access-policy.service.js';
 import { PostsService } from '../posts/posts.service.js';
-import { UsersService } from '../users/users.service.js';
+import { ProximityService } from '../proximity/proximity.service.js';
+import { profileNotFound, UsersService } from '../users/users.service.js';
 
 /** Fora de produção, sem `MODERATION_EMAIL`: o e-mail só aparece no log (`EMAIL_SENDER=log`). */
 export const DEV_MODERATION_EMAIL = 'moderacao@example.com';
@@ -32,6 +34,10 @@ interface ResolvedTarget extends ReportedTarget {
 /**
  * Denúncias (X.1, D5). Só se denuncia o que se vê: post, comentário ou perfil que a pessoa não vê
  * (ou que não existe) → o mesmo 404 de inexistente, pelas mesmas regras do `AccessPolicyService`.
+ * (ADR 0012, A2 rev. 1, R1-5) A conta também pode ser denunciada por quem encostou nela há até
+ * 60 s (o par encostado vivo; o cartão do encosto já mostrou o @), mesmo sem ver o perfil. Com alvo
+ * não visível, a regra consulta o par no Valkey sempre: fora do ar, 503 `PROXIMITY_UNAVAILABLE`,
+ * igual para qualquer @, e nada é gravado nem enviado.
  * A pessoa denunciada nunca é avisada. Repetir a denúncia do mesmo alvo devolve o mesmo 202, sem
  * linha nova nem outro e-mail. Cada denúncia nova manda um e-mail para a moderação.
  */
@@ -45,6 +51,8 @@ export class ReportsService {
     private readonly posts: PostsService,
     private readonly comments: CommentsService,
     private readonly users: UsersService,
+    private readonly policy: AccessPolicyService,
+    private readonly proximity: ProximityService,
     private readonly sender: EmailSender,
     private readonly rateLimiter: RateLimiterService,
     private readonly clock: Clock,
@@ -109,7 +117,14 @@ export class ReportsService {
         };
       }
       case 'account': {
-        const account = await this.users.findVisibleProfile(viewer, target.handle);
+        // Perfil visível ou par encostado vivo (R1-5); senão, o mesmo 404 de @ inexistente.
+        const account = await this.users.findActiveAccount(target.handle);
+        const allowed = await this.policy.canBlockOrReport(viewer, account, (targetId) =>
+          this.proximity.hasLiveTouchPair(viewer.userId, targetId),
+        );
+        if (account === undefined || !allowed) {
+          throw profileNotFound();
+        }
         return { type: 'account', accountId: account.id, accountHandle: account.handle };
       }
     }

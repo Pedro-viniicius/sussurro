@@ -31,6 +31,7 @@ const PERSONAL_ONLY_MODULES = [
  */
 const PERSONAL_ONLY_ROUTES = [
   'POST /v1/proximity/tokens',
+  'POST /v1/proximity/touches',
   'POST /v1/proximity/resolve',
   'POST /v1/connections/requests',
   'GET /v1/connections/requests/incoming',
@@ -106,6 +107,8 @@ describe('rotas de produção', () => {
         'GET /v1/search/creators',
         'PUT /v1/creators/:handle/follow',
         'POST /v1/proximity/tokens',
+        // ADR 0012: o relato do encosto (PROX-34).
+        'POST /v1/proximity/touches',
         'POST /v1/proximity/resolve',
         'POST /v1/connections/requests',
         'GET /v1/connections/requests/incoming',

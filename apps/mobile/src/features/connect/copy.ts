@@ -1,8 +1,10 @@
 import { MONTHS_SHORT } from '@sussurro/ui';
 
 /**
- * Textos da tela Conectar, como no protótipo (p10–p14, p22) e no ux.md (§4.10 a §4.12, §5.2 e §7.3).
- * Onde os documentos não dão texto, a decisão está marcada com "(4b)" e registrada no README.
+ * Textos da tela Conectar: os do protótipo (p10–p14, p22), os do ux.md (§4.10 a §4.12, §5.2 e §7.3)
+ * e, para o "encostar" (ADR 0012), os T1 a T42 e os anúncios A1 a A6 do ux.md §11.8 e §11.9,
+ * aprovados pelo PO em 2026-10-30 como estão. Onde os documentos não dão texto, a decisão está
+ * marcada com "(4b)" e registrada no README.
  */
 
 /** Primeiro nome para "Aguardando Caio confirmar" (o @ completo aparece na folha). */
@@ -24,33 +26,59 @@ export function formatCountdown(seconds: number): string {
 
 export const COPY = {
   title: 'Conectar',
+  // T1
   intro:
-    'Conexões só acontecem ao vivo, com os celulares próximos. As duas pessoas precisam confirmar.',
+    'Conexões só acontecem ao vivo, com os celulares encostados. As duas pessoas precisam confirmar.',
+  // T2, T3
   modeGroup: 'Como conectar',
-  modeBluetooth: 'Bluetooth',
+  modeTouch: 'Encostar',
   modeQr: 'QR code',
-  search: 'Procurar por perto',
-  searchHint: 'Fiquem a poucos metros, os dois com esta tela aberta.',
-  simulate: 'Simular um pedido recebido',
-  searching: 'Procurando por perto…',
-  keepOpen: 'Mantenha o app aberto',
-  cancel: 'Cancelar',
-  nobodyTitle: 'Ninguém por perto ainda',
-  nobodyText: 'Peça para a outra pessoa abrir a tela Conectar. Se não aparecer, usem o QR code.',
+  // Pronto (estado 6): T4, T5 e a nota T43 (no lugar do T6; aprovado pelo PO em 2026-10-30).
+  readyTitle: 'Encoste o seu celular no da outra pessoa',
+  readyText:
+    'Os dois com esta tela aberta. Juntem as partes de cima dos celulares e segurem por um instante.',
+  privacyNote:
+    'Seu nome e sua foto só aparecem quando os dois celulares percebem o encosto, e você vê a outra pessoa na mesma hora.',
+  // Aproximando (7): T7, T8.
+  approachingTitle: 'Quase lá',
+  approachingText: 'Encostem os celulares e segurem por um instante.',
+  // Confirmando (8): T9, T10.
+  confirmingTitle: 'Encostou!',
+  confirmingText: 'Segurem mais um instante…',
+  // Não deu para confirmar (9): T11.
+  touchFailed: 'Não deu para confirmar. Afastem e encostem os celulares de novo.',
+  // Nada detectado (10): T12, T13, T14.
+  nobodyTitle: 'Não está dando certo?',
+  nobodyText:
+    'Confiram se a outra pessoa está com a tela Conectar aberta e encostem as partes de cima dos celulares. Se não funcionar, usem o QR code.',
   useQr: 'Usar QR code',
-  nearbyTitle: 'Por perto agora',
-  nearbyFooter:
-    'Via Bluetooth. Só aparece quem está com a tela Conectar aberta agora. Ninguém vê sua localização.',
-  searchAgain: 'Procurar de novo',
-  connect: 'Conectar',
-  connectedLabel: 'Conectados',
+  // Cartão de quem encostou (11, 12): T15 a T18.
+  cardCheck: 'Confira se é a pessoa que está com você.',
+  connectWith: (first: string) => `Conectar com ${first}`,
+  connectWithLabel: (name: string, handle: string) => `Conectar com ${name}, @${handle}`,
+  cancel: 'Cancelar',
+  alreadyConnected: 'Vocês já estão conectados.',
+  // T46 (aprovado pelo PO em 2026-10-30): o prazo da denúncia, só no formulário aberto pelo cartão
+  // (11, 14 e Bloqueado), nunca no 12 nem na rota `/denunciar` (ux.md §11.14).
+  reportDeadline: 'Envie em até 1 minuto depois do encosto.',
+  // Cartão venceu (17): T20, no Toast e no leitor de tela.
+  cardExpired: (first: string) =>
+    `O tempo para conectar com ${first} acabou. Encostem os celulares de novo.`,
+  // (dev, D15) Simulações e a calibração: só no build de desenvolvimento.
+  simulate: 'Simular um pedido recebido',
+  simulateTouch: 'Simular o outro celular encostando',
+  calibration: 'Calibração do encostar (dev)',
   waitingTitle: (first: string) => `Aguardando ${first} confirmar`,
   waitingText: (first: string) =>
     `O pedido apareceu no celular de ${first}. A conexão só existe quando as duas pessoas confirmam.`,
   waitingQr: (first: string) => `${first} precisa ler este código para confirmar`,
   cancelRequest: 'Cancelar pedido',
   notConfirmedTitle: (first: string) => `${first} não confirmou`,
-  notConfirmedText: 'O pedido vale por 2 minutos. Vocês podem tentar de novo.',
+  // T21: pelo encostar e pelo QR.
+  notConfirmedText: (method: 'ble' | 'qr') =>
+    method === 'ble'
+      ? 'O pedido vale por 2 minutos. Para tentar de novo, encostem os celulares outra vez.'
+      : 'O pedido vale por 2 minutos. Vocês podem tentar de novo.',
   tryAgain: 'Tentar de novo',
   back: 'Voltar',
   connectedTitle: (first: string) => `Você e ${first} estão conectados`,
@@ -59,12 +87,10 @@ export const COPY = {
   goHome: 'Ir para o início',
   connectAnother: 'Conectar outra pessoa',
   // Toasts do §5.2.
-  alreadyConnected: 'Vocês já estão conectados.',
   cannotSend: 'Não foi possível enviar o pedido agora. Tente mais tarde.',
-  left: (first: string) => `${first} saiu de perto. Procure de novo.`,
-  // Estados de erro do §5.2.
+  // Estados de erro do §5.2 (T22 no "Muitas tentativas").
   pausedTitle: 'Muitas tentativas',
-  pausedText: 'Você poderá procurar de novo em alguns minutos.',
+  pausedText: 'Você poderá tentar de novo em alguns minutos.',
   unavailableTitle: 'Conectar está indisponível agora',
   unavailableText: 'Tente de novo em instantes.',
   offlineTitle: 'Sem internet',
@@ -73,27 +99,32 @@ export const COPY = {
   emailTitle: 'Confirme seu e-mail para se conectar',
   emailText: 'Conectar fica disponível depois que você confirma o e-mail da sua conta.',
   verifyEmail: 'Verificar e-mail',
-  // Permissões (§4.12).
+  // Permissões (§4.12 e §11.9): T23 a T29. O texto da explicação é o T44 (no lugar do T23;
+  // aprovado pelo PO em 2026-10-30).
   btExplainTitle: 'Permitir o Bluetooth',
   btExplainText:
-    'O Sussurro usa o Bluetooth para achar quem está com esta tela aberta perto de você. Ninguém vê sua localização, e nada é transmitido com o app fechado.',
+    'O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa. Seu nome e sua foto não passam pelo Bluetooth, e nada é transmitido com o app fechado.',
+  btExplainLegacy:
+    'Neste celular, o sistema chama essa permissão de localização. O Sussurro não usa nem guarda onde você está.',
   continue: 'Continuar',
   btDeniedTitle: 'Bluetooth sem permissão',
-  btDeniedText: 'Para achar pessoas por perto, permita o Bluetooth nos Ajustes.',
+  btDeniedText: 'Para encostar os celulares, permita o Bluetooth nos Ajustes.',
   openSettings: 'Abrir Ajustes',
   btOffTitle: 'O Bluetooth está desligado',
-  btOffText: 'Ligue o Bluetooth para procurar quem está por perto.',
+  btOffText: 'Ligue o Bluetooth para encostar os celulares.',
   turnOnBluetooth: 'Ligar Bluetooth',
-  cannotAdvertiseTitle: 'Seu celular não consegue ser encontrado',
-  cannotAdvertiseText:
-    'Você ainda acha outras pessoas, mas elas não acham você. Use o QR code para garantir.',
-  searchAnyway: 'Procurar mesmo assim',
-  // (4b) Sem Bluetooth (aparelho sem BLE ou build sem o módulo nativo).
-  btUnavailableTitle: 'Bluetooth indisponível neste celular',
+  locationOffTitle: 'Ligue a localização do celular',
+  locationOffText:
+    'Neste celular, o Android só deixa encostar com a localização ligada. O Sussurro não usa nem guarda onde você está.',
+  btUnavailableTitle: 'Este celular não consegue encostar',
   btUnavailableText: 'Use o QR code para se conectar com quem está com você.',
-  // QR (§4.10).
-  qrHint: 'Peça para a outra pessoa ler este código.',
-  readTheirCode: 'Ler o código dela',
+  // T30: a faixa do QR quando o celular não consegue encostar.
+  unsupportedBanner: 'Este celular não consegue encostar. Use o QR code.',
+  // QR (§4.10 e §11.6): T32 a T34.
+  qrExplain:
+    'Use quando encostar não funcionar: um celular mostra o código e o outro lê com a câmera.',
+  qrHint: 'Peça para a outra pessoa ler este código. Mostre só para quem está com você.',
+  readTheirCode: 'Ler o código da outra pessoa',
   scannerTitle: 'Ler código',
   scannerHint: 'Aponte a câmera para o código da outra pessoa.',
   close: 'Fechar',
@@ -108,7 +139,8 @@ export const COPY = {
   // (4b) No aceite por QR, o código lido é de outra pessoa.
   qrNotTheirs: (first: string) =>
     `Este código não é de ${first}. Leia o código que aparece no celular de ${first}.`,
-  // Folha do pedido recebido (§4.11). Sem artigo antes do nome ("a Helena"): o app não sabe o gênero.
+  // Folha do pedido recebido (§4.11) e o pedido no cartão (T37). Sem artigo antes do nome ("a
+  // Helena"): o app não sabe o gênero.
   sheetTitle: (first: string) => `${first} quer se conectar`,
   sheetConfirm: (first: string) => `Confirme só se ${first} estiver aí com você.`,
   accept: 'Aceitar',
@@ -118,16 +150,26 @@ export const COPY = {
   expired: (first: string) => `O pedido de ${first} expirou.`,
   // (4b) O pedido sumiu antes de vencer (cancelado por quem pediu).
   gone: (first: string) => `O pedido de ${first} não está mais disponível.`,
-  // (4b) Aceite por Bluetooth sem ter visto o anúncio de quem pediu.
-  notSeen: (first: string) =>
-    `O Sussurro ainda não encontrou ${first} por perto. Aproximem os celulares e tentem de novo.`,
-  // (4b) Aceite recusado pelo token (o pedido continua valendo).
-  acceptFailed: 'Não foi possível confirmar agora. Aproximem os celulares e tentem de novo.',
-  // Leitor de tela (§7.3).
-  announceFound: (name: string) => `${name} encontrado por perto`,
+  // T35: o aceite por encostar recusado pelo servidor (o pedido continua valendo).
+  notSeen: (first: string) => `Encoste o seu celular no de ${first} e toque em Aceitar de novo.`,
+  // T45 (no lugar do T36; aprovado pelo PO em 2026-10-30): o aceite por QR recusado pelo código
+  // lido (o pedido continua valendo). Só o aceite por QR mostra este texto.
+  acceptFailed: (first: string) =>
+    `Não foi possível confirmar agora. Leia o código de ${first} de novo.`,
+  // Leitor de tela: A1 a A6 (§11.8) e os mantidos do §7.3.
+  announceApproaching: 'Quase lá. Encostem os celulares.',
+  announceConfirming: 'Encostou. Segurem mais um instante.',
+  announceTouched: (name: string) =>
+    `Encostou em ${name}. Confira se é a pessoa que está com você.`,
+  announceTouchedConnected: (name: string) => `Encostou em ${name}. Vocês já estão conectados.`,
+  announceIncoming: (first: string) => `${first} quer se conectar com você.`,
+  announceNoTouch: 'Não está dando certo? Você pode usar o QR code.',
   announceSent: 'Pedido enviado',
   announceConnected: 'Vocês estão conectados',
   announceNotConfirmed: 'Pedido recusado ou expirado',
+  // T41 (opcional, só no iPhone): o uso depende do resultado do spike 4.1-B (ux.md §11.7 e §11.12).
+  nameDropNote:
+    'Se o iPhone abrir a troca de contatos, não precisa usar: o Sussurro conecta sem ela.',
   // Criador (p22).
   creatorTitle: 'Indisponível para criadores',
   creatorText: 'Contas de criador só publicam. Elas não se conectam nem seguem outras contas.',

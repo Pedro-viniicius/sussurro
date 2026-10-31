@@ -136,12 +136,12 @@ describe('CatalogScreen', () => {
     await userEvent.press(screen.getByRole('button', { name: 'Cancelar' }));
   });
 
-  it('Fase 4: seletor "Bluetooth / QR code", radar, par de avatares, QR e o perfil de conexão', async () => {
+  it('Fase 4 (ADR 0012): seletor "Encostar / QR code", ilustração do encostar, par de avatares, QR e o perfil de conexão', async () => {
     await render(<CatalogScreen />);
     const phase4 = within(screen.getByTestId('catalog-section-fase4'));
     for (const block of [
       'SegmentedControl',
-      'Radar',
+      'TouchHint',
       'PairAvatars',
       'QRCodeCard',
       'ProfileHeader (conexão)',
@@ -150,7 +150,16 @@ describe('CatalogScreen', () => {
     }
     await userEvent.press(phase4.getByRole('radio', { name: 'QR code' }));
     expect(phase4.getByRole('radio', { name: 'QR code' })).toBeChecked();
-    expect(phase4.getByRole('button', { name: 'Procurar por perto' })).toBeOnTheScreen();
+    expect(phase4.getByRole('radio', { name: 'Encostar' })).not.toBeChecked();
+    // As 3 poses e o modo "Reduzir movimento" (decorativas: fora do leitor de tela).
+    for (const id of ['demo', 'approaching', 'touching', 'reduced']) {
+      expect(
+        phase4.getByTestId(`catalog-touch-${id}`, { includeHiddenElements: true }),
+      ).toBeTruthy();
+    }
+    expect(
+      phase4.getByTestId('catalog-touch-reduced-estatico', { includeHiddenElements: true }),
+    ).toBeTruthy();
     expect(
       phase4.getByRole('button', { name: 'Conectados com @caio.r, toque para ver as opções' }),
     ).toBeOnTheScreen();

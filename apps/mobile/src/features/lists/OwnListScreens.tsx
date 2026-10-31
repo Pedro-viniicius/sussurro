@@ -110,7 +110,8 @@ export function ConnectionsScreen() {
         empty={{
           icon: 'radio',
           title: 'Nenhuma conexão ainda',
-          description: 'Conexões acontecem ao vivo: as duas pessoas confirmam, uma perto da outra.',
+          description:
+            'Conexões acontecem ao vivo: as duas pessoas encostam os celulares e confirmam.',
           primaryAction: {
             label: 'Conectar ao vivo',
             onPress: () => {

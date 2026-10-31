@@ -17,6 +17,8 @@ export const ROUTES = {
   personalConnections: '/pessoal/perfil/conexoes',
   personalFollowing: '/pessoal/perfil/seguindo',
   creatorProfile: '/criador/perfil',
+  /** Notificações do criador (aba própria, D-UX17). */
+  creatorNotifications: '/criador/notificacoes',
   /** Conectar bloqueado para o criador (p22, 4.8 CA2): só por deep link. */
   creatorConnect: '/criador/conectar',
   create: '/criar',
@@ -30,11 +32,36 @@ export const ROUTES = {
   verifyEmail: '/verificar-email',
 } as const;
 
+/** A aba inicial de cada tipo de conta. */
+export type HomeRoute = typeof ROUTES.personalHome | typeof ROUTES.creatorProfile;
+/** A aba Perfil de cada tipo de conta. */
+export type ProfileRoute = typeof ROUTES.personalProfile | typeof ROUTES.creatorProfile;
+
+/**
+ * As abas que têm as telas de post e de perfil dentro delas (`p/[id]` e `u/[handle]`), para a aba
+ * de origem continuar ativa (ux.md §3.2). Com as rotas tipadas, só elas servem de base.
+ */
+export const TAB_BASES = [
+  ROUTES.personalHome,
+  ROUTES.personalSearch,
+  ROUTES.personalProfile,
+  ROUTES.creatorProfile,
+  ROUTES.creatorNotifications,
+] as const;
+export type TabBase = (typeof TAB_BASES)[number];
+
+export function isTabBase(value: string): value is TabBase {
+  return (TAB_BASES as readonly string[]).includes(value);
+}
+
 /**
  * Para onde vai quem abre a área do outro tipo de conta (história 1.9 CA4): a aba inicial do
  * próprio tipo. O criador que tenta abrir Conectar vê o p22 (4.8 CA2).
  */
-export function redirectForOtherAccount(pathname: string, accountType: AccountType): string {
+export function redirectForOtherAccount(
+  pathname: string,
+  accountType: AccountType,
+): HomeRoute | typeof ROUTES.creatorConnect {
   if (accountType === 'creator' && pathname.startsWith(ROUTES.personalConnect)) {
     return ROUTES.creatorConnect;
   }
@@ -42,10 +69,10 @@ export function redirectForOtherAccount(pathname: string, accountType: AccountTy
 }
 
 /** Aba inicial de cada tipo de conta: Início (pessoal) e Perfil (criador, D-UX17). */
-export function homeFor(accountType: AccountType): string {
+export function homeFor(accountType: AccountType): HomeRoute {
   return accountType === 'personal' ? ROUTES.personalHome : ROUTES.creatorProfile;
 }
 
-export function profileFor(accountType: AccountType): string {
+export function profileFor(accountType: AccountType): ProfileRoute {
   return accountType === 'personal' ? ROUTES.personalProfile : ROUTES.creatorProfile;
 }

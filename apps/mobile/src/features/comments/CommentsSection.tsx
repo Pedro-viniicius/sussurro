@@ -8,6 +8,7 @@ import { useSignedInUser } from '../auth/AuthProvider';
 import { EmailNotVerifiedNotice } from '../auth/email-verification';
 import { reportHref } from '../moderation/report-target';
 import { useBlockAccount } from '../moderation/useBlockAccount';
+import type { TabBase } from '../navigation/routes';
 import { profileHref } from '../posts/navigation';
 import { useHiddenAuthors } from '../posts/post-store';
 
@@ -54,7 +55,7 @@ function validComment(value: string): boolean {
 export interface CommentsSectionProps {
   post: Post;
   /** Aba de origem: o @ tocável abre o perfil dentro dela. */
-  base: string;
+  base: TabBase;
   /** Folha: mostra o título e o ✕; tocar num @ fecha a folha antes de abrir o perfil. */
   onClose?: () => void;
   /** No detalhe: o post acima da lista. */

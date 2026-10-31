@@ -21,9 +21,10 @@ export interface SegmentedControlProps<K extends string = string> {
 const MAX_FONT_SCALE = 1.5;
 
 /**
- * Seletor de dois ou mais segmentos (tela Conectar, "Bluetooth / QR code", D3; ux.md §6.14):
- * fundo greySoft com raio 10 e padding 3; o segmento ativo é branco com sombra. Para o leitor de
- * tela é um grupo de opções (`radiogroup`/`radio`).
+ * Seletor de dois ou mais segmentos (tela Conectar, "Encostar / QR code", D3 revisto; ux.md §6.14 e
+ * §11.11): fundo greySoft com raio 10 e padding 3, com 44 de altura (segmentos de 38, a regra
+ * `hitMin`); o segmento ativo é branco com sombra. Para o leitor de tela é um grupo de opções
+ * (`radiogroup`/`radio`).
  */
 export function SegmentedControl<K extends string>({
   options,
@@ -70,7 +71,7 @@ export function SegmentedControl<K extends string>({
 
 const styles = StyleSheet.create({
   container: {
-    minHeight: 40,
+    minHeight: theme.layout.hitMin,
     flexDirection: 'row',
     padding: 3,
     borderRadius: theme.radius.md,
@@ -78,7 +79,7 @@ const styles = StyleSheet.create({
   },
   segment: {
     flex: 1,
-    minHeight: 34,
+    minHeight: theme.layout.hitMin - 6,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: theme.space[8],

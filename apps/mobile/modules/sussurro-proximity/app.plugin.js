@@ -5,11 +5,12 @@
 // varredura não é usada para localizar), BLUETOOTH_ADVERTISE e BLUETOOTH_CONNECT.
 // Android ≤ 11 (API ≤ 30): o sistema exige localização para varrer BLE, então ACCESS_FINE_LOCATION
 // entra com `maxSdkVersion="30"`, junto com BLUETOOTH e BLUETOOTH_ADMIN (permissões normais).
-// iOS: só a NSBluetoothAlwaysUsageDescription, em pt-BR. Nenhum modo de background.
+// iOS: só a NSBluetoothAlwaysUsageDescription, em pt-BR (T39 do ux.md §11.9, ADR 0012: o
+// Bluetooth só serve para perceber o encosto). Nenhum modo de background.
 const { createRunOncePlugin, withAndroidManifest, withInfoPlist } = require('expo/config-plugins');
 
 const BLUETOOTH_USAGE =
-  'O Sussurro usa o Bluetooth para achar quem está com a tela Conectar aberta perto de você. Ninguém vê sua localização, e nada é transmitido com o app fechado.';
+  'O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa, com a tela Conectar aberta. Ninguém vê sua localização, e nada é transmitido com o app fechado.';
 
 /** Até Android 11 (API 30). */
 const LEGACY_MAX_SDK = '30';

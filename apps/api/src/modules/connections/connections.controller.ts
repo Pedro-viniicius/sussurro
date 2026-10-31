@@ -70,6 +70,7 @@ export class ConnectionRequestsController {
     return this.connections.get(auth, id);
   }
 
+  /** `ble`: sem token (ignorado se vier); `qr`: o `qrToken` lido do QR de quem pediu (ADR 0012). */
   @Post(':id/accept')
   @HttpCode(200)
   @RequireAccountType('personal')

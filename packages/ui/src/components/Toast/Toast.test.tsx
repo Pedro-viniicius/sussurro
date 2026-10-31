@@ -1,5 +1,5 @@
 import { act, screen, userEvent } from '@testing-library/react-native';
-import { Pressable, Text } from 'react-native';
+import { AccessibilityInfo, Pressable, Text } from 'react-native';
 
 import { Toast } from './Toast';
 import { type ShowToastOptions, ToastProvider, useToast } from './ToastProvider';
@@ -94,6 +94,45 @@ describe('ToastProvider', () => {
     await userEvent.press(screen.getByRole('button', { name: 'Desfazer' }));
     expect(onPress).toHaveBeenCalled();
     expect(screen.queryByText('Removido')).not.toBeOnTheScreen();
+  });
+
+  it('leitor de tela: anuncia ao aparecer (iOS), com a região viva no Android', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    await renderUi(
+      <ToastProvider>
+        <Trigger options={[{ message: 'Publicado' }]} />
+      </ToastProvider>,
+    );
+    await userEvent.press(screen.getByRole('button', { name: 'mostrar' }));
+    expect(announce).toHaveBeenCalledWith('Publicado');
+    expect(screen.getByTestId('toast').props.accessibilityLiveRegion).toBe('polite');
+  });
+
+  it('ux.md §11.8: com announceAfterMs, anuncia só depois desse tempo, em fila e sem a região viva', async () => {
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    const queued = jest.mocked(AccessibilityInfo.announceForAccessibilityWithOptions);
+    announce.mockClear();
+    queued.mockClear();
+    await renderUi(
+      <ToastProvider>
+        <Trigger options={[{ message: 'O tempo acabou', announceAfterMs: 500 }]} />
+      </ToastProvider>,
+    );
+    await userEvent.press(screen.getByRole('button', { name: 'mostrar' }));
+    expect(screen.getByText('O tempo acabou')).toBeOnTheScreen();
+    // Sem a região viva: o Android não anuncia na hora (nem duas vezes).
+    expect(screen.getByTestId('toast').props.accessibilityLiveRegion).toBe('none');
+    await act(() => {
+      jest.advanceTimersByTime(499);
+    });
+    expect(queued).not.toHaveBeenCalled();
+    await act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(queued).toHaveBeenCalledTimes(1);
+    expect(queued).toHaveBeenCalledWith('O tempo acabou', { queue: true });
+    expect(announce).not.toHaveBeenCalled();
   });
 
   it('useToast fora do provider falha com mensagem clara', async () => {

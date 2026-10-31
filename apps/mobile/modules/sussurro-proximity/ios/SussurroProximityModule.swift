@@ -2,10 +2,15 @@ import CoreBluetooth
 import ExpoModulesCore
 import UIKit
 
-// Módulo `sussurro-proximity` (ADR 0002): anuncia um único UUID de serviço de 128 bits
-// (prefixo "SUSS" + 12 bytes do token efêmero) e varre os UUIDs com o mesmo prefixo. Sem nome
-// local, sem conexão GATT e só com o app em primeiro plano: ao ir para o background, para tudo.
-// A conversão token <-> UUID fica no TypeScript (`@sussurro/shared`), testada lá (4.3 CA6).
+// Módulo `sussurro-proximity` (ADR 0002; ADR 0012, "Conectar encostando"): anuncia um único UUID
+// de serviço de 128 bits (prefixo "SUSS" + 12 bytes do bleToken efêmero) e varre os UUIDs com o
+// mesmo prefixo. Sem nome local, sem conexão GATT e só com o app em primeiro plano: ao ir para o
+// background, para tudo. A conversão token <-> UUID fica no TypeScript (`@sussurro/shared`), e os
+// limiares do encosto ficam no app (`touch-calibration.ts`). O iOS não deixa escolher a potência
+// nem pôr o campo TX Power no anúncio (o `CBPeripheralManager` só aceita `LocalName` e
+// `ServiceUUIDs`): a potência chega e é ignorada. ADR 0012, adendo A1: a varredura também não lê o
+// campo TX Power (o evento é só `uuid` e `rssi`): é um número que o emissor escreve e o receptor
+// não tem como conferir.
 
 let sightingEvent = "onSighting"
 let stateEvent = "onStateChange"
@@ -39,7 +44,9 @@ public final class SussurroProximityModule: Module {
       }
     }.runOnQueue(.main)
 
-    AsyncFunction("startAdvertisingAsync") { (serviceUuid: String) in
+    // O 2º argumento (`txPower`) existe só pela API ser a mesma do Android: o iOS não deixa
+    // escolher a potência e o ignora.
+    AsyncFunction("startAdvertisingAsync") { (serviceUuid: String, _: String) in
       try self.radio.startAdvertising(serviceUuid: serviceUuid)
     }.runOnQueue(.main)
 
@@ -47,8 +54,8 @@ public final class SussurroProximityModule: Module {
       self.radio.stopAdvertising()
     }.runOnQueue(.main)
 
-    AsyncFunction("startScanAsync") { (prefix: String) in
-      self.radio.startScan(prefix: prefix)
+    AsyncFunction("startScanAsync") { (prefix: String, minIntervalMs: Int) in
+      self.radio.startScan(prefix: prefix, minIntervalMs: minIntervalMs)
     }.runOnQueue(.main)
 
     AsyncFunction("stopScanAsync") {
@@ -88,8 +95,8 @@ public final class SussurroProximityModule: Module {
 final class ProximityRadio: NSObject, CBCentralManagerDelegate, CBPeripheralManagerDelegate {
   typealias Emit = (String, [String: Any?]) -> Void
 
-  /// Um evento por UUID a cada meio segundo basta para a média do RSSI no JS.
-  private static let sightingThrottle: TimeInterval = 0.5
+  /// Intervalo padrão entre eventos do mesmo UUID, se o JS não mandar outro (ADR 0012 §2).
+  private static let defaultSightingInterval: TimeInterval = 0.2
 
   private let emit: Emit
   private var central: CBCentralManager?
@@ -97,6 +104,7 @@ final class ProximityRadio: NSObject, CBCentralManagerDelegate, CBPeripheralMana
   private var stateWaiters: [(CBManagerState) -> Void] = []
   private var advertisedUuid: CBUUID?
   private var scanPrefix: String?
+  private var sightingInterval: TimeInterval = ProximityRadio.defaultSightingInterval
   private var lastEmission: [String: TimeInterval] = [:]
 
   init(emit: @escaping Emit) {
@@ -160,7 +168,24 @@ final class ProximityRadio: NSObject, CBCentralManagerDelegate, CBPeripheralMana
       "permission": permission,
       "canAskAgain": authorization == .notDetermined,
       "canAdvertise": supported,
+      // O iOS não exige a localização para varrer (ADR 0012 §2).
+      "locationServices": "not_required",
+      // Só para a correção de calibração no próprio aparelho (nunca vai para a API).
+      "deviceModel": Self.deviceModel(),
     ]
+  }
+
+  /// O identificador do modelo (ex.: `iPhone15,2`); o `UIDevice.model` só diz "iPhone".
+  static func deviceModel() -> String {
+    var systemInfo = utsname()
+    uname(&systemInfo)
+    let mirror = Mirror(reflecting: systemInfo.machine)
+    return mirror.children.reduce(into: "") { identifier, element in
+      guard let value = element.value as? Int8, value != 0 else {
+        return
+      }
+      identifier.append(Character(UnicodeScalar(UInt8(bitPattern: value))))
+    }
   }
 
   static func bluetoothName(_ state: CBManagerState) -> String {
@@ -248,8 +273,16 @@ final class ProximityRadio: NSObject, CBCentralManagerDelegate, CBPeripheralMana
 
   // MARK: - Varredura
 
-  func startScan(prefix: String) {
-    scanPrefix = prefix.uppercased()
+  /// Uma sessão contínua por visita à tela (ADR 0012 §2): com a varredura já ligada no mesmo
+  /// prefixo, só troca o intervalo entre eventos, sem reiniciar.
+  func startScan(prefix: String, minIntervalMs: Int) {
+    sightingInterval =
+      minIntervalMs >= 0 ? TimeInterval(minIntervalMs) / 1000 : Self.defaultSightingInterval
+    let normalized = prefix.uppercased()
+    if scanPrefix == normalized, let central, central.isScanning {
+      return
+    }
+    scanPrefix = normalized
     lastEmission.removeAll()
     let manager = ensureCentral()
     if manager.state == .poweredOn {
@@ -301,7 +334,8 @@ final class ProximityRadio: NSObject, CBCentralManagerDelegate, CBPeripheralMana
     advertisementData: [String: Any],
     rssi RSSI: NSNumber
   ) {
-    // Nunca conecta nem guarda o periférico: só lê os UUIDs anunciados.
+    // Nunca conecta nem guarda o periférico: só lê os UUIDs anunciados e o RSSI medido aqui. O
+    // campo TX Power não é lido, venha ou não no anúncio (ADR 0012, adendo A1).
     guard let prefix = scanPrefix else {
       return
     }
@@ -322,7 +356,7 @@ final class ProximityRadio: NSObject, CBCentralManagerDelegate, CBPeripheralMana
       guard value.count == 36, value.hasPrefix(prefix) else {
         continue
       }
-      if let last = lastEmission[value], now - last < Self.sightingThrottle {
+      if let last = lastEmission[value], now - last < sightingInterval {
         continue
       }
       lastEmission[value] = now

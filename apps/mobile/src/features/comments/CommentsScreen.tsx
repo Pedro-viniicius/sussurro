@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CommentsSection } from './CommentsSection';
 import { useSignedInUser } from '../auth/AuthProvider';
-import { profileFor } from '../navigation/routes';
+import { tabBaseFromQuery } from '../posts/navigation';
 import { POST_UNAVAILABLE } from '../posts/PostDetailScreen';
 import { usePostLoader } from '../posts/usePostLoader';
 
@@ -21,7 +21,7 @@ function close() {
 export function CommentsScreen() {
   const { postId, origem } = useLocalSearchParams<{ postId: string; origem?: string }>();
   const user = useSignedInUser();
-  const base = origem !== undefined && origem !== '' ? origem : profileFor(user.accountType);
+  const base = tabBaseFromQuery(origem, user.accountType);
   const { post, status, reload } = usePostLoader(postId);
 
   return (

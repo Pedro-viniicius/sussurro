@@ -297,7 +297,7 @@ describe('X.2 CA3: o bloqueio desfaz conexão e follows e ajusta os contadores',
 });
 
 describe('X.2: bloquear não é oráculo de existência de @ pessoal', () => {
-  it('[A-05] @ inexistente, pessoal não visível, conta excluída e @ inválido → o mesmo 204 do sucesso, sem gravar nada', async () => {
+  it('[A-05] [PROX-61] sem par encostado: @ inexistente, pessoal não visível, conta excluída e @ inválido → o mesmo 204 do sucesso, sem gravar nada (com o par vivo, PROX-61)', async () => {
     const owner = await account();
     const friend = await createUser(t.database.db, { handle: 'amiga' });
     await connect(t.database.db, owner.user, friend);

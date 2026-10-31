@@ -3,6 +3,7 @@ import { Avatar, Button, IconButton, Text, theme, useReducedMotion } from '@suss
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useFocusOnShow } from './a11y';
 import { COPY, firstName, formatCountdown } from './copy';
 
 export interface IncomingRequestSheetProps {
@@ -37,6 +38,8 @@ export function IncomingRequestSheet({
   const reduceMotion = useReducedMotion();
   const { other } = request;
   const first = firstName(other.name);
+  // O foco vai ao título, como no cartão; o A5 sai depois dele (ux.md §11.8).
+  const titleRef = useFocusOnShow(request.id);
 
   return (
     <Modal
@@ -71,9 +74,17 @@ export function IncomingRequestSheet({
             uri={other.avatarUrl}
             decorative
           />
-          <Text variant="titleMd" align="center" accessibilityRole="header" style={styles.title}>
-            {COPY.sheetTitle(first)}
-          </Text>
+          <View
+            ref={titleRef}
+            accessible
+            accessibilityRole="header"
+            style={styles.title}
+            testID="folha-pedido-titulo"
+          >
+            <Text variant="titleMd" align="center">
+              {COPY.sheetTitle(first)}
+            </Text>
+          </View>
           <Text variant="bodySm" color="grey" align="center">
             {`@${other.handle} · ${other.name}`}
           </Text>

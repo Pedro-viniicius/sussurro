@@ -1,4 +1,15 @@
+import {
+  PROXIMITY_TOUCH_PAIR_TTL_S,
+  PROXIMITY_TOUCH_REPORT_FOR_S,
+  PROXIMITY_TOUCH_WINDOW_S,
+} from '@sussurro/shared';
 import { z } from 'zod';
+
+/**
+ * (ADR 0012, A2-2) Latência do primeiro relato que a janela do encosto precisa deixar de folga: o
+ * app relata por `PROXIMITY_TOUCH_REPORT_FOR_S` (8 s), e a janela + 2 s precisa caber nisso.
+ */
+const TOUCH_REPORT_LATENCY_S = 2;
 
 /** Trata `VAR=` (vazia no .env) como ausente. */
 const blankToUndefined = (value: unknown): unknown =>
@@ -126,6 +137,23 @@ export const ApiEnvSchema = z
     PROX_RECENT_TTL_S: positiveInt(120),
     /** Prova de "tela Conectar aberta" (`prox:u`), renovada a cada token emitido. */
     PROX_SCREEN_TTL_S: positiveInt(30),
+    /**
+     * (ADR 0012, A2-2) Janela do casamento: o relato só casa com a observação do outro se o
+     * **primeiro** relato dela tem menos que isto (5 s). A observação vive o dobro, sem renovar.
+     */
+    PROX_TOUCH_WINDOW_S: positiveInt(PROXIMITY_TOUCH_WINDOW_S),
+    /**
+     * (ADR 0012) Quanto tempo o par encostado (`prox:m`) vale para pedir a conexão por encostar e
+     * (A2-2) quanto tempo o cartão devido espera a entrega.
+     */
+    PROX_TOUCH_PAIR_TTL_S: positiveInt(PROXIMITY_TOUCH_PAIR_TTL_S),
+    /**
+     * (ADR 0012, A2-1; decisão do PO) Teto de pessoas novas (pares criados) por conta, nos dois
+     * lados do par: por hora e por dia, em janelas fixas. Acima dele, o encosto só não confirma. O
+     * app não usa estes valores.
+     */
+    PROX_TOUCH_PAIRS_PER_HOUR: positiveInt(10),
+    PROX_TOUCH_PAIRS_PER_DAY: positiveInt(30),
     /** Validade de um pedido de conexão pendente (PROX-15). */
     CONNECTION_REQUEST_TTL_S: positiveInt(120),
     /** Depois de uma recusa, A não pede de novo para B durante este tempo (PROX-17). */
@@ -224,6 +252,38 @@ export const ApiEnvSchema = z
         code: 'custom',
         path: ['PROX_RECENT_TTL_S'],
         message: 'precisa ser maior ou igual a PROX_TOKEN_TTL_S (o token recente inclui o válido)',
+      });
+    }
+    // ADR 0012 §3: o token devolvido no casamento continua "recente" durante todo o par.
+    if (env.PROX_TOUCH_PAIR_TTL_S + env.PROX_TOKEN_TTL_S > env.PROX_RECENT_TTL_S) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PROX_TOUCH_PAIR_TTL_S'],
+        message:
+          'PROX_TOUCH_PAIR_TTL_S + PROX_TOKEN_TTL_S precisa ser menor ou igual a PROX_RECENT_TTL_S (o token do casamento vale durante todo o par)',
+      });
+    }
+    if (env.PROX_TOUCH_WINDOW_S > env.PROX_TOKEN_TTL_S) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PROX_TOUCH_WINDOW_S'],
+        message:
+          'precisa ser menor ou igual a PROX_TOKEN_TTL_S (a janela do encosto cabe na validade do token)',
+      });
+    }
+    // A2-2: subir a janela sem um build novo do app quebraria a revelação simétrica em silêncio.
+    if (env.PROX_TOUCH_WINDOW_S + TOUCH_REPORT_LATENCY_S > PROXIMITY_TOUCH_REPORT_FOR_S) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PROX_TOUCH_WINDOW_S'],
+        message: `PROX_TOUCH_WINDOW_S + ${String(TOUCH_REPORT_LATENCY_S)} precisa ser menor ou igual a ${String(PROXIMITY_TOUCH_REPORT_FOR_S)} (o app relata por ${String(PROXIMITY_TOUCH_REPORT_FOR_S)} s; a revelação simétrica depende disso)`,
+      });
+    }
+    if (env.PROX_TOUCH_PAIRS_PER_DAY < env.PROX_TOUCH_PAIRS_PER_HOUR) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PROX_TOUCH_PAIRS_PER_DAY'],
+        message: 'precisa ser maior ou igual a PROX_TOUCH_PAIRS_PER_HOUR',
       });
     }
     if (env.MEDIA_URL_SIGNER === 'cloudfront') {

@@ -16,15 +16,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { videoOf } from './ReelGridTile';
 import { useSignedInUser } from '../auth/AuthProvider';
 import { useModerationMenu } from '../moderation/useModerationMenu';
-import { homeFor, profileFor } from '../navigation/routes';
-import { commentsHref, profileHref } from '../posts/navigation';
+import { homeFor, type HomeRoute } from '../navigation/routes';
+import { commentsHref, profileHref, tabBaseFromQuery } from '../posts/navigation';
 import { relationOf } from '../posts/PostCard';
 import { POST_UNAVAILABLE } from '../posts/PostDetailScreen';
 import { useDeletePost } from '../posts/useDeletePost';
 import { useLike } from '../posts/useLike';
 import { usePostLoader } from '../posts/usePostLoader';
 
-function close(fallback: string) {
+function close(fallback: HomeRoute) {
   if (router.canGoBack()) router.back();
   else router.replace(fallback);
 }
@@ -61,7 +61,7 @@ function Message({
 export function ReelViewerScreen() {
   const { id, origem } = useLocalSearchParams<{ id: string; origem?: string }>();
   const user = useSignedInUser();
-  const base = origem !== undefined && origem !== '' ? origem : profileFor(user.accountType);
+  const base = tabBaseFromQuery(origem, user.accountType);
   const { post, status, reload } = usePostLoader(id);
   const like = useLike();
   const confirmDelete = useDeletePost();

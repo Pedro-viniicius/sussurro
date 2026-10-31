@@ -87,7 +87,7 @@ describe('POST /reports (X.1)', () => {
     }
   });
 
-  it('X.1 CA1: o que a pessoa não vê → 404 idêntico ao de inexistente; nada gravado nem enviado', async () => {
+  it('X.1 CA1: o que a pessoa não vê, sem par encostado → 404 idêntico ao de inexistente; nada gravado nem enviado (a conta com o par vivo, PROX-62)', async () => {
     const reporter = await account();
     const stranger = await createUser(t.database.db, { handle: 'desconhecida' });
     const strangerPost = await createPost(t.database.db, stranger);

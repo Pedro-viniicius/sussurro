@@ -30,7 +30,7 @@ export * from './components/ActionSheet';
 export * from './components/SearchBar';
 export * from './components/UserRow';
 export * from './components/SegmentedControl';
-export * from './components/Radar';
+export * from './components/TouchHint';
 export * from './components/PairAvatars';
 export * from './components/QRCodeCard';
 export * from './components/Reel';

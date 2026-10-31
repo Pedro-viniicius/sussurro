@@ -20,6 +20,12 @@ export interface ShowToastOptions {
   action?: ToastAction;
   /** Em ms. Padrão: 4 s, ou 6 s com ação (ux.md §6.10). */
   duration?: number;
+  /**
+   * Leitor de tela: por padrão, o Toast anuncia ao aparecer (no iOS) ou pela região viva (no
+   * Android). Com este valor, em ms, o anúncio sai só depois dele, em fila e nos dois sistemas. Serve
+   * para o anúncio vir depois de uma mudança de foco da tela, que senão o cortaria (ux.md §11.8).
+   */
+  announceAfterMs?: number;
 }
 
 interface QueuedToast extends ShowToastOptions {
@@ -66,7 +72,13 @@ export function ToastProvider({ children, bottomOffset = theme.space[12] }: Toas
       duration: reduceMotion ? 0 : theme.motion.slow,
       useNativeDriver: true,
     }).start();
-    if (Platform.OS === 'ios') {
+    let announceTimer: ReturnType<typeof setTimeout> | undefined;
+    if (current.announceAfterMs !== undefined) {
+      const { message } = current;
+      announceTimer = setTimeout(() => {
+        AccessibilityInfo.announceForAccessibilityWithOptions(message, { queue: true });
+      }, current.announceAfterMs);
+    } else if (Platform.OS === 'ios') {
       // No Android o accessibilityLiveRegion do Toast já faz o anúncio.
       AccessibilityInfo.announceForAccessibility(current.message);
     }
@@ -78,6 +90,7 @@ export function ToastProvider({ children, bottomOffset = theme.space[12] }: Toas
     const timer = setTimeout(hide, duration);
     return () => {
       clearTimeout(timer);
+      clearTimeout(announceTimer);
     };
   }, [current, hide, opacity, reduceMotion]);
 
@@ -94,6 +107,7 @@ export function ToastProvider({ children, bottomOffset = theme.space[12] }: Toas
           <Toast
             key={current.id}
             message={current.message}
+            live={current.announceAfterMs === undefined}
             {...(current.variant === undefined ? {} : { variant: current.variant })}
             {...(current.action === undefined
               ? {}
