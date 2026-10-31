@@ -233,7 +233,7 @@ Também no `.env.example`, sem valores reais e com a mesma validação no boot. 
 
 ## CI
 
-O GitHub Actions (`.github/workflows/ci.yml`) roda em cada PR e em cada push na `main` os jobs `secrets` (gitleaks), `quality` (lint, typecheck, format e título do PR), `test` (unitários e e2e com Postgres e Valkey e, desde a Fase 2, o ElasticMQ e o SeaweedFS do compose), `build` e, desde a Fase 7, `infra` (`terraform fmt -check`, `validate`, `tflint` e `trivy config` no Terraform e nos Dockerfiles, sem credencial da AWS, sem `plan` e sem `apply`). (atualizado em 2026-10-31) O CI roda desde o PR #1 e está verde na `main`. O `test` roda sem `TEST_DB`, no modo Postgres, então os testes pulados no PGlite (seção anterior) rodam todos ali: no run 41211129511, da `main`, foram 414 e2e da API, sem nenhum pulado. O `audit` (`pnpm audit --prod --audit-level high`) só roda na `main`, no agendamento e no `workflow_dispatch`, e só informa (`continue-on-error`). O que o CI cobre e o que não cobre, caso a caso, está no `testes.md` §9.5, §10 e §10.9.
+O GitHub Actions (`.github/workflows/ci.yml`) roda em cada PR e em cada push na `main` os jobs `secrets` (gitleaks), `quality` (lint, typecheck, format e título do PR), `test` (unitários e e2e com Postgres e Valkey e, desde a Fase 2, o ElasticMQ e o SeaweedFS do compose), `build` e, desde a Fase 7, `infra` (`terraform fmt -check`, `validate`, `tflint` e `trivy config` no Terraform e nos Dockerfiles, sem credencial da AWS, sem `plan` e sem `apply`). (atualizado em 2026-10-31) O CI roda desde o PR #1 e está verde na `main`. O `test` roda sem `TEST_DB`, no modo Postgres, então os testes pulados no PGlite (seção anterior) rodam todos ali: no run 41211129511, da `main`, foram 414 e2e da API, sem nenhum pulado. O `audit` (`pnpm audit --prod --audit-level high`) só roda na `main`, no agendamento e no `workflow_dispatch`, e o `pnpm audit` só informa. Já o `scripts/audit-exceptions.mjs` falha o job, e também o `quality` de todo PR, se a exceção do GHSA-mrhx-c7xc-m3w5 (o `zod` do `@expo/cli`) mudar de caminho ou passar de 2026-11-30. Desde o PR #4, o `images` faz o build ARM64 das imagens, confere o usuário `node`, roda a migration pela imagem e espera `/health/ready` 200. No PR, ele só roda se o diff mexe no que entra nas imagens (job `changes`). Os services e o compose estão fixados por digest. O que o CI cobre e o que não cobre, caso a caso, está no `testes.md` §9.5, §10 e §10.9.
 
 ## Convenções
 
@@ -564,8 +564,8 @@ Pendente:
   - S3 do `ux-ui` (foco no T32 no QR; anterior ao PR);
   - exportar o limite de 6 tokens por minuto no `packages/shared`;
   - o 401 repetido com a sessão trocada no meio do voo (BAIXO anterior ao PR, `frontend`);
-  - `pnpm audit` no `@expo/cli` (BAIXO anterior ao PR, `devops`);
-  - `CODEOWNERS` para o `.gitleaksignore` e o `.gitleaks.toml`, com a revisão do dono exigida na proteção da `main`, e o passo a passo do falso positivo no `infra.md` §8 (BAIXO anterior ao PR, `devops`). Hoje qualquer PR pode acrescentar uma impressão digital, e só a revisão do `seguranca` segura;
+  - ~~`pnpm audit` no `@expo/cli` (BAIXO anterior ao PR, `devops`);~~ (atualizado em 2026-10-31) Feito no PR #4: há uma exceção registrada para o GHSA-mrhx-c7xc-m3w5, cobrada no `quality` até 2026-11-30, porque o `@expo/cli` 58.1.18 já não usa o `zod`;
+  - ~~`CODEOWNERS` para o `.gitleaksignore` e o `.gitleaks.toml`, com a revisão do dono exigida na proteção da `main`, e o passo a passo do falso positivo no `infra.md` §8 (BAIXO anterior ao PR, `devops`).~~ (atualizado em 2026-10-31) Feito no PR #4 (`.github/CODEOWNERS` e `infra.md` §8.1 e §8.2). Para ter efeito, falta o PO decidir pelo GitHub Pro e pela proteção da `main`;
   - os riscos R24 e R25 (`arquitetura.md` §16).
 
 ### Fase 5a: verificado × pendente
@@ -722,7 +722,7 @@ Pendente:
 - **Fase 6b**: tela de Notificações (p09 e p21) com "Hoje"/"Esta semana", ponto azul do coração, `expo-notifications` com o pedido contextual (6.4 CA1 e CA4), registro do token a cada abertura e o `DELETE` antes do logout, toque no push abrindo a rota do `data.url` (6.5 CA5, 6.6), Sentry do app (source maps no EAS, release e ambiente, a mesma limpeza) e um dev build novo.
 - **Contas**: projeto no Expo com push (credenciais APNs pelo EAS para iOS e FCM para Android; `EXPO_ACCESS_TOKEN` se a segurança reforçada for ligada) e os três projetos do Sentry (`SENTRY_DSN`, `SENTRY_AUTH_TOKEN` para os source maps). Nenhum valor real entrou no repositório.
 - **Aparelhos**: MAN-PUSH-01 (permissão, push com o app fechado no iPhone e no Android, tocar e abrir a tela certa, logout para de receber) e o push do pedido de conexão abrindo o Conectar.
-- **Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão, inclusive a fila `push` e a `push-dlq` no ElasticMQ (o `infra/local/elasticmq.conf` já tem as duas) e o upsert de seguidores concorrente em conexões diferentes do pool.
+- ~~**Com Docker** (WSL2 ainda não instalado): `pnpm test:e2e` no modo padrão, inclusive a fila `push` e a `push-dlq` no ElasticMQ (o `infra/local/elasticmq.conf` já tem as duas) e o upsert de seguidores concorrente em conexões diferentes do pool.~~ (atualizado em 2026-10-31) Resolvido pelo CI. O modo padrão roda desde o PR #1, e a fila `push`, a `push-dlq` e o upsert concorrente ganharam os testes NOT-10 a NOT-12 no PR #4 (run 41234942342, sem nenhum teste pulado).
 - ~~**CI remoto** (nada enviado ao GitHub) e o **gitleaks**, que não está instalado nesta máquina.~~ (atualizado em 2026-10-31) Resolvidos: o CI roda desde o PR #1, e o job `secrets` passa o gitleaks em todo o histórico (barrou um falso positivo no PR #3). Os testes usam só valores fictícios de token, DSN e JWT.
 - **Política de Privacidade** (`C:\dev\sussurro-site`): notificações guardadas e por quanto tempo, push tokens, o que vai ao Expo, à Apple e ao Google, e o que vai ao Sentry, conforme o relatório da Fase 6a.
 
@@ -786,7 +786,7 @@ Pendente:
   8. "Sair deste dispositivo": uma curtida depois disso não chega (sem `DELETE` no log: o logout apaga o token); entrar de novo registra outra vez.
   9. Android: ícone branco na barra de status; reiniciar o celular e conferir que o push ainda chega (sem o `RECEIVE_BOOT_COMPLETED`); conferir as permissões do APK (`aapt dump permissions`). iPhone: o push chega com o app fechado (APNs de produção no build do EAS).
   10. Sentry (preview com DSN e as três variáveis do upload): "Enviar erro de teste" no catálogo (`EXPO_PUBLIC_DEV_TOOLS=1`) e conferir no Sentry o stack com source maps, a release `app.sussurro.preview@…`, o ambiente `preview` e nenhum token, e-mail ou @ no evento.
-- **Com Docker** e **CI remoto**: os mesmos pendentes da 6a.
+- ~~**Com Docker** e **CI remoto**: os mesmos pendentes da 6a.~~ (atualizado em 2026-10-31) Resolvidos pelo CI (PR #4).
 - **Política de Privacidade** (`C:\dev\sussurro-site`): a permissão de notificações, o token do aparelho e o que vai ao Expo, à Apple e ao Google pelo app, e o que o app manda ao Sentry, conforme o relatório da 6b.
 
 ### Fase 7: verificado × pendente
@@ -821,16 +821,47 @@ Decisões (onde os documentos eram omissos; a mais conservadora):
 Divergências do infra.md (registradas lá, §6):
 
 - Uma execution role por task, em vez de uma só; nomes de bucket com o id da conta (`sussurro-prod-media-<conta>`); módulos novos `ses` (D6), `access-logs` (L3) e `budgets`.
-- Terraform `~> 1.16.0` (o infra.md dizia `~> 1.16`, que aceitaria a 1.17) e provider AWS fixado em 6.69.1 (o lock file só nasce no primeiro `init` com credencial).
+- Terraform `~> 1.16.0` (o infra.md dizia `~> 1.16`, que aceitaria a 1.17) e provider AWS fixado em 6.69.1. (atualizado em 2026-10-31) O lock dos providers não precisa de credencial: o CI o gerou no PR #4, e ele está versionado nas duas raízes.
 - O alarme "tasks abaixo do desejado" (`RunningTaskCount`) exige Container Insights (pago): no lugar, hosts saudáveis no ALB e idade das filas. O de erro do MediaConvert usa a métrica da própria AWS (`JobsErroredCount`), não uma métrica do worker.
 - O DSN do Sentry é variável do Terraform (não é segredo), não um segredo do Secrets Manager.
 
 Pendente:
 
-- **CI ou máquina do PO** (com Terraform, TFLint, Trivy e Docker): `terraform fmt -check`, `terraform validate` das duas raízes, `tflint`, `trivy config` (um achado alto ou crítico não previsto vira correção ou justificativa no código), `terraform providers lock` e o `.terraform.lock.hcl` versionado.
+- ~~**CI ou máquina do PO** (com Terraform, TFLint, Trivy e Docker): `terraform fmt -check`, `terraform validate` das duas raízes, `tflint`, `trivy config` (um achado alto ou crítico não previsto vira correção ou justificativa no código), `terraform providers lock` e o `.terraform.lock.hcl` versionado.~~ (atualizado em 2026-10-31) Resolvidos pelo CI: o job `infra` roda o fmt, o validate, o tflint e o trivy desde o PR #1, e no PR #4 gerou o `.terraform.lock.hcl` das duas raízes (`hashicorp/aws` 6.69.1 e `random` 3.9.1, com os hashes das cinco plataformas), que passou a ser versionado. Agora o `init` usa `-lockfile=readonly`.
 - **`terraform plan`**: exige credencial da AWS e as decisões abaixo.
-- **Imagens**: build real das duas imagens (ARM64, `docker buildx`), `id` mostrando o usuário `node`, `/health/ready` 200 com o compose no ar e a migration pela imagem (runbook, passo 4; 7.6 CA). A varredura do ECR.
+- ~~**Imagens**: build real das duas imagens (ARM64, `docker buildx`), `id` mostrando o usuário `node`, `/health/ready` 200 com o compose no ar e a migration pela imagem (runbook, passo 4; 7.6 CA).~~ (atualizado em 2026-10-31) Resolvido pelo job `images` do CI (PR #4, run 41234942342), em `ubuntu-24.04-arm`. Ele confere `arm64`, o usuário `node` e o uid 1000, roda a migration pela imagem duas vezes e recebe `/health/ready` 200 com Postgres e Valkey. Também sobe o worker em produção contra os emuladores, e os dois saem com 0 no `SIGTERM`, com a raiz só leitura. Falta a varredura do ECR, depois do `apply` (o `minimatch` e o `glob` já estão aceitos no runbook, passo 4).
 - **Depois do apply autorizado**: os testes de fumaça do runbook §9 (PERM-16 no CloudFront, MID-14 em `testes.md` §8.2, e-mail pelo SES fora do sandbox, push e denúncia), o plano flat-rate do CloudFront, o DMARC, o monitor externo e o exercício de restauração.
 - **Só o PO decide**: D12/P5 (região e porte; o padrão é `enxuto`), P6 (domínio e DNS no Route 53), P7 (orçamento), **L3** (guarda de registros de acesso, com o jurídico; os logs do ALB não dizem qual conta fez o acesso), L1 e L2 (Política de Privacidade e idade mínima, antes das lojas), o `EMAIL_LINK_BASE_URL` em produção (`sussurro://` hoje; https exige página ou universal links) e as contas (AWS, Apple, Google Play, Expo, Sentry e GitHub). Commit e push também.
 - **App**: builds `preview` e `production` no EAS e o envio às lojas (`docs/deploy/lojas.md`); conferir no AAB se alguma biblioteca trouxe `READ_MEDIA_IMAGES` ou `READ_MEDIA_VIDEO`.
 - **Política de Privacidade** (`C:\dev\sussurro-site`): o log técnico da API (30 dias) já guarda os cabeçalhos das requisições, inclusive o IP de origem (`X-Forwarded-For`) e o user agent; e, se o L3 for ligado, o texto do runbook §17.
+
+### Fechamento do MVP (PRs #4 a #6): verificado × pendente
+
+Plano do Tech Lead de 2026-10-31, a partir do inventário do `arquiteto`, aprovado pelo PO, que autorizou commit, push, PR e merge com o CI verde e as revisões aprovadas.
+
+**PR #4** (`chore/fechamento-ci-docs`; CI, testes e docs, sem código de produto), verificado no run 41234942342:
+
+- `images`: build ARM64 nativo das duas imagens, usuário `node`, migration pela imagem, `/health/ready` 200, o worker em produção e `SIGTERM` com saída 0 (ver Fase 7).
+- `infra`: o `.terraform.lock.hcl` das duas raízes foi gerado pelo CI e versionado; agora o `init` usa `-lockfile=readonly`.
+- `test`: 419 e2e da API, sem nenhum pulado, com os novos NOT-10 (follows simultâneos na notificação agrupada), NOT-11 (`SqsPushQueue` no ElasticMQ, com o `traceparent`) e NOT-12 (DLQ da fila `push`).
+- `quality`:
+  - exceção do `audit` para o `zod` do `@expo/cli`, com prazo em 2026-11-30;
+  - paridade das imagens dos services com o compose;
+  - services e compose fixados por digest.
+- `CODEOWNERS` para os arquivos de política. Só tem efeito com o GitHub Pro e a proteção da `main`, decisão do PO.
+- Docs com o estado real (README, `PROJETO.md`, `backlog.md`, `arquitetura.md`, ADRs 0001 a 0012 e `testes.md` §9.5, §10 e §10.9) e as decisões do PO de 2026-10-31 sobre a Fase 4d.
+- `ux.md`:
+  - §11.18 (PR #5) e §12 (PR #6);
+  - recomendação do `ux-ui`, seguida pelo Tech Lead e reversível: não fazer na v1 o deslizar entre as abas do feed, porque o gesto briga com o carrossel de fotos, nem o "✓" depois de "Conectados", que era notação de wireframe.
+- Revisões:
+  - `seguranca`: aprovado, com aval à exceção do `audit`; o MÉDIO e os 3 BAIXOS foram corrigidos no próprio PR;
+  - `testes`: aprovado com ressalvas, e a primeira execução real foi o CI.
+- O que o CI ainda não cobre está no `testes.md` §10.9:
+  - F0-API-03/04;
+  - F0-DC-05/06;
+  - `spike:aws`;
+  - `seed:media`;
+  - FEED-16;
+  - os PRs negativos F0-CI-02/04.
+
+**PR #5** (Fase 4d e dívidas registradas) e **PR #6** (fidelidade ao `ux.md`): em andamento.
