@@ -360,6 +360,8 @@ Depois do botão: Alert de confirmação final ("Excluir conta? Não dá para de
 ### 4.9 Perfil de uma conexão (pessoal visto por conexão)
 Igual a p16 sem os ícones Criar/Sair, com `‹` e o @ no header, sem a nota de privacidade, números **não tocáveis** (a lista é privada), e um único botão `(Conectados ✓)` largura total. Toque em "Conectados" → folha de ações: "Desfazer conexão" (danger, se D8 = sim), "Cancelar". Pessoa não conectada (404 do servidor) → EmptyState "Perfil indisponível · Contas pessoais só aparecem para as conexões delas."
 
+(atualizado em 2026-10-31) A posição do ✓ (o app o desenha antes do texto) está na §12.4: a recomendação é manter como está, a decidir pelo PO no PR 6.
+
 ### 4.10 Conectar: seletor e QR (proposta para D3: "Bluetooth | QR code")
 > (atualizado em 2026-10-30) O seletor passa a "Encostar | QR code" e o radar sai (§11). O QR (meu código, ler o código e o fluxo cruzado abaixo) continua valendo, com os textos da §11.9.
 
@@ -454,6 +456,8 @@ BLUETOOTH: EXPLICAÇÃO (antes do diálogo do SO)
 
 Regra geral de erro: mensagem humana + ação. Nunca mostrar `code` técnico na UI; o `code` vai para o Sentry. Erros sem ação na tela → Toast de erro.
 
+(atualizado em 2026-10-31) O Início depois de seguir, deixar de seguir e conectar (sem esperar o puxar para atualizar): §12.2.
+
 ### 5.2 Conectar: máquina de estados
 > (atualizado em 2026-10-30) Substituída pela §11.4 (encostar os celulares). Daqui continuam valendo, com os textos da §11.9: Aguardando, Não confirmado, Conectados, Já conectados, Pausado, Indisponível, Offline e Criador. O resto descreve o que a Fase 4b implementou ("Por perto agora").
 
@@ -512,7 +516,7 @@ Faixa de publicação (topo do feed e do perfil próprio; criador: topo do perfi
 ```
 - Sucesso: a faixa some e aparece Toast "Publicado." O post aparece no topo do próprio perfil (e no feed, se D9 = sim).
 - Sair do app durante o upload: o upload continua enquanto o SO permitir; ao voltar, se o rascunho falhou, a faixa de falha aparece. Rascunhos órfãos são apagados pelo servidor em 24 h (arquitetura §5): o texto "Tentar de novo" some depois disso.
-- Reel processando na grade do autor: `ReelTile status="processing"`. Outras pessoas não veem até `published`.
+- Reel processando na grade do autor: `ReelTile status="processing"`. Outras pessoas não veem até `published`. (atualizado em 2026-10-31) O tile de um reel de outra sessão se atualiza sozinho, com a aba Reels do próprio perfil à vista: §12.3.
 - Offline no Compartilhar: mantém o modal aberto, Toast "Sem internet. Sua publicação não foi enviada." (sem fila offline na v1).
 
 ### 5.4 Globais
@@ -787,7 +791,7 @@ Regras comuns: todo componente aceita `testID`; todo elemento tocável tem `acce
 | Props | `tabs: {key, label?, icon?, accessibilityLabel}[]`; `value`; `onChange`; `variant: 'text'\|'icon'` |
 | text (feed, p06) | altura 44, abas de largura igual, `tab` 15/600, ativa black, inativa grey; sublinhado 2 `blue` na largura da aba, anima em `motion.base`; hairline `border` embaixo |
 | icon (perfil, p16) | ícone 24, ativo black, inativo grey; sublinhado 2 `black` |
-| Comportamento | swipe horizontal entre abas no feed (pager) com toque também; fixa (sticky) no perfil |
+| Comportamento | swipe horizontal entre abas no feed (pager) com toque também; fixa (sticky) no perfil. (atualizado em 2026-10-31) Nenhum dos dois foi feito. Para o deslizar, a recomendação é ficar só com o toque na v1, e as regras, se o PO quiser, estão na §12.1; as abas fixas no perfil, na §12.5 |
 | a11y | contêiner `accessibilityRole="tablist"`, cada aba `role="tab"` com `selected`; icon: labels "Fotos", "Textos", "Reels" |
 
 #### PostPhoto (p06)
@@ -815,7 +819,7 @@ Regras comuns: todo componente aceita `testID`; todo elemento tocável tem `acce
 |---|---|
 | Props | `thumbUri`; `durationS`; `status: 'ready'\|'processing'\|'failed'`; `onPress`; `accessibilityLabel` |
 | Medidas | largura `(tela − 2×gridGap)/3`, **9:16**; `mediaScrim` no rodapé; `play` 12 + "0:42" `micro` branco a 8 da esquerda/rodapé, com `shadow.icon` |
-| Estados | processing: fundo greySoft, spinner 20 + "Processando" `micro` greyStrong · failed: `circle-alert` danger + "Falhou" + toque abre ações "Tentar de novo/Excluir" · carregando thumb: greySoft |
+| Estados | processing: fundo greySoft, spinner 20 + "Processando" `micro` greyStrong · failed: `circle-alert` danger + "Falhou" + toque abre ações "Tentar de novo/Excluir" · carregando thumb: greySoft. (atualizado em 2026-10-31) Como o "Processando" de um reel de outra sessão vira o tile pronto ou o "Falhou": §12.3 |
 | a11y | "Reel de @x, 42 segundos"; processing: "Reel processando" |
 
 #### ReelViewer (wireframe 4.4)
@@ -851,7 +855,7 @@ Regras comuns: todo componente aceita `testID`; todo elemento tocável tem `acce
 | Props | `handle`; `name`; `accountType`; `bio?`; `avatar`; `counts`; `mode: 'self'\|'creatorViewedByPerson'\|'connection'`; `following?`; callbacks |
 | Barra superior | self: @ `titleLg` à esquerda; `square-plus` e `log-out` à direita (24, gap 20) · outros: `chevron-left` + @ |
 | Corpo | padding 16; Avatar 86 à esquerda; StatsRow à direita (flex 1, centralizado na altura do avatar); 12 abaixo: nome `bodyStrong`; tipo `bodySm` grey ("Conta pessoal" / "Criador de conteúdo · não segue ninguém"); bio `body`; nota de privacidade só no self pessoal (`caption` grey); botões a 12, gap 8 |
-| Botões | pessoal self: (Editar perfil) (Conectar ao vivo) · criador visto por pessoa: [Seguir] / (Seguindo) largura total · criador self: (Editar perfil) [Nova publicação] · conexão: (Conectados ✓) |
+| Botões | pessoal self: (Editar perfil) (Conectar ao vivo) · criador visto por pessoa: [Seguir] / (Seguindo) largura total · criador self: (Editar perfil) [Nova publicação] · conexão: (Conectados ✓) (atualizado em 2026-10-31: a posição do ✓, §12.4) |
 | a11y | @ do topo é `header`; avatar decorativo; bio lida em sequência |
 
 #### StatsRow
@@ -898,7 +902,7 @@ Regras comuns: todo componente aceita `testID`; todo elemento tocável tem `acce
 | `ScreenHeader` | todas as telas | 52; variantes: título à esquerda (p10), voltar + título (p09/p17), modal (✕ + título + ação à direita, p18) |
 | `SegmentedControl` | Conectar (p10) | minHeight 40 (≈45 px), fundo greySoft, raio 10, padding 3; segmento ativo white + `shadow.sm` + `bodyStrong` black; inativo `bodyStrong` greyStrong; a11y: `radiogroup`/`radio` |
 | `SearchBar` | Pesquisar (p15) | minHeight 36, fundo greySoft, raio 10, `search` 18 greyStrong, placeholder "Pesquisar @criador" greyStrong, limpar `circle-x`; prefixo "@" opcional ignorado na busca |
-| `UserRow` | busca, Por perto, listas | Avatar 44/48, @ `bodyStrong`, subtítulo `bodySm` grey, ação à direita (Button sm); minHeight 64 |
+| `UserRow` | busca, Por perto, listas | Avatar 44/48, @ `bodyStrong`, subtítulo `bodySm` grey, ação à direita (Button sm); minHeight 64. (atualizado em 2026-10-31, §11.18) Prop opcional `subtitleLines?: 1 \| 2` (padrão 1): com 2, o subtítulo quebra em até 2 linhas, e a linha ganha `paddingVertical` 8. Usada só em "Contas bloqueadas", onde o (Desbloquear) e o ⋯ deixam pouco espaço para a data |
 | `NotificationRow` | p09/p21 | Avatar 44, texto `body` com @ em 600 e tempo inline `caption` grey, miniatura 44 raio 6 à direita; não lida: sem fundo diferente (o protótipo não diferencia), ponto azul 8 à esquerda da miniatura ← proposta, validar. (atualizado na Fase 6) Implementado assim; texto de post sem miniatura; @ tocável só com `profileVisible` (senão, 600 sem toque) e, para o leitor de tela, a ação "Abrir o perfil de @x"; seguidores com "+N" (acima de 99, "99+") e sem toque; o texto dos seguidores fica todo em `body` (o p21 põe "2 novas pessoas" em 600) |
 | `RadioOptionList` | Cadastro (p05) | fieldset com legenda "Tipo de conta" `caption` 600 grey sobre a borda; linhas com título `bodyStrong`, descrição `bodySm` grey, rádio 22 (ativo: anel 2 blue + miolo 10 blue; inativo: anel 1,5 border); hairline entre linhas; raio 12; a11y `radiogroup` |
 | `Divider` | p01 "OU", listas | hairline `border`; variante com rótulo central |
@@ -1053,6 +1057,7 @@ Resumo: a paleta do PO **passa** para texto principal e ações (blue/white 4,83
 4. O fim do feed ("Você está em dia") é entendido como fim, e não como erro ou feed vazio?
 5. Criadores entendem que não verão quem os segue (só números) e que o tipo de conta é definitivo?
 6. Leitor de tela: completar o fluxo do Conectar só com VoiceOver/TalkBack.
+7. (2026-10-31, §12.1) As pessoas tentam deslizar entre Fotos, Textos e Reels? Se sim, as regras da §12.1 estão prontas para a v1.1.
 
 (atualizado em 2026-10-30) Os itens 2 e 3 foram substituídos pelos pontos da §11.12.
 
@@ -1069,9 +1074,16 @@ Resumo: a paleta do PO **passa** para texto principal e ações (blue/white 4,83
 >
 > **Bloquear e denunciar pelo cartão** (decisão do PO de 2026-10-30; ADR 0012, Adendo A2, revisão 1): §11.14. O texto novo T46 foi aprovado pelo PO em 2026-10-30, exatamente como proposto.
 >
-> **(atualizado em 2026-10-31)** **Denunciar quem você bloqueou** (R1-PO-1, aprovada pelo PO, entra no PR `feat/denunciar-bloqueado`): o T46 sai do formulário aberto pelo Bloqueado, e o Bloqueado deixa de vencer (§11.14). **Adendo A3 da ADR 0012:** o cartão atrasado (21), o cartão sem Conectar (22), o cartão que chega fora do Pronto e o aviso "Não deu para confirmar" aos 7 s, na §11.15 e na P3. Os textos **T47 e T48 são propostos, a aprovar pelo PO** (A3-PO-2). O que vai ao PO está na §11.16.
+> **(atualizado em 2026-10-31)** **Denunciar quem você bloqueou** (R1-PO-1, aprovada pelo PO, entra no PR `feat/denunciar-bloqueado`): o T46 sai do formulário aberto pelo Bloqueado, e o Bloqueado deixa de vencer (§11.14). **Adendo A3 da ADR 0012:** o cartão atrasado (21), o cartão sem Conectar (22), o cartão que chega fora do Pronto e o aviso "Não deu para confirmar" aos 7 s, na §11.15 e na P3. Os textos **T47 e T48** ~~são propostos, a aprovar pelo PO~~ **foram aprovados pelo PO em 2026-10-31, como propostos** (A3-PO-2). O que vai ao PO está na §11.16.
 >
 > **(atualizado em 2026-10-31)** **Revisão da implementação** do A3 e da R1-PO-1: §11.17 (aprovado com ressalvas; os 7 casos que a especificação não cobria, o `titleRef` do `EmptyState` e duas correções para o `frontend`). O ponto do `seguranca` sobre o Bloqueado sem prazo foi para a §11.16, item 4.
+>
+> **(atualizado em 2026-10-31) Decidido pelo PO**, sobre a §11.16, com as três recomendações:
+> - os T47 e T48 aprovados como propostos (item 1);
+> - "Denunciar" na tela "Contas bloqueadas": sim, no PR 5 (item 2; especificação completa na §11.18);
+> - o Bloqueado sem prazo continua com o nome e a foto até "Voltar", opção (a) (item 4).
+>
+> A sugestão S3 da §11.17 (o foco no T32 no QR) entra no mesmo PR 5 (§11.18). Os quatro itens de fidelidade do PR 6 (fora do Conectar) estão na §12.
 
 ### 11.1 Princípios
 1. **Só quem encosta aparece.** Antes do "encostado" confirmado pelos dois aparelhos, a tela não mostra o nome, o @, a foto, a quantidade de pessoas nem a distância de ninguém.
@@ -1438,8 +1450,8 @@ Se outro gesto vencer, mudam só a ilustração e os textos T5 e T13.
 | A4 | cartão de quem já é conexão | "Encostou em {nome}. Vocês já estão conectados." |
 | A5 | pedido recebido (cartão ou folha) | "{primeiro nome} quer se conectar com você." |
 | A6 | Nada detectado (uma vez) | "Não está dando certo? Você pode usar o QR code." |
-| A7 | cartão atrasado (21; novo, 2026-10-31, §11.15) | o próprio T47, sem texto a mais (proposto, a aprovar pelo PO) |
-| A8 | cartão sem Conectar (22; novo, 2026-10-31, §11.15) | o próprio T48, sem texto a mais (proposto, a aprovar pelo PO) |
+| A7 | cartão atrasado (21; novo, 2026-10-31, §11.15) | o próprio T47, sem texto a mais (~~proposto, a aprovar pelo PO~~ aprovado pelo PO em 2026-10-31) |
+| A8 | cartão sem Conectar (22; novo, 2026-10-31, §11.15) | o próprio T48, sem texto a mais (~~proposto, a aprovar pelo PO~~ aprovado pelo PO em 2026-10-31) |
 | — | "não deu", cartão vencido | T11, T20 |
 | — | mantidos | "Pedido enviado", "Vocês estão conectados" (agora depois do foco no título do p14, em fila), "Pedido recusado ou expirado" |
 
@@ -1482,7 +1494,7 @@ Se outro gesto vencer, mudam só a ilustração e os textos T5 e T13.
 
 ### 11.9 Microcopy (aprovada pelo PO em 2026-10-30)
 
-**Os textos T1 a T42 foram aprovados pelo PO em 2026-10-30 como estão**; o PO revisa de novo no app, em uso. **Os T43 a T45 foram propostos depois, na revisão da implementação (§11.13), e o PO os aprovou no mesmo dia (2026-10-30), exatamente como propostos.** Eles **substituem o T6, o T23 e o T36**, que ficam riscados abaixo como substituídos. **O T46 foi proposto em 2026-10-30, com a §11.14 (bloquear e denunciar pelo cartão), e o PO o aprovou no mesmo dia, exatamente como proposto.** **Os T47 e T48 foram propostos em 2026-10-31, com a §11.15 (ADR 0012, Adendo A3), e estão "propostos, a aprovar pelo PO" (A3-PO-2, §11.16).** Situação: **novo**, **alterado**, **mantido** ou **removido**. A chave é a do `apps/mobile/src/features/connect/copy.ts`, quando existe.
+**Os textos T1 a T42 foram aprovados pelo PO em 2026-10-30 como estão**; o PO revisa de novo no app, em uso. **Os T43 a T45 foram propostos depois, na revisão da implementação (§11.13), e o PO os aprovou no mesmo dia (2026-10-30), exatamente como propostos.** Eles **substituem o T6, o T23 e o T36**, que ficam riscados abaixo como substituídos. **O T46 foi proposto em 2026-10-30, com a §11.14 (bloquear e denunciar pelo cartão), e o PO o aprovou no mesmo dia, exatamente como proposto.** **Os T47 e T48 foram propostos em 2026-10-31, com a §11.15 (ADR 0012, Adendo A3), e ~~estão "propostos, a aprovar pelo PO"~~ o PO os aprovou no mesmo dia, exatamente como propostos (A3-PO-2, §11.16, item 1; atualizado em 2026-10-31).** Situação: **novo**, **alterado**, **mantido** ou **removido**. A chave é a do `apps/mobile/src/features/connect/copy.ts`, quando existe.
 
 | # | Onde (chave) | Hoje (Fase 4b) | Proposta | Situação |
 |---|---|---|---|---|
@@ -1532,8 +1544,8 @@ Se outro gesto vencer, mudam só a ilustração e os textos T5 e T13.
 | T44 | Bluetooth, explicação (`btExplainText`), no lugar do T23 | o T23 | "O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa. Seu nome e sua foto não passam pelo Bluetooth, e nada é transmitido com o app fechado." | **aprovado pelo PO em 2026-10-30, exatamente como proposto** · substitui o T23 (A1-2, R21; §11.13) |
 | T45 | Aceite por QR recusado pelo código lido (`acceptFailed`), no lugar do T36 | o T36 | "Não foi possível confirmar agora. Leia o código de {primeiro nome} de novo." | **aprovado pelo PO em 2026-10-30, exatamente como proposto** · substitui o T36 (§11.13) |
 | T46 | Formulário de denúncia aberto pelo cartão (~~11, 14 e Bloqueado~~ 11, 14 e 22, atualizado em 2026-10-31: desde a R1-PO-1, quem bloqueou denuncia sem prazo, então o T46 sai do formulário aberto pelo Bloqueado; não no 12 nem na rota `/denunciar`): logo abaixo da pergunta, com o ícone `clock` 16, em `bodySm` grey | — | "Envie em até 1 minuto depois do encosto." | **novo · aprovado pelo PO em 2026-10-30, exatamente como proposto** (§11.14; ADR 0012, "Decisões do PO"). Sem ele, o formulário funciona igual, mas a pessoa só descobre o prazo quando o envio falha e o texto digitado se perde. O texto não muda |
-| T47 | Cartão atrasado (21, §11.15): no lugar do T15, em `bodySm` grey, maxWidth 300; também é o anúncio A7 (chave sugerida: `lateCardText(first)`) | — | "O tempo para conectar acabou. Para tentar de novo, toque em Voltar e encoste o seu celular no de {primeiro nome}." | **novo · proposto, a aprovar pelo PO** (A3-PO-2). Não diz quando foi o encosto: o cartão pode ser de um encosto anterior, com a pessoa já encostando em outra (A3-4). "Toque em Voltar" porque, com o cartão na tela, o celular não relata nada (P8): sem voltar ao Pronto, encostar não funciona. Reaproveita o T35 ("Encoste o seu celular no de {primeiro nome}…"), no singular do começo ao fim |
-| T48 | Cartão sem Conectar (22, §11.15): no lugar do T15, em `bodySm` grey, maxWidth 300; também é o anúncio A8 (chave sugerida: `noConnectCardText(first)`) | — | "Para conectar, toque em Voltar e encoste de novo o seu celular no de {primeiro nome}." | **novo · proposto, a aprovar pelo PO** (A3-PO-2). Fica no lugar do T15 ("Confira se é a pessoa que está com você"), que aqui pode ser falso: o cartão costuma ser de um encosto anterior, e a pessoa do cartão pode não estar ali. Reaproveita o T35, como o T47 |
+| T47 | Cartão atrasado (21, §11.15): no lugar do T15, em `bodySm` grey, maxWidth 300; também é o anúncio A7 (chave sugerida: `lateCardText(first)`) | — | "O tempo para conectar acabou. Para tentar de novo, toque em Voltar e encoste o seu celular no de {primeiro nome}." | **novo ·** ~~**proposto, a aprovar pelo PO**~~ **aprovado pelo PO em 2026-10-31, exatamente como proposto** (A3-PO-2). Não diz quando foi o encosto: o cartão pode ser de um encosto anterior, com a pessoa já encostando em outra (A3-4). "Toque em Voltar" porque, com o cartão na tela, o celular não relata nada (P8): sem voltar ao Pronto, encostar não funciona. Reaproveita o T35 ("Encoste o seu celular no de {primeiro nome}…"), no singular do começo ao fim |
+| T48 | Cartão sem Conectar (22, §11.15): no lugar do T15, em `bodySm` grey, maxWidth 300; também é o anúncio A8 (chave sugerida: `noConnectCardText(first)`) | — | "Para conectar, toque em Voltar e encoste de novo o seu celular no de {primeiro nome}." | **novo ·** ~~**proposto, a aprovar pelo PO**~~ **aprovado pelo PO em 2026-10-31, exatamente como proposto** (A3-PO-2). Fica no lugar do T15 ("Confira se é a pessoa que está com você"), que aqui pode ser falso: o cartão costuma ser de um encosto anterior, e a pessoa do cartão pode não estar ali. Reaproveita o T35, como o T47 |
 
 Mantidos sem mudança: `title`, `cancelRequest`, `waitingTitle`, `waitingText`, `waitingQr`, `notConfirmedTitle`, `tryAgain`, `back`, `connectedTitle`, `connectedSince`, `connectedText`, `goHome`, `connectAnother`, `alreadyConnected`, `cannotSend`, `unavailable*`, `offline*`, `email*`, `btExplainTitle`, `continue`, `btDeniedTitle`, `openSettings`, `btOffTitle`, `turnOnBluetooth`, os textos da câmera e do leitor de QR, `qrInvalid`, `qrNotTheirs`, os textos da folha e os do criador. No `error-messages.ts`, o `PROXIMITY_TOKEN_INVALID` continua genérico de propósito (não revela recusa nem bloqueio).
 
@@ -1907,7 +1919,7 @@ O prazo é o `expiresAt` do cartão: 55 s depois do casamento, no app (R1-5 e P4
 
 > **Origem:** ADR 0012, Adendo A3 (A3-3, itens 6 e 8, e A3-4), especificado pelo `arquiteto` em 2026-10-31 para o PR `feat/denunciar-bloqueado`. O servidor reentrega o cartão por 10 s (A3-2), e o app repete o relato que falhou por rede ou 503 (A3-3). Com isso, um cartão pode chegar com o par quase vencido, com um token que não serve para pedir, ou depois de a pessoa sair do Pronto. Esta seção diz como a tela mostra cada caso.
 >
-> **Textos novos:** T47 e T48 (§11.9), **propostos, a aprovar pelo PO** (A3-PO-2, §11.16). **Sem** vibração nova, cor nova ou ~~mudança no `packages/ui`~~ componente novo. (Atualizado em 2026-10-31, §11.17: o `EmptyState` ganhou a prop opcional `titleRef`, §6.13.)
+> **Textos novos:** T47 e T48 (§11.9), ~~**propostos, a aprovar pelo PO**~~ **aprovados pelo PO em 2026-10-31, como propostos** (A3-PO-2, §11.16). **Sem** vibração nova, cor nova ou ~~mudança no `packages/ui`~~ componente novo. (Atualizado em 2026-10-31, §11.17: o `EmptyState` ganhou a prop opcional `titleRef`, §6.13.)
 >
 > **(atualizado em 2026-10-31)** A revisão da implementação (§11.17) confirmou seis casos que esta seção não cobria e corrigiu um (o Bluetooth desligado no Pronto). Eles estão nas tabelas abaixo, marcados com "(§11.17)".
 
@@ -2059,7 +2071,7 @@ Fica como ponto de validação (§11.12, item 14). Se o teste mostrar que as pes
 
 #### Textos
 
-**Novos, propostos, a aprovar pelo PO** (A3-PO-2; §11.9):
+**Novos,** ~~**propostos, a aprovar pelo PO**~~ **aprovados pelo PO em 2026-10-31, exatamente como propostos** (A3-PO-2; §11.9):
 
 | # | Onde | Texto |
 |---|---|---|
@@ -2080,7 +2092,7 @@ Fica como ponto de validação (§11.12, item 14). Se o teste mostrar que as pes
 | `connect/TouchCard.tsx` | Duas variantes novas, `late` (21) e `noConnect` (22), no ramo do `alreadyConnected` e do `blocked` (`:258-276`): o texto (T47 ou T48) no lugar do T15 e o (Voltar) `secondary`. O `late` vem sem a linha; o `noConnect`, com ela (`canBlock`). `testID`: `conectar-encostado-atrasado` e `conectar-encostado-sem-conectar`. A chave do foco (`useFocusOnShowUnlessHeld`, `:148-151`) já muda com a variante. |
 | `connect/useConnectSession.ts` | (1) **Variante:** a ordem da tabela "Qual cartão aparece"; o `late` é recalculado quando o cartão aparece depois da chegada. (2) **Anúncio** (`cardAnnouncement`, `:630-641`): o T47 no 21 e o T48 no 22, no lugar do A3. (3) **Prazo:** o timer (`:663-676`) não roda no 21 (nem no Bloqueado, §11.14); o `keepAwake` (`cardWithDeadline`, `:596`) sai no 21 e no Bloqueado. (4) **Conectar:** o `connectCard` recusa o 21 e o 22, por defesa: nenhum pedido sai com um token que não é o relatado. (5) **Fora do Pronto:** ao mostrar o cartão (`showCard`, `:532-539`), o `mode` volta a `touch` e a câmera sem leitura em andamento fecha; com leitura em andamento, no 13, no 15, no 16 e com outro cartão na tela, o cartão espera (um só, o mais novo) e aparece na próxima ida ao início por um botão; o da mesma pessoa desses estados e o que chega com a tela parada são descartados. (6) **Saída:** o `closeCard`, o `expireCard`, o `declineHead` e o fechamento pelo pedido passam pelo Verificando (motivo `cardClosed`), em vez de ir direto ao Pronto; sem suporte, vão ao QR. (7) **Bluetooth com o cartão:** o `onStateChange` e o `failRadio` (`:449-454` e `:480-502`) não trocam a tela do cartão em diante (11 a 16, 21, 22 e o Bloqueado). (8) **Folha aberta:** o foco, o anúncio e a vibração do cartão esperam a folha de outra pessoa fechar. |
 | `connect/ConnectScreen.tsx` | O `Card` (`:282-337`) escolhe as variantes novas. Na saída do cartão, o foco vai ao título do EmptyState de Bluetooth ou à faixa T30, como o `readyFocus` faz com o título do Pronto. O `Body` (`:651-675`) já mostra o cartão com qualquer `mode`; com o `mode` de volta a `touch`, a saída cai no Encostar. |
-| `connect/copy.ts` | O T47 (sugestão: `lateCardText(first)`) e o T48 (`noConnectCardText(first)`), com o comentário "proposto, a aprovar pelo PO". Se o PO mudar o texto, só o `copy.ts` muda. |
+| `connect/copy.ts` | O T47 (sugestão: `lateCardText(first)`) e o T48 (`noConnectCardText(first)`), com o comentário "proposto, a aprovar pelo PO". Se o PO mudar o texto, só o `copy.ts` muda. (Atualizado em 2026-10-31.) Aprovados pelo PO como estão: o texto não muda, e no PR 5 o comentário (`copy.ts:6-7` e `:69-70`) passa a "aprovado pelo PO em 2026-10-31" (§11.18). |
 | `packages/ui` | ~~Sem mudança.~~ (Atualizado em 2026-10-31, §11.17.) Só a prop opcional `titleRef` do `EmptyState` (§6.13), aprovada na revisão. |
 
 #### Testes sugeridos (app; o `testes` dá os IDs)
@@ -2105,9 +2117,10 @@ Fica como ponto de validação (§11.12, item 14). Se o teste mostrar que as pes
 
 ### 11.16 Para o PO (2026-10-31)
 
-Recomendações do `ux-ui`. **Nada aqui está decidido**; o Tech Lead leva ao PO.
+Recomendações do `ux-ui`. ~~**Nada aqui está decidido**; o Tech Lead leva ao PO.~~ **(atualizado em 2026-10-31) Decidido pelo PO:** ficou com as três recomendações (itens 1, 2 e 4); o item 3 era só para ciência. A decisão está em cada item; o texto das recomendações fica como histórico.
 
 1. **A3-PO-2: os textos T47 e T48** (§11.9 e §11.15). **Recomendação: aprovar como propostos.** Os dois não dizem quando foi o encosto (o cartão pode ser de um encosto anterior) e dizem como seguir: tocar em "Voltar" e encostar de novo. O app pode usá-los desde já; se o PO mudar o texto, muda só o `copy.ts`.
+   - **(atualizado em 2026-10-31) Decidido pelo PO:** aprovados como propostos. O app já usa o texto exato; falta só o comentário do `copy.ts` (§11.18).
 
 2. **"Denunciar" na tela "Contas bloqueadas"** (R1-PO-1; `apps/mobile/src/app/conta/bloqueados.tsx` e `features/lists/OwnListScreens.tsx`). **Recomendação: sim**, neste PR se couber, senão no próximo.
    - **Por quê:** com a R1-PO-1, o servidor aceita denunciar quem você bloqueou, sem prazo, mas o app só oferece isso no Bloqueado do Conectar. Quem bloqueia pelo perfil, por um comentário ou pelo cartão e depois sai da tela não tem mais como denunciar: o perfil some depois do bloqueio, e o menu ⋯ some junto. A lista de bloqueados é onde essas contas continuam visíveis, e é ali que a pessoa procura quando decide denunciar depois. É o que a R1-PO-1 quis resolver ("tira a pressa da denúncia… ajuda em qualquer bloqueio").
@@ -2126,6 +2139,7 @@ Recomendações do `ux-ui`. **Nada aqui está decidido**; o Tech Lead leva ao PO
      - (b) **pôr o "Desbloquear" dentro do ⋯**, como em "Conexões" (só o ⋯ na linha). É mais limpo e dá mais espaço ao @, mas esconde a ação principal da tela e muda a X.2;
      - (c) **"Denunciar" como link na linha**, sem o ⋯. Poupa um toque, mas repete uma palavra forte em toda linha e falta espaço com a fonte grande.
    - **Custo:** em `OwnListScreens.tsx`, a linha e a folha de ações, como em `ConnectionsScreen`; um teste; e o comentário de `moderation/useModerationMenu.ts`, que hoje diz que o app só oferece isso no Conectar.
+   - **(atualizado em 2026-10-31) Decidido pelo PO:** sim, com o desenho recomendado (o "Desbloquear" fica na linha, e o "Denunciar" vai no ⋯). A implementação vai no PR 5, com o `frontend`. Ao conferir o desenho contra a tela de hoje, faltava uma coisa: com o ⋯, a data corta nas telas estreitas. A correção (o subtítulo em até 2 linhas) e os detalhes que faltavam estão na §11.18.
 
 3. **Para ciência, sem decisão:** o aviso "Não deu para confirmar" passa de 4 s para 7 s (A3-3). O `ux-ui` concorda (P3, §11.2). O "Encostou!" dura até 3 s a mais quando não confirma.
 
@@ -2142,6 +2156,7 @@ Recomendações do `ux-ui`. **Nada aqui está decidido**; o Tech Lead leva ao PO
      - (c) **o Bloqueado voltar a vencer, se o PO aprovar o "Denunciar" em "Contas bloqueadas"** (item 2). Com a outra entrada, vencer já não tira a única forma de denunciar. Ainda assim, não recomendo: volta um limite de tempo sem motivo essencial (WCAG 2.2.1), e o cartão sumiria enquanto a pessoa lê ou decide, sem Toast (M13).
      - (d) **no Bloqueado, só as iniciais no Avatar** (sem a foto), com o nome e o @. É o meio-termo, se o PO quiser aproximar o cartão da lista sem mexer no foco: a foto some junto com o toque em "Bloquear", por ação da pessoa. Custa a ajuda do rosto na hora de denunciar. Não recomendo, mas é aceitável.
    - **Custo, se o PO escolher (b), (c) ou (d):** só o `TouchCard` e o `useConnectSession`, sem texto novo; o (c) depende do item 2.
+   - **(atualizado em 2026-10-31) Decidido pelo PO:** opção (a). O Bloqueado continua sem prazo, com o Avatar, o nome e o @ até "Voltar" ou até sair da aba. Nada muda no app.
 
 ### 11.17 Revisão da implementação do A3 e da R1-PO-1 (2026-10-31)
 
@@ -2188,9 +2203,252 @@ Revisão da branch `feat/denunciar-bloqueado` (sem commit), contra a §11.14 e a
   - Teste sugerido (ID do `testes`): com o `getCapabilities` atrasado 400 ms, o T20, o "expirou", o M5 e o M10 continuam anunciados depois do foco em `conectar-titulo`.
 - 🟢 **S1:** em `apps/mobile/src/features/connect/copy.ts:62-63`, o comentário do T46 diz "11 ou 14". Trocar para "11, 14 ou 22".
 - 🟢 **S2 (pré-existente):** incluir também `bluetooth` em `FOCUS_START_STATE` (`useConnectSession.ts:90`). Na volta dos Ajustes sem resolver nada, o EmptyState sai e volta com o Verificando, e o botão "Abrir Ajustes", que tinha o foco, é desmontado. Com o foco no título, a pessoa ouve que o Bluetooth continua desligado. O mesmo vale para o "Continuar" da explicação recusado (vai ao 3). Com o C1 e o S2, a regra fica uniforme: o foco só fica onde está na abertura da aba (`open`) e pelo seletor (`selector`).
-- 🟢 **S3 (pré-existente, para depois):** no QR de um celular que consegue encostar, os botões do 13, do 15 e do 16 e o "Tentar de novo" de 18 a 20 somem, e nada recebe o foco. O `QrStart` (`ConnectScreen.tsx:251-254`) só foca a faixa T30. Sugestão: focar o T32 (`ConnectScreen.tsx:264-266`), o primeiro conteúdo do QR.
+- 🟢 **S3 (pré-existente, para depois):** no QR de um celular que consegue encostar, os botões do 13, do 15 e do 16 e o "Tentar de novo" de 18 a 20 somem, e nada recebe o foco. O `QrStart` (`ConnectScreen.tsx:251-254`) só foca a faixa T30. Sugestão: focar o T32 (`ConnectScreen.tsx:264-266`), o primeiro conteúdo do QR. (Atualizado em 2026-10-31.) **Confirmada; entra no PR 5**, com a regra na §11.18. Hoje o `QrStart` está em `:250-287`, e o T32, em `:265-267`.
 
-**Textos para o PO:** nenhum novo nesta revisão. Continuam pendentes os T47 e T48 (§11.16, item 1); o item 4 da §11.16 é novo.
+**Textos para o PO:** nenhum novo nesta revisão. Continuam pendentes os T47 e T48 (§11.16, item 1); o item 4 da §11.16 é novo. (Atualizado em 2026-10-31.) **Decidido pelo PO:** os T47 e T48 aprovados como propostos, e o item 4 na opção (a). A S3 entra no PR 5 (§11.18); o C1 e o S2 já estão no código (`FOCUS_START_STATE` com `system` e `bluetooth`, `useConnectSession.ts:94-99`).
+
+### 11.18 Para o PR 5: "Denunciar" em "Contas bloqueadas" e o foco no T32 (2026-10-31)
+
+> **Origem:** a decisão do PO de 2026-10-31 sobre a §11.16, item 2 (R1-PO-1), e a sugestão S3 da §11.17. Conferi o desenho mínimo da §11.16 contra a tela de hoje: `apps/mobile/src/app/conta/bloqueados.tsx` só reexporta o `BlockedAccountsScreen` (`features/lists/OwnListScreens.tsx:212-258`).
+>
+> **O que faltava:** a largura. Com o ⋯, a coluna do texto perde 52 pt, e, pela conta com a Inter 14, a data corta ("Bloqueio em 27 o…") nas telas de 390 pt ou menos; com o ano ("Bloqueio em 27 out 2025"), corta em todas. A conferir no catálogo e no aparelho. O resto do desenho estava completo; abaixo, com os detalhes que o `frontend` precisa.
+>
+> **Texto novo:** nenhum. **Componente novo:** nenhum. **No `packages/ui`:** só a prop opcional `subtitleLines` da `UserRow` (§6.14).
+
+#### "Denunciar" em "Contas bloqueadas"
+
+```
+┌──────────────────────────────────────────┐
+│ ‹  Contas bloqueadas                     │ ScreenHeader back (sem mudança)
+├──────────────────────────────────────────┤
+│ (lock 16) Só você vê esta lista.         │ OWN_LIST_NOTE (sem mudança)
+│ ◯  caio.r           (Desbloquear)   ⋯    │ UserRow; à direita, (Desbloquear) e ⋯, gap 8
+│    Bloqueio em 27 out                    │ subtítulo em até 2 linhas
+│ ◯  helena.souza.f…  (Desbloquear)   ⋯    │ o @ continua em 1 linha, com reticências
+│    Bloqueio em 3 set                     │
+│    2025                                  │ a 2ª linha só aparece quando não cabe
+└──────────────────────────────────────────┘
+```
+
+| Aspecto | Regra |
+|---|---|
+| A linha | a `UserRow` de hoje, sem toque na linha (o perfil não abre, X.2). A ação da direita passa a ser um grupo em linha: o (Desbloquear) e o ⋯, com `gap` 8 (o mínimo da §7.2), centralizados na vertical |
+| (Desbloquear) | como está: `Button secondary sm`, rótulo "Desbloquear @{handle}", o `Alert` do `useUnblockAccount`; com o 204, a linha sai e aparece o Toast "Você desbloqueou @{handle}.". Fica fora do ⋯ porque é a ação principal da tela (X.2). Nunca fica desativado: nada da denúncia corre na lista |
+| ⋯ | `IconButton` `ellipsis`, área 44 × 44, à direita do (Desbloquear), em black, como em "Conexões". Rótulo "Mais opções para @{handle}", o de "Conexões". `testID` `bloqueados-mais-{handle}` |
+| A folha | `useActionSheet('blocked-menu')`, com o `element` na árvore da tela, como em `ConnectionsScreen` (`OwnListScreens.tsx:52-126`). Título "Perfil de @{handle}", o do menu ⋯ do perfil (`useModerationMenu`). Uma ação só, "Denunciar" (`REPORT_ACTION`), sem `destructive`, como no menu do perfil. Depois, o "Cancelar" de sempre |
+| "Denunciar" | `router.push(reportHref({ type: 'account', handle }))`, depois que a folha sai (o `useActionSheet` já espera o `onDismiss` no iOS). Abre a rota `/denunciar`: o modal da raiz, com o `ReportScreen` e o `ReportForm` em `errorMode="toast"`, **sem o T46** (quem bloqueou denuncia sem prazo, R1-PO-1). **Não** é o `Modal` do Conectar: aqui não há sessão a preservar, e a lista fica montada por baixo da rota |
+| 202 | o de sempre da rota: Toast `REPORT_SENT_MESSAGE` ("Denúncia enviada. Obrigado por avisar.") e a rota fecha, de volta à lista. A linha fica, porque a conta continua bloqueada, e o ⋯ também; denunciar de novo segue as regras do servidor, como no perfil |
+| 404 (conta excluída) | o de sempre da rota: Toast `PROFILE_GONE_MESSAGE` ("Este perfil não está mais disponível.") e a rota fecha. Desde a R1-PO-1, é o único 404 possível aqui. **A linha fica até a próxima atualização da lista** (puxar ou reabrir a tela), porque a rota não devolve resultado a quem a abriu, e criar esse canal não compensa num caso raro. Nada de errado acontece: o "Desbloquear" continua funcionando (o `DELETE /me/blocks/:handle` responde 204 sempre), e o @ nunca é reutilizado (A-14), então a denúncia nunca vai para outra pessoa |
+| 429, 503, sem rede | o de sempre da rota: o formulário fica aberto, com o motivo e o texto, e o erro sai num Toast (ver o 🟡 abaixo) |
+| Tipo de conta | vale para a pessoa e para o criador, como a tela (o `POST /v1/reports` serve aos dois) |
+| Carregando, vazio e erro | sem mudança (`OwnListScreen`) |
+
+**A largura (o que faltava).** O grupo da direita ocupa uns 167 pt: o (Desbloquear) com uns 115 e o ⋯ com 44, mais o `gap` 8. Sobram uns 123 pt para o texto num celular de 390 pt, e 93 pt num Android de 360. O "Bloqueio em 27 out" (`bodySm` 14) precisa de uns 124 pt; com o ano, de uns 160.
+- **Correção:** o subtítulo desta lista quebra em até 2 linhas. Para isso, a `UserRow` ganha a prop opcional `subtitleLines?: 1 | 2` (padrão 1, então as outras listas não mudam).
+- Com 2 linhas, a linha ganha `paddingVertical` 8 (passa de 64 a 80), para o texto não encostar no da linha de baixo.
+- O @ continua em 1 linha, com reticências: um @ não tem espaço, e quebrá-lo no meio fica pior que cortar. O leitor de tela lê o @ e a data inteiros, pelo rótulo da linha.
+- Com a fonte muito grande, o @ e a data também cortam, como já acontece hoje nas outras listas com ação à direita. Fica para a conferência em aparelho, junto das outras listas (fora deste PR).
+
+**Acessibilidade**
+- **Ordem de leitura:** a linha (o @ e a data, um elemento só, como hoje) → "Desbloquear @{handle}" → "Mais opções para @{handle}". São dois alvos de 44 de altura, com 8 entre eles.
+- **Folha:** `accessibilityViewIsModal`, como todo `ActionSheet`. O título é lido como cabeçalho ("Perfil de @caio.r"); depois, "Denunciar" e "Cancelar".
+- **Foco na volta:**
+  - "Cancelar" na folha (ou o toque fora, ou o voltar do Android): o foco volta ao ⋯ da linha (§7.3).
+  - Depois da rota (202, 404 ou "Cancelar" no formulário): o foco volta ao mesmo ⋯. No iOS, o sistema devolve o foco ao elemento que abriu o modal; no Android, a conferir.
+  - **Sem `ref` novo neste PR:** o `IconButton` não expõe `ref`, e o caso é o mesmo do ⋯ do perfil e dos posts, que abrem a mesma rota. Se o teste em aparelho mostrar o foco perdido, a correção vale para todos os ⋯ de uma vez (fora deste PR).
+- **Movimento:** a folha entra com o fade do `ActionSheet`, sem animação com Reduzir movimento; a rota é o modal de sempre.
+
+**Achados na rota `/denunciar` (anteriores a este PR; valem para toda entrada da rota)**
+- 🟡 **O Toast de erro do formulário pode ficar atrás do modal no iOS.** A rota abre como modal nativo (`presentation: 'modal'`), e o `ToastProvider` é um `View` absoluto na raiz do app (`ToastProvider.tsx:140`), por baixo do modal. É o motivo pelo qual o Conectar usa a linha de erro (§11.14). Se isso se confirmar, o 429, o 503 e a falta de rede no "Enviar" não mostram nada, e a pessoa não sabe por que nada aconteceu.
+  - A conferir no aparelho.
+  - Se se confirmar, a correção é a rota usar `errorMode="inline"`, a linha de erro que já existe, sem texto novo.
+  - O Tech Lead decide se entra no PR 5.
+- 🟢 **O anúncio do Toast da rota pode ser cortado pela volta do foco.** O Toast sai antes de a rota fechar (`ReportScreen.tsx:70-77`), como no caso da R2 (§11.13). Sugestão: mostrar o Toast do 202 e o do 404 com o `announceAfterMs` do `ToastProvider`. A conferir no aparelho; se o anúncio já sair inteiro, não precisa.
+
+#### O foco no T32 (a S3 da §11.17)
+
+**Confirmo, e entra neste PR.** No QR de um celular que consegue encostar, sair do 13 ("Cancelar pedido"), do 15 ("Conectar outra pessoa"), do 16 ("Tentar de novo" ou "Voltar") e dos estados 18 a 20 ("Tentar de novo") leva ao meu código (§11.15, caso 5), e o botão tocado some. O `QrStart` (`ConnectScreen.tsx:250-287`) só move o foco para a faixa T30, que só existe sem suporte. Com suporte, nada recebe o foco, e o leitor de tela fica sem posição (WCAG 2.4.3).
+
+| Aspecto | Regra |
+|---|---|
+| Quando | o QR aparece por um motivo do `FOCUS_START_STATE` (`useConnectSession.ts:94-99`) e o celular consegue encostar. Na prática, só o `restart` chega ao QR com suporte, porque o cartão sai sempre para o Encostar (§11.15) |
+| Onde | no T32 (`COPY.qrExplain`, `ConnectScreen.tsx:265-267`), o primeiro conteúdo do QR. Ele passa para dentro de um `View` acessível com `ref`, como a faixa T30 (`:259`), com o `testID` `conectar-qr-explicacao`. Sem role `header`: é uma frase, não um título |
+| Sem suporte | continua a faixa T30, que vem antes do T32; nada muda |
+| Quando não | na abertura da aba (`open`) e pelo seletor (`selector`), o foco fica onde está (WCAG 3.2.2), como hoje |
+| Anúncio | nenhum a mais: o foco lê o T32. Se houver Toast na saída, ele sai depois do foco (`announceAfterMs`), como na §11.15 |
+| Movimento | nada muda |
+
+Implementação sugerida: no `QrStart`, um segundo `useFocusOnShow(session.startFocus.key, session.startFocus.enabled && !session.unsupported)`, no `View` do T32.
+
+#### Impacto nos componentes (indicação para o `frontend`; eu não altero código)
+
+| Onde | Mudança |
+|---|---|
+| `features/lists/OwnListScreens.tsx` (`BlockedAccountsScreen`) | A ação da linha vira o grupo (Desbloquear) + ⋯; a folha `blocked-menu` com "Denunciar"; o `push` para o `reportHref`; o `subtitleLines={2}`; o `menu.element` na árvore |
+| `packages/ui` `UserRow` | A prop opcional `subtitleLines?: 1 \| 2` (padrão 1). Com 2, o subtítulo usa `numberOfLines={2}`, e a linha ganha `paddingVertical` 8. Teste dos dois modos; no catálogo, uma linha de "Contas bloqueadas" com a data longa |
+| `features/moderation/useModerationMenu.ts` | O comentário de `:15-21` deixa de dizer que o app só oferece a denúncia de quem você bloqueou no Bloqueado do Conectar: agora também em "Contas bloqueadas" |
+| `features/connect/ConnectScreen.tsx` (`QrStart`) | O T32 num `View` acessível com `ref` e o foco da S3 |
+| `features/connect/copy.ts` | O comentário dos T47 e T48 (`:6-7` e `:69-70`) passa a "aprovado pelo PO em 2026-10-31". O texto não muda |
+| Testes (`testes`) | O nome do teste de `helpers.test.ts:191` ainda diz "propostos, a aprovar pelo PO" |
+
+#### Testes sugeridos (app; o `testes` dá os IDs)
+
+1. **Linha:** o (Desbloquear) e o ⋯, com os rótulos "Desbloquear @caio.r" e "Mais opções para @caio.r", nessa ordem.
+2. **Folha:** o ⋯ abre a folha com o título "Perfil de @caio.r", só "Denunciar" e o "Cancelar"; "Cancelar" não navega.
+3. **Denunciar:** abre `/denunciar?alvo=conta&handle=caio.r`; o formulário não mostra o T46; o 202 mostra o `REPORT_SENT_MESSAGE` e volta à lista, com a linha; o 404 mostra o `PROFILE_GONE_MESSAGE` e volta à lista, com a linha.
+4. **Desbloquear:** continua igual (o `Alert`, o 204, a linha sai e o Toast).
+5. **`UserRow`:** com `subtitleLines={2}`, o subtítulo aceita 2 linhas; sem a prop, continua 1 (as outras listas não mudam).
+6. **T32:** no QR com suporte, "Cancelar pedido" (13), "Conectar outra pessoa" (15), "Tentar de novo" (16) e "Tentar de novo" (19) levam o foco a `conectar-qr-explicacao`. Sem suporte, continua a faixa. "QR code" pelo seletor não move o foco.
+
+## 12. Fidelidade ao ux.md: os quatro itens do PR 6 (2026-10-31)
+
+> **Origem:** o README registra como "fora desta fase" quatro pontos em que o app difere deste documento, e o PR 6 vai tratá-los. Para cada um, esta seção diz onde o `ux.md` já especificava, o que faltava especificar e a recomendação.
+>
+> **Texto novo:** nenhum. **Dependência nova:** nenhuma. Se o PO escolher deslizar com o `react-native-pager-view`, ele passa pelo Tech Lead e pelo `seguranca` e pede dev build novo.
+
+| # | Item (README) | Onde o `ux.md` falava | Recomendação |
+|---|---|---|---|
+| (a) | Deslizar entre as abas do feed (Fase 2b) | §6.13 TopTabs, "Comportamento", numa linha, sem regras | **Não fazer na v1.** Se o PO quiser, a §12.1 traz as regras |
+| (b) | O Início recarregar depois de seguir ou deixar de seguir (Fase 3b) | nada com regra de tela; a história 3.9 (CA1 e CA2) e a jornada da §2.1 | **Fazer** (§12.2), incluindo a conexão nova, que tem o mesmo problema |
+| (c) | O tile "Processando" de um reel de outra sessão se atualizar sozinho (Fase 5b) | §5.3 e §6.13 ReelTile: o estado, sem a consulta | **Fazer** (§12.3) |
+| (d) | O "✓" depois do texto em "Conectados" (Fase 4b) | §4.9 e §6.13 ProfileHeader: "(Conectados ✓)" | **Não fazer:** o ✓ fica antes do texto, e este documento é que muda (§12.4) |
+
+### 12.1 (a) Deslizar entre Fotos, Textos e Reels
+
+**Onde estava:** só na §6.13 (TopTabs): "swipe horizontal entre abas no feed (pager) com toque também". Nem o briefing (§6 do PO) nem o protótipo (p06 a p08) pedem o deslizar. A linha veio de mim, como padrão de apps com abas no topo.
+
+**Recomendação: não fazer na v1. Fica só o toque nas abas, como hoje.**
+1. **Briga com o carrossel de fotos, na aba que abre primeiro.** No p06, a foto 4:5 ocupa quase a tela toda, e o post com várias fotos já desliza na horizontal (`PostPhoto`, `ScrollView` com `pagingEnabled`).
+   - O mesmo gesto, na mesma área, passaria as fotos num post e trocaria de aba no post de baixo, que tem uma foto só.
+   - Na última foto, quem quer "ver mais" troca de aba sem querer, e o post some.
+   - O guia de abas do Material Design 2 alerta para isso: com conteúdo que desliza dentro de abas que deslizam, a pessoa desliza o componente errado.
+2. **O custo e o risco são maiores que o ganho.** O toque já resolve, e ele é a alternativa exigida de qualquer forma (WCAG 2.5.1 e 2.5.7). O deslizar pede:
+   - um pager: uma dependência nativa nova, com dev build, ou o `ScrollView` horizontal do React Native, que trata a rolagem aninhada na mesma direção de um jeito no iOS e de outro no Android;
+   - o cuidado com o leitor de tela (abaixo);
+   - teste em aparelho.
+3. **O ganho real é o alcance do polegar**, porque as abas ficam no topo. Vira um ponto de validação (§10, item 7): se, no teste com usuários, as pessoas tentarem deslizar, a regra abaixo já está pronta para a v1.1.
+
+**Se o PO quiser o deslizar agora, a especificação mínima:**
+
+| Aspecto | Regra |
+|---|---|
+| Comportamento | as três listas lado a lado num pager. Deslizar para a esquerda vai à aba seguinte; para a direita, à anterior; nas pontas, nada acontece (sem volta circular). A aba muda quando a página assenta (passou da metade, ou com velocidade), e o sublinhado das `TopTabs` vai junto, em `motion.base`. O toque nas abas continua igual e move o pager |
+| A foto é do post | o gesto que começa numa foto, com uma ou com várias, **nunca troca de aba**: no carrossel, passa as fotos e para na última; na foto única, não faz nada. Fora da foto (o cabeçalho, as ações e a legenda do post, os posts de texto e a grade de reels), deslizar troca de aba. A regra é uma só, para a mesma área não fazer duas coisas |
+| Rolagem | o arraste mais vertical rola a lista e nunca troca de aba. O puxar para atualizar continua. Cada aba guarda a posição da própria lista (já é assim: as listas ficam montadas) |
+| Carregamento | continua sob demanda. A aba ainda não vista mostra o skeleton (§5.1) durante o arraste e só busca a primeira página quando a página assenta, como hoje no primeiro toque |
+| Borda da tela | o arraste que começa na borda é do sistema (o "voltar" do Android com gestos); o pager não disputa |
+| Leitor de tela | com VoiceOver ou TalkBack ligados (`useScreenReaderEnabled`, já no `packages/ui`), **o deslizar fica desligado** (`scrollEnabled` falso). O caminho são as abas, que têm role `tab` e `selected`. Motivo: o deslizar de um dedo é do leitor de tela, e o de três dedos (VoiceOver) ou de dois (TalkBack) passaria de página sem o foco e o "selecionado" das abas acompanharem. As páginas fora da tela ficam escondidas do leitor (`accessibilityElementsHidden` e `importantForAccessibility="no-hide-descendants"`), para o foco não entrar numa lista que não aparece |
+| Movimento reduzido | o toque numa aba troca a página sem deslizar (`animated: false`), e o sublinhado pula (já é assim, §6.10). O arraste segue o dedo, porque é manipulação direta, e o encaixe ao soltar é o do sistema, que é curto |
+| Dependência | de preferência, nenhuma (o `FlatList` horizontal com `pagingEnabled`). O `react-native-pager-view`, só com o aval do Tech Lead e do `seguranca` e com dev build novo |
+
+Testes sugeridos, se for feito:
+- deslizar troca a aba e o `selected`, e o toque move o pager;
+- o gesto na foto nunca troca de aba (inclusive na última foto e na foto única);
+- com leitor de tela, o pager não rola, e as páginas fora da tela ficam escondidas;
+- com Reduzir movimento, o toque troca a página sem animação.
+
+### 12.2 (b) O Início depois de seguir, deixar de seguir e conectar
+
+**Onde estava:** em nenhum lugar do `ux.md` com regra de tela. A história 3.9 pede isso:
+- CA1: "quando abro o feed, os posts dele das últimas 72 h aparecem na hora";
+- CA2: "quando deixo de seguir… os posts dele somem".
+
+A jornada da §2.1 também termina no "Feed com posts de Caio das últimas 72 h", depois de "Ir para o início".
+
+Hoje, o Início fica montado, então só o puxar para atualizar busca de novo. O bloqueio e o "Desfazer conexão" já tiram as publicações na hora (`PostStore.hideAuthor` e `hidePostsOf`).
+
+**Achado: a conexão nova tem o mesmo problema, e é a jornada principal (§2.1).** Depois da 1ª conexão, o `GET /me` recarregado faz o Início trocar o "Seu início está vazio" pelo "Você está em dia", sem buscar as publicações (`FeedScreen.tsx:93-145`). A pessoa conecta, toca em "Ir para o início" e lê "Você viu todas as fotos…" sem nenhuma foto de Caio. **Recomendo incluir no PR 6**, pela mesma regra.
+
+**Recomendação: fazer**, assim:
+
+| Quando | O que o Início faz |
+|---|---|
+| Deixar de seguir (`DELETE /creators/:handle/follow`, de qualquer tela) | as publicações do criador saem do Início **na hora**, junto com a troca otimista do botão "Seguindo", como no bloqueio, sem buscar de novo; sem recarregar, a lista não pula. Se a chamada falhar, elas voltam, com o Toast de erro de hoje |
+| Seguir dá certo (`PUT`) | o Início fica marcado como **desatualizado** |
+| Conectados (15), por encostar ou por QR, dos dois lados (§11.4) | o Início fica marcado como desatualizado |
+| Desbloquear | nada: a conexão e os follows desfeitos no bloqueio não voltam (`UNBLOCK_MESSAGE`), então nada entra no Início |
+
+| Aspecto | Regra para o Início desatualizado |
+|---|---|
+| Quando recarrega | quando a tela raiz do Início volta a ficar em foco: o toque na aba Início, a volta de um perfil ou de um post empilhado no Início e o "Ir para o início" do Conectados. Nunca enquanto a pessoa está nele |
+| O que recarrega | a aba visível, na hora; as outras abas já montadas, quando ficarem visíveis. As abas nunca vistas já carregam do zero |
+| Como | a lista volta ao topo, sem animação, e a primeira página é buscada como no puxar para atualizar, mas sem o indicador do puxar: o conteúdo de antes fica na tela até a resposta chegar. Volta ao topo porque a primeira página substitui a lista, e as publicações novas entram na ordem cronológica, em qualquer ponto da janela. Ficar no meio de uma lista que mudou mostraria outro post no mesmo lugar |
+| Limites | uma busca por volta ao foco, e só com a marca. Várias ações seguidas (por exemplo, seguir 3 criadores na busca) dão uma busca só. A marca sai quando a busca dá certo, ou com o puxar para atualizar |
+| Falha | silenciosa: o conteúdo de antes fica, sem Toast, porque a pessoa não pediu nada. A marca fica, e a próxima volta ao foco tenta de novo. O puxar para atualizar continua com o Toast de hoje |
+| Leitor de tela | sem anúncio: não há texto novo, e a pessoa acabou de navegar. Na volta de um perfil, o sistema devolve o foco ao elemento que o abriu (o @ do post). Se ele não existir mais (a publicação saiu ou a lista recarregou), o foco deve ir ao cabeçalho "Sussurro, início". A conferir no aparelho: o sistema costuma ir ao primeiro elemento da tela, que já é esse |
+| Movimento reduzido | nada muda: a volta ao topo já é sem animação, e as publicações entram sem animação |
+
+Implementação sugerida (indicação; o `frontend` decide):
+- a marca de desatualizado no `PostStore` (ou ao lado do `FollowStore`), ligada pelo `useFollowToggle` e pelo `markConnected` do Conectar;
+- no `FeedList`, um `useFocusEffect` que, com a marca, rola ao topo e chama o `refresh` sem o `refreshing` visível;
+- para deixar de seguir, o `FeedList` filtra as publicações cujo autor é criador (`accountType: 'creator'`) e está com `false` no `FollowStore`, como o `useUnfollowed` já faz na lista "Criadores que sigo".
+
+Testes sugeridos: seguir na busca e voltar ao Início busca a primeira página uma vez só, e a lista volta ao topo; deixar de seguir tira as publicações na hora, sem buscar, e elas voltam se a API falhar; "Ir para o início" depois da 1ª conexão mostra as publicações da conexão, e não só o "Você está em dia"; a falha da busca automática não mostra Toast, e a próxima volta tenta de novo; a aba escondida busca quando fica visível.
+
+### 12.3 (c) O tile "Processando" de um reel de outra sessão
+
+**Onde estava:** na §5.3 ("Reel processando na grade do autor: `ReelTile status="processing"`") e na §6.13 (ReelTile, o estado). Nada dizia como ele deixa de ser "Processando".
+- O reel desta sessão é consultado pela faixa "Processando o reel…", com até 10 s entre uma consulta e outra (`PublishingProvider.tsx:177-196`).
+- O de outra sessão (o app foi fechado, ou a pessoa usou outro celular) só muda ao puxar para atualizar. Como o MediaConvert leva minutos, quem volta ao perfil vê "Processando" e não sabe se terminou.
+
+**Recomendação: fazer**, assim:
+
+| Aspecto | Regra |
+|---|---|
+| Onde | a aba Reels do próprio perfil (pessoa e criador), nos tiles "Processando" que não têm faixa nesta sessão. O feed e o perfil de outra conta nunca mostram reel em processamento (MID-09) |
+| Quando consulta | enquanto valem as três condições juntas: a tela do perfil em foco, a aba Reels visível e o app em primeiro plano. Quando elas passam a valer (abrir a aba, voltar de outra tela, voltar do segundo plano), consulta **na hora**; depois, **a cada 10 s** (o teto da faixa, `MAX_REEL_POLL_DELAY_MS`) |
+| Como | `GET /v1/posts/:id` de cada reel em processamento, um por vez. O resultado vai para o `PostStore` (`upsert`), e o tile muda no lugar, sem a lista recarregar nem pular. Na prática, são 1 ou 2 reels (o servidor limita a 10 rascunhos de reel por hora, R10) |
+| Quando para | quando não sobra tile "Processando"; quando uma das três condições deixa de valer (pausa, e volta com a consulta na hora); depois de 5 falhas de rede seguidas de um reel (o mesmo `MAX_POLL_ERRORS` da faixa), até a próxima vez que a aba ficar visível. Sem prazo próprio: o worker marca `failed` depois de 60 min, e a tela apagada leva o app ao segundo plano |
+| `published` | o tile vira o normal, com a capa e a duração, e passa a abrir o visualizador. Toast "Publicado." (`PUBLISHED_MESSAGE`, `success`), o mesmo da faixa: é a mensagem de estado (WCAG 4.1.3), e a pessoa pode estar olhando outro tile |
+| `failed` | o tile vira "Falhou", com "Tentar de novo" e "Excluir" (5.6). Toast "Não foi possível publicar este reel." (`FAILED_REEL_TITLE`, `error`), o título da folha do tile |
+| 404 | o reel foi apagado (por exemplo, em outro celular): o tile sai (`PostStore.remove`), sem Toast |
+| Falha de rede | o tile fica como está, sem Toast, porque a pessoa não pediu nada. O puxar para atualizar continua |
+| Leitor de tela | o tile continua o mesmo elemento, então o foco não se perde. O rótulo muda de "Reel processando" para "Reel de @{handle}, {duração}", e o Toast anuncia a mudança |
+| Movimento reduzido | nada novo se move: a capa entra como em qualquer tile |
+
+O tile de foto "Processando" (`PhotoTile`) fica como está, porque a foto processa em segundos e o caso quase não acontece.
+
+Testes sugeridos:
+- com um reel `processing` sem faixa, a aba Reels consulta na hora e a cada 10 s;
+- o `published` troca o tile no lugar e mostra "Publicado."; o `failed` mostra "Falhou" e o Toast; o 404 tira o tile;
+- a consulta para ao trocar de aba, ao sair da tela e no segundo plano, e volta na hora;
+- 5 falhas seguidas param a consulta, sem Toast;
+- o reel com faixa nesta sessão não é consultado duas vezes.
+
+### 12.4 (d) O "✓" de "Conectados"
+
+**Onde estava:** na §4.9 ("um único botão `(Conectados ✓)` largura total") e na §6.13 (ProfileHeader: "conexão: (Conectados ✓)"). O app desenha o ✓ antes do texto ("✓ Conectados"), porque o `Button` só tem ícone à esquerda (`Button.tsx:110-115`).
+
+**Recomendação: não fazer. O ✓ fica antes do texto, e este documento é que muda.** A decisão é do PO, no PR 6.
+1. O perfil de uma conexão não está no protótipo (§0). O "(Conectados ✓)" era a notação dos wireframes, e não uma decisão de posição.
+2. Todo botão com ícone no app tem o ícone à esquerda (`Button`); um `iconPosition` serviria a um botão só.
+3. Ícone depois do texto costuma dizer "abre mais" (o "Seguindo ⌄" do Instagram), e não "estado". O ✓ antes do texto se lê como estado, que é o que ele é. O leitor de tela já diz tudo: "Conectados com @{handle}, toque para ver as opções".
+4. Seria custo sem ganho: prop nova no `packages/ui`, teste e catálogo, sem mudança para quem usa.
+
+**Se o PO concordar:** a §4.9 e a §6.13 passam a "(✓ Conectados)", e o item sai do README. **Se o PO preferir o ✓ depois do texto:** a prop opcional `iconPosition: 'left' | 'right'` no `Button` (padrão `left`), usada só no `ProfileHeader`, com o mesmo `gap` de 8 entre o texto e o ícone.
+
+### 12.5 Achado fora da lista: as abas do perfil não ficam fixas
+
+A §6.13 (TopTabs) diz "fixa (sticky) no perfil". No app, as abas do perfil estão no cabeçalho da lista (`ProfilePostsList.tsx:177-190`) e rolam junto; num perfil longo, trocar de aba obriga a voltar ao topo. O README não registra a diferença.
+
+**Recomendação:** não entra no PR 6. Está fora dos quatro itens, e a grade de 3 colunas com cabeçalho fixo pede mudar a estrutura da lista. Registrar no README como divergência e decidir com o PO depois do teste com usuários.
+
+Se o PO quiser agora:
+- as abas grudam logo abaixo do topo ao rolar, com o hairline de sempre;
+- o toque numa aba leva a lista ao começo da aba, logo abaixo do cabeçalho do perfil.
+
+### 12.6 Impacto (indicação para o `frontend`; eu não altero código) e textos
+
+| Onde | Mudança |
+|---|---|
+| `features/feed/FeedScreen.tsx` | (b): o filtro de quem deixou de seguir e a busca na volta ao foco com a marca. (a): só se o PO quiser |
+| `features/posts/post-store.tsx` ou `features/relations/follow-store.tsx` | (b): a marca de desatualizado |
+| `features/relations/useFollowToggle.ts` | (b): marca no `PUT` que dá certo; a saída na hora vem do `FollowStore` |
+| `features/connect/useConnectSession.ts` (`markConnected`) | (b): marca no Conectados |
+| `features/profile/ProfilePostsList.tsx` (ou `features/reels`) | (c): a consulta dos tiles "Processando", com as três condições |
+| `packages/ui` | nenhuma mudança, a não ser (a) com o pager ou (d) com o ✓ depois do texto |
+
+**Textos:** nenhum novo. Reaproveitados: "Publicado." e "Não foi possível publicar este reel." (§12.3).
 
 ---
 
@@ -2199,4 +2457,11 @@ Revisão da branch `feat/denunciar-bloqueado` (sem commit), contra a §11.14 e a
 - Alterado em 2026-10-30: §11 nova (Conectar por encostar os celulares) e avisos "(atualizado em 2026-10-30)" no topo e nas §2.1, 4.10, 4.12, 5.2, 6.10, 6.14, 7.3, 8, 9 e 10. No mesmo dia: a aprovação do PO (D-UX21, D-UX22, D-UX24, T1 a T42 e a remoção do `Radar`; o D-UX23 fica para o spike) e as correções da ADR 0012 §9 e §10 às premissas (P3, P4, P7 e o NameDrop). Ainda no mesmo dia, a revisão da implementação (§11.13), que mudou a §11.4 (estados 12 e 17, erro de rede no Aceitar, tela acesa e saída do Aproximando), a §11.6 (a frase do encostar), a §11.8 (anúncios, a ordem entre foco e anúncio e o foco na volta ao Pronto), a §11.9 (T35 e T36 anotados e os T43 a T45 propostos) e a §11.12 (item 5). Ainda em 2026-10-30: o PO aprovou os T43 a T45 exatamente como propostos (T6, T23 e T36 marcados como substituídos na §11.9, e as referências na §11.4, nos wireframes, na §11.8, na §11.10, na §11.11 e na §11.12 ajustadas); o PO aceitou o R21 com o teto de pessoas novas e a revelação simétrica garantida (A2 da ADR 0012), registrados na §11.4 sem texto novo; e a §11.13 ganhou a reconferência dos ajustes 3 a 6 do `frontend` (três avais) e a situação das sugestões abertas (R9, R11, o fade e o A5 com a câmera aberta, para depois). Ainda em 2026-10-30: a §11.14 nova (bloquear e denunciar pelo cartão, pela decisão do PO e pela ADR 0012, A2 rev. 1), com o T46 proposto na §11.9 e as referências no topo da §11, na §11.4 (estados 9, 11, 12 e 14, regras gerais e `testID`), na §11.5, na §11.8 (vibração), na §11.11, na §11.12 (itens 10 e 11) e na §11.13 (nota do T43). Ainda em 2026-10-30: o PO aprovou o T46 exatamente como proposto (§11.9 e §11.14 ajustadas, com o topo da §11 e os "se o PO aprovar" trocados pela decisão), e o ponto para o `arquiteto` da §11.14 ficou registrado como resolvido pela R1-10 da ADR 0012 (`pairExpiresInS` em cada cartão do `touches`).
 - Alterado em 2026-10-31 (PR `feat/denunciar-bloqueado`): a R1-PO-1 ("denunciar quem você bloqueou", aprovada pelo PO) e o Adendo A3 da ADR 0012. Topo da §11 (aviso novo). §11.2: a P3 com o aviso aos 7 s. §11.4: o diagrama (o 21, o 22, o cartão que chega no QR e os 7 s), o estado 9 (7 s), os estados 21 e 22 novos, os estados 17, 18 e 19 atualizados e as regras gerais (o que vence, o cartão fora do Pronto, o seletor, o background, a tela acesa e os `testID`). §11.5: o ponteiro para a §11.15. §11.8: os anúncios A7 e A8, o foco, a vibração e o tempo limitado. §11.9: o T46 fora do Bloqueado e os T47 e T48 **propostos, a aprovar pelo PO**. §11.11: os tempos do A3 e o ponteiro. §11.12: os itens 12 a 14. §11.14: a R1-PO-1 (o T46 fora do Bloqueado, o Bloqueado sem prazo, o 404 no Bloqueado só por conta excluída, o 22 com a linha, a margem de 3 s no M7, as duas decisões do `frontend` sobre o M9 e o M15, a tela acesa, o impacto e os testes). §11.15 nova: o cartão atrasado (21), o cartão sem Conectar (22), o cartão que chega fora do Pronto, a saída do cartão, o Bluetooth com o cartão na tela, o aviso aos 7 s e o 17, que fica como está. §11.16 nova: o que vai ao PO (os T47 e T48, o "Denunciar" na tela "Contas bloqueadas" e, para ciência, os 7 s). Nada decidido antes foi apagado: o que mudou ficou riscado ou marcado com "(atualizado em 2026-10-31)".
 - Alterado em 2026-10-31, revisão da implementação (PR `feat/denunciar-bloqueado`): §11.17 nova (veredito ⚠️ aprovado com ressalvas; os casos 1 a 6 confirmados e o 7 corrigido; o `titleRef` do `EmptyState` aprovado; as correções C1 e C2 e as sugestões S1 a S3 para o `frontend`). §11.16: o item 4 novo (o Bloqueado sem prazo com o nome e a foto, ponto do `seguranca`, com a recomendação de manter). Topo da §11: o ponteiro para a §11.17. §6.13: a prop `titleRef` do `EmptyState`. §11.8: o foco no título do estado de início, o motivo `system` e a espera conjunta do foco, do anúncio e da vibração. §11.11 e §11.15 (topo e impacto): o "sem mudança no `packages/ui`" riscado, por causa do `titleRef`. §11.15: os casos 1 e 4 na tabela do cartão fora do Pronto, os casos 2 e 3 no foco, os casos 5 e 6 e a ordem do Toast na saída do cartão e o caso 7 no Bluetooth. Marcado com "(atualizado em 2026-10-31)" ou "(§11.17)"; nada foi apagado.
+- Alterado em 2026-10-31 (PR 4, `chore/fechamento-ci-docs`):
+  - as decisões do PO sobre a §11.16 (T47 e T48 aprovados como propostos; "Denunciar" em "Contas bloqueadas", no PR 5; o Bloqueado sem prazo na opção (a)), com o "(atualizado em 2026-10-31) Decidido pelo PO" no topo da §11, na §11.8 (A7 e A8), na §11.9 (introdução, T47 e T48), na §11.15 (topo, textos e impacto do `copy.ts`), na §11.16 (itens 1, 2 e 4) e na §11.17 (textos para o PO);
+  - §11.18 nova: a especificação do PR 5 ("Denunciar" em "Contas bloqueadas", com a correção da largura, e o foco no T32 da S3), com dois achados na rota `/denunciar`;
+  - §12 nova: os quatro itens de fidelidade do PR 6 (deslizar entre as abas, o Início depois de seguir e de conectar, o tile "Processando" e o ✓ de "Conectados") e o achado das abas do perfil que não ficam fixas;
+  - ponteiros na §4.9, na §5.1, na §5.3, na §6.13 (TopTabs, ReelTile e ProfileHeader), na §6.14 (a prop `subtitleLines` da `UserRow`) e na §10 (item 7).
+
+  Nada foi apagado: o que mudou ficou riscado ou marcado.
 - Previsto para a Fase 0 (Dev): `packages/ui/theme.ts`, `packages/ui/icons/HouseFill.tsx`, `packages/ui/avatar/color.ts`, componentes da seção 6.13–6.14, `packages/ui/catalog/fixtures/*`, `apps/mobile/src/app/dev/catalog.tsx`.

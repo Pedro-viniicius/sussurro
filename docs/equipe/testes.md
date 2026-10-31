@@ -102,6 +102,7 @@ supertest chama o servidor HTTP do Nest em memória (porta efêmera), sem precis
 - A partir da Fase 2: `docker compose up -d --wait elasticmq seaweedfs s3-init` no mesmo job.
 - Relatórios: JUnit XML (Vitest e Jest) e cobertura (lcov) como artefato. Falha de teste ou de limite de cobertura deixa o job vermelho.
 - Testes intermitentes: proibido `retry` global. Teste instável vai para quarentena com issue aberta e prazo.
+- (Conferido em 2026-10-31 contra o `ci.yml` e os logs; ver §10, F0-CI-05.) O job `test` roda `pnpm test`, `pnpm db:migrate`, `docker compose up -d --wait elasticmq seaweedfs s3-init` e `pnpm test:e2e`, com os services `postgres:18.6-bookworm` e `valkey/valkey:8.1-alpine`, sem `TEST_DB`: os testes com `skipIf(isPgliteMode())` rodam. Os relatórios JUnit e lcov como artefato e o limite de cobertura **ainda não existem** (F0-Q-09).
 
 ---
 
@@ -398,6 +399,9 @@ Se o PO preferir grafemas (o emoji de família vale 1), a função passa a usar 
 | NOT-07 | Curtidas | curtir/descurtir repetido → 1 notificação; curtir o próprio post → nenhuma | E | 6 |
 | NOT-08 | Push | sem a íntegra do comentário; push de seguidores (se existir) também agregado e anônimo; `DeviceNotRegistered` desativa o token | I + M | 6 |
 | NOT-09 | Origem excluída | post ou autor excluído → a notificação some | E | 6 |
+| NOT-10 | **Seguidores ao mesmo tempo** (acrescentado em 2026-10-31, pendência "com Docker" da Fase 6a): N follows de pessoas diferentes ao mesmo criador, cada um na sua transação e na sua conexão do pool (a trava do par não os serializa: cada par tem a sua) | todos 200, sem erro de unicidade (23505); 1 linha do dia com `count = N` (ou a soma, se ela já existia), `actor_id NULL` e não lida; 1 push só, o de quem criou ou reabriu a linha. A garantia é o `INSERT … ON CONFLICT DO UPDATE` do `upsertFollowers` em READ COMMITTED. O teste prende os N na mesma linha com uma transação-barreira e confere no `pg_stat_activity` que os N esperam juntos antes de soltá-los | I/E (só Postgres real) | 6 |
+| NOT-11 | **Fila `push` de verdade** (acrescentado em 2026-10-31): o `SqsPushQueue` da API envia ao ElasticMQ | o corpo do contrato (`PushJobMessageSchema`, só ids), em lotes de até 10, uma vez cada; com o OpenTelemetry ligado, o `traceparent` do span ativo nos atributos que o consumidor do worker pede (6.8 CA1); desligado, nenhum atributo | I (só com o compose) | 6 |
+| NOT-12 | **DLQ da fila `push`** (acrescentado em 2026-10-31) | a `push` do `infra/local/elasticmq.conf` manda para a `push-dlq` a mensagem que esgota 3 entregas sem ser apagada. O consumo com o `ApproximateReceiveCount` e o redrive numa fila do próprio teste já estão no worker (MID-10) | I (só com o compose) | 6 |
 
 ---
 
@@ -553,13 +557,46 @@ Enquanto a conta Apple não existir, a fase só pode ser aceita como **"⚠️ a
 - Vídeos curtos (BLE, QR, push) **fora do Git** (link para pasta compartilhada do PO), referenciados na tabela.
 - O PR final da fase traz o checklist da DoD marcado e os links.
 
+### 9.5 O que o CI já comprova da DoD (conferido em 2026-10-31)
+
+Contra o `.github/workflows/ci.yml` e os logs dos runs R0 a R4 (tabela no começo da §10). Legenda igual à da §10: ✅ o CI comprova; ⚠️ em parte; ❌ não cobre; ⏳ pendente: job do PR 4.
+
+| Item | CI | Evidência |
+|---|---|---|
+| 9.2: `pnpm check` verde (format, lint com 0 avisos, typecheck, unitários) | ✅ | jobs `quality` e `test` verdes em R2, R3 e R4 (números na §10.4) |
+| 9.2: `pnpm test:e2e` verde, local e no CI | ⚠️ | no CI ✅ (R3 e R4: api 414, worker 73, db 59, nenhum pulado, com Postgres, Valkey, SeaweedFS e ElasticMQ reais). Na máquina do PO, só o PGlite, direcionado (sem Docker) |
+| 9.2: os casos de permissão demonstram falhar sem a regra | ❌ | mutação manual, local (relatórios das fases no `README.md`); o CI não roda mutação |
+| 9.2: metas de cobertura mantidas | ❌ | o CI não mede cobertura (F0-Q-09) |
+| 9.2: nenhum segredo no repositório (gitleaks verde) | ✅ | job `secrets` (histórico completo) verde em R2, R3 e R4; R1 mostra que ele barra (F0-CI-03) |
+| 9.3, Fase 0 | ⚠️ | ver a coluna "CI" de cada tabela da §10 |
+| 9.3, Fases 1 a 6, "testes passam" | ⚠️ | ✅ os casos U, I e E com o ID no nome rodam no CI em R3 e R4, inclusive os que só valem com serviços reais: AUTH-07, AUTH-08, CNT-02, X.2, os PROX do adaptador do Valkey, MID-03, MID-07, MID-08, MID-10, PERM-16 e F0-API-02. Os novos NOT-10, NOT-11 e NOT-12 só rodam no CI a partir do PR 4. ❌ ficam de fora os MAN-* (aparelho), o FEED-16 (`perf:feed`, manual, §5.2) e o MID-14 com GPS em vídeo (depois do `apply`, §8.2) |
+| 9.3, Fase 7, "testes passam" | ⚠️ | ✅ `terraform fmt -check`, `validate` (bootstrap e prod, sem backend), `tflint` e `trivy config` verdes no job `infra` (R1 a R4). ✅ a regressão automática (R3 e R4). ⏳ build e smoke das imagens Docker da API e do worker: pendente: job do PR 4 (hoje o CI só passa o `trivy config` nos Dockerfiles). ❌ a regressão dos MAN-* |
+
 ---
 
 ## 10. Checklist de aceite da Fase 0
 
 Execução no PowerShell da máquina do PO, raiz `C:\dev\sussurro`. Alinhado ao `fase-0-plano.md` §8 e ao `infra.md` §1, §3 e §4. pnpm fixado em 12.13.0 (A-01 resolvido). Abaixo, `<pnpm>` = versão fixada no `packageManager`.
 
+**Cobertura pelo CI** (conferida em 2026-10-31 pelo `testes`, contra o `.github/workflows/ci.yml` e os logs dos runs abaixo). A coluna "CI" das tabelas diz o que o GitHub Actions já comprova:
+- ✅ o CI comprova (o run e o que o log mostra);
+- ⚠️ comprova em parte ou por um equivalente (a nota diz o que falta);
+- ❌ o CI não cobre: continua manual, na máquina do PO ou em aparelho;
+- ⏳ pendente: job do PR 4.
+
+| Run | Evento e commit | Resultado |
+|---|---|---|
+| R0 = 41080845655 | `pull_request` do PR #1 (`feat/f0-f7-mvp`), `86e3b84` | `test` vermelho: um e2e falhando (`db-error-privacy.e2e-spec.ts`, PERM-17b), "Tests 1 failed \| 326 passed (327)" |
+| R1 = 41208827122 | `pull_request` do PR #3 (`feat/denunciar-bloqueado`), `8b86e22` | `secrets` vermelho: o gitleaks achou um token fictício de teste sem `// gitleaks:allow` (regra `generic-api-key`, em `apps/mobile/src/features/connect/useTouch.test.tsx`); `quality`, `test`, `build` e `infra` verdes |
+| R2 = 41210064114 | `pull_request` do PR #3, `1d6ec15` (com o token corrigido) | todos verdes; o `test` levou 6 min |
+| R3 = 41211129511 | `push` na `main` (merge do PR #3), `8ddc3ea` | verde; o `audit` vermelho é informativo (`continue-on-error`) |
+| R4 = 41229722689 | `push` na `main`, `f092f84` | verde; o `audit` vermelho é informativo |
+
+Nos e2e de R3 e R4: api 414 (30 arquivos), worker 73 (6) e db 59 (7), **nenhum pulado**: `real-services`, `media-real-services`, `health` e o `client.int.test.ts` rodam. Unitários de R3 (5 dos 6 pacotes executados; o db veio do cache do turbo): shared 227, db 13, api 338, worker 73, ui 229 e mobile 600. O runner é Ubuntu 24.04: nada daqui prova o Windows do PO.
+
 ### 10.1 Pré-requisitos da máquina (infra §1.1)
+CI: ❌ em todos (é a máquina do PO; o runner é Linux).
+
 | # | Comando | Esperado |
 |---|---|---|
 | F0-ENV-01 | `wsl --status` | "Versão padrão: 2" |
@@ -570,77 +607,94 @@ Execução no PowerShell da máquina do PO, raiz `C:\dev\sussurro`. Alinhado ao 
 | F0-ENV-06 | `Get-Content $env:USERPROFILE\.wslconfig` | `[wsl2]`, `memory=3GB` |
 
 ### 10.2 Portão do ADR 0001 (smoke test; plano do Dev S1 a S8)
-| # | Comando | Esperado |
-|---|---|---|
-| F0-GATE-01 | `pnpm install --frozen-lockfile` | código 0; sem peer dependency não resolvido; termina em menos de 10 min |
-| F0-GATE-02 | `pnpm --filter @sussurro/mobile exec expo-doctor` | nenhum problema crítico; anotar o deployment target iOS e o `minSdkVersion` (alimenta a matriz 8.1) |
-| F0-GATE-03 | `pnpm --filter @sussurro/mobile exec expo export --platform android --platform ios --output-dir .smoke-export` | bundles das duas plataformas gerados |
-| F0-GATE-04 | `pnpm --filter @sussurro/mobile exec expo prebuild --platform android --clean --no-install` | `apps/mobile/android` gerado sem erro de autolinking (apagar depois) |
-| F0-GATE-05 | Em pasta temporária fora do repo: `pnpm init`, `pnpm add sharp @node-rs/argon2`, `node --input-type=module -e "await import('sharp'); await import('@node-rs/argon2')"` | instala sem node-gyp e importa sem erro |
-| F0-GATE-06 | `pnpm build` | `apps/api/dist` e `apps/worker/dist` gerados |
-| F0-GATE-07 | `git status --porcelain` depois de F0-GATE-03/04 | nenhum arquivo gerado fica para trás (`.smoke-export`, `android/` ignorados ou apagados) |
+| # | Comando | Esperado | CI |
+|---|---|---|---|
+| F0-GATE-01 | `pnpm install --frozen-lockfile` | código 0; sem peer dependency não resolvido; termina em menos de 10 min | ⚠️ só no Linux: roda em todos os jobs de R1 a R4. No Windows, manual |
+| F0-GATE-02 | `pnpm --filter @sussurro/mobile exec expo-doctor` | nenhum problema crítico; anotar o deployment target iOS e o `minSdkVersion` (alimenta a matriz 8.1) | ⚠️ só informativo (`continue-on-error` no `quality`): em R4, 19 de 20; falhou a conferência de versões, com patch atrás do SDK 58 (`expo` 58.0.21 em vez de ~58.0.22, `expo-build-properties`, `expo-dev-client` e `expo-router`). O deployment target e o `minSdkVersion` não são anotados |
+| F0-GATE-03 | `pnpm --filter @sussurro/mobile exec expo export --platform android --platform ios --output-dir .smoke-export` | bundles das duas plataformas gerados | ❌ |
+| F0-GATE-04 | `pnpm --filter @sussurro/mobile exec expo prebuild --platform android --clean --no-install` | `apps/mobile/android` gerado sem erro de autolinking (apagar depois) | ❌ |
+| F0-GATE-05 | Em pasta temporária fora do repo: `pnpm init`, `pnpm add sharp @node-rs/argon2`, `node --input-type=module -e "await import('sharp'); await import('@node-rs/argon2')"` | instala sem node-gyp e importa sem erro | ⚠️ indireto, no Linux: os testes do worker carregam o `sharp`, e os da API, o `@node-rs/argon2`. A pasta limpa no Windows, manual |
+| F0-GATE-06 | `pnpm build` | `apps/api/dist` e `apps/worker/dist` gerados | ✅ job `build`, passo "Confere a saída da API e do worker (F0-GATE-06)", de R1 a R4 |
+| F0-GATE-07 | `git status --porcelain` depois de F0-GATE-03/04 | nenhum arquivo gerado fica para trás (`.smoke-export`, `android/` ignorados ou apagados) | ❌ |
 
 ### 10.3 docker-compose (infra §3)
-| # | Comando | Esperado |
-|---|---|---|
-| F0-DC-01 | `docker compose up -d --wait` | código 0 (confirmar que `--wait` aceita o `s3-init` que termina com 0; se não aceitar, ajustar o compose) |
-| F0-DC-02 | `docker compose ps -a` | `postgres`, `valkey` e `seaweedfs` `(healthy)`; `elasticmq` `Up`; `s3-init` `Exited (0)` |
-| F0-DC-03 | `docker compose exec postgres psql -U sussurro -d sussurro -c "select version()"` | PostgreSQL 18.x |
-| F0-DC-04 | `docker compose exec valkey valkey-cli ping` | `PONG` |
-| F0-DC-05 | `netstat -ano \| findstr "LISTENING" \| findstr ":5432 :6379 :9324"` | só `127.0.0.1` (nada em `0.0.0.0`); só a 8333 em `0.0.0.0` |
-| F0-DC-06 | `docker compose down` e `docker compose up -d --wait` de novo | sobe sem erro; o bucket já existente não quebra o `s3-init` (idempotente) |
-| F0-DC-07 | Spike S3/SQS (script a definir pelo DevOps/Dev, ex.: `pnpm spike:aws`) | relatório com OK/FALHA para: PUT pré-assinado do **celular** via `S3_PUBLIC_ENDPOINT_URL`; PUT com `Content-Length` maior que o assinado **recusado**; PUT depois da expiração **recusado**; HEAD; GET pré-assinado; DeleteObject; envio e recebimento SQS; visibility timeout; mensagem na DLQ após 3 recebimentos. Qualquer FALHA vira decisão (LocalStack, D2) |
+| # | Comando | Esperado | CI |
+|---|---|---|---|
+| F0-DC-01 | `docker compose up -d --wait` | código 0 (confirmar que `--wait` aceita o `s3-init` que termina com 0; se não aceitar, ajustar o compose) | ⚠️ só parte do compose: o job `test` roda `docker compose up -d --wait elasticmq seaweedfs s3-init` (R1 a R4), com código 0 e o `s3-init` `Exited` (o `--wait` o aceita pelo `depends_on`). O Postgres e o Valkey do CI são services do GitHub, com as mesmas imagens, e não o compose |
+| F0-DC-02 | `docker compose ps -a` | `postgres`, `valkey` e `seaweedfs` `(healthy)`; `elasticmq` `Up`; `s3-init` `Exited (0)` | ⚠️ parcial: o log do mesmo passo mostra o `seaweedfs` e o `elasticmq` `Healthy` e o `s3-init` `Exited`; o Postgres e o Valkey ficam `healthy` pelo `pg_isready` e pelo `valkey-cli ping` dos services. Não há o `ps -a` |
+| F0-DC-03 | `docker compose exec postgres psql -U sussurro -d sussurro -c "select version()"` | PostgreSQL 18.x | ⚠️ equivalente: o `client.int.test.ts` ("o servidor é PostgreSQL 18") passa contra o service `postgres:18.6-bookworm` (R3, R4) |
+| F0-DC-04 | `docker compose exec valkey valkey-cli ping` | `PONG` | ⚠️ equivalente: o health check do service é o `valkey-cli ping`, e o F0-API-02 vê o Valkey `up` |
+| F0-DC-05 | `netstat -ano \| findstr "LISTENING" \| findstr ":5432 :6379 :9324"` | só `127.0.0.1` (nada em `0.0.0.0`); só a 8333 em `0.0.0.0` | ❌ (as portas do runner não dizem nada sobre o PC) |
+| F0-DC-06 | `docker compose down` e `docker compose up -d --wait` de novo | sobe sem erro; o bucket já existente não quebra o `s3-init` (idempotente) | ❌ |
+| F0-DC-07 | Spike S3/SQS (script a definir pelo DevOps/Dev, ex.: `pnpm spike:aws`) | relatório com OK/FALHA para: PUT pré-assinado do **celular** via `S3_PUBLIC_ENDPOINT_URL`; PUT com `Content-Length` maior que o assinado **recusado**; PUT depois da expiração **recusado**; HEAD; GET pré-assinado; DeleteObject; envio e recebimento SQS; visibility timeout; mensagem na DLQ após 3 recebimentos. Qualquer FALHA vira decisão (LocalStack, D2) | ❌ o `pnpm spike:aws` não roda no CI. ⚠️ Os itens têm e2e equivalentes com o SeaweedFS e o ElasticMQ (R3, R4): `Content-Length` (MID-03), URL vencida (MID-07), HEAD e envio ao SQS (MID-08), GET pré-assinado e adulterado (PERM-16), HEAD, leitura por intervalo, cópia e DeleteObjects no worker, visibility timeout e DLQ depois de 3 recebimentos (MID-10; a fila `push`, NOT-12, a partir do PR 4). Falta o PUT **do celular** pelo `S3_PUBLIC_ENDPOINT_URL`: no CI, o endpoint público é o interno |
 
 ### 10.4 Qualidade
-| # | Comando | Esperado |
-|---|---|---|
-| F0-Q-01 | `pnpm format:check` | nenhum arquivo fora do padrão |
-| F0-Q-02 | `pnpm lint` | 0 erros e 0 avisos |
-| F0-Q-03 | `pnpm typecheck` | 0 erros em todos os pacotes |
-| F0-Q-04 | `pnpm test` | todos passam em shared, db, api, worker, ui e mobile; contagem de testes > 0 em cada pacote (o relatório lista o número) |
-| F0-Q-05 | `pnpm test:e2e` (compose no ar) | `health.e2e-spec.ts` e `client.int.test.ts` passam |
-| F0-Q-06 | `pnpm turbo run lint typecheck test` duas vezes | a segunda termina com `FULL TURBO` |
-| F0-Q-07 | Teste-sentinela: quebrar de propósito o `theme.test.ts` (trocar `#0066FF`) e rodar `pnpm --filter @sussurro/ui test` | falha; desfazer em seguida. Prova que o teste trava os tokens |
-| F0-Q-08 | Teste-sentinela: tirar `decoratorMetadata` do `.swcrc` da API e rodar `pnpm --filter @sussurro/api test` | `app.module.spec.ts` falha; desfazer |
-| F0-Q-09 | `pnpm test:cov` | relatórios gerados por pacote (na Fase 0 só mede; os limites valem a partir da Fase 1) |
+| # | Comando | Esperado | CI |
+|---|---|---|---|
+| F0-Q-01 | `pnpm format:check` | nenhum arquivo fora do padrão | ✅ job `quality`: "All matched files use Prettier code style!" (R1 a R4) |
+| F0-Q-02 | `pnpm lint` | 0 erros e 0 avisos | ✅ job `quality`: `turbo run lint typecheck`, 15 tarefas, `eslint --max-warnings 0` (R1 a R4) |
+| F0-Q-03 | `pnpm typecheck` | 0 erros em todos os pacotes | ✅ o mesmo passo do F0-Q-02 |
+| F0-Q-04 | `pnpm test` | todos passam em shared, db, api, worker, ui e mobile; contagem de testes > 0 em cada pacote (o relatório lista o número) | ✅ job `test`, passo "Unitários": os números de R3 estão no começo da §10, todos > 0 |
+| F0-Q-05 | `pnpm test:e2e` (compose no ar) | `health.e2e-spec.ts` e `client.int.test.ts` passam | ✅ job `test` (R3, R4): `health.e2e-spec.ts` (4 testes) e `client.int.test.ts` (2) passam, sem pulados |
+| F0-Q-06 | `pnpm turbo run lint typecheck test` duas vezes | a segunda termina com `FULL TURBO` | ✅ equivalente: em R4, o `lint typecheck` (15 de 15), os unitários (6 de 6) e o `build` (4 de 4) saíram do cache do turbo restaurado do run anterior, com "FULL TURBO" |
+| F0-Q-07 | Teste-sentinela: quebrar de propósito o `theme.test.ts` (trocar `#0066FF`) e rodar `pnpm --filter @sussurro/ui test` | falha; desfazer em seguida. Prova que o teste trava os tokens | ❌ manual |
+| F0-Q-08 | Teste-sentinela: tirar `decoratorMetadata` do `.swcrc` da API e rodar `pnpm --filter @sussurro/api test` | `app.module.spec.ts` falha; desfazer | ❌ manual |
+| F0-Q-09 | `pnpm test:cov` | relatórios gerados por pacote (na Fase 0 só mede; os limites valem a partir da Fase 1) | ❌ o CI não roda o `test:cov` nem publica lcov ou JUnit (§3.5) |
 
 ### 10.5 API e worker
-| # | Comando | Esperado |
-|---|---|---|
-| F0-API-01 | `pnpm dev` e `curl.exe -i http://localhost:3000/health` | `200`, `{"status":"ok"}` |
-| F0-API-02 | `curl.exe -i http://localhost:3000/health/ready` | `200`, `postgres.status = "up"` e `redis.status = "up"` |
-| F0-API-03 | `docker compose stop valkey` e repetir F0-API-02; depois `docker compose start valkey` | `503`, `status "error"`, `redis.status "down"`, em até ~1,5 s; volta a 200 depois do start sem reiniciar a API |
-| F0-API-04 | `docker compose stop postgres` e repetir F0-API-02; depois `start` | `503` com `postgres.status "down"`; recupera sozinho |
-| F0-API-05 | `curl.exe -i http://localhost:3000/v1/nao-existe` | `404`, `{"code":"NOT_FOUND","message":...}`, sem stack |
-| F0-API-06 | Remover `DATABASE_URL` do `.env` e iniciar a API | processo encerra no boot com mensagem citando `DATABASE_URL`; código ≠ 0 |
-| F0-API-07 | Worker: iniciar e Ctrl+C | log de início e de desligamento gracioso; código 0 |
-| F0-API-08 | `curl.exe -i -H "Authorization: Bearer abc" http://localhost:3000/health` e ver o log | o valor do header não aparece no log (redact do pino) |
+| # | Comando | Esperado | CI |
+|---|---|---|---|
+| F0-API-01 | `pnpm dev` e `curl.exe -i http://localhost:3000/health` | `200`, `{"status":"ok"}` | ✅ o e2e "F0-API-01: GET /health → 200" e o unitário (R3, R4). O `pnpm dev` com o `curl`, manual |
+| F0-API-02 | `curl.exe -i http://localhost:3000/health/ready` | `200`, `postgres.status = "up"` e `redis.status = "up"` | ✅ o e2e "F0-API-02: GET /health/ready → 200 com Postgres e Valkey reais up", que só roda fora do PGlite, rodou em R3 e R4 |
+| F0-API-03 | `docker compose stop valkey` e repetir F0-API-02; depois `docker compose start valkey` | `503`, `status "error"`, `redis.status "down"`, em até ~1,5 s; volta a 200 depois do start sem reiniciar a API | ⚠️ só com dublê: os unitários "F0-API-03" (503 com o Redis fora, em `health.controller.spec.ts` e `health.service.spec.ts`). ❌ parar o Valkey de verdade e a volta sem reiniciar a API: manual |
+| F0-API-04 | `docker compose stop postgres` e repetir F0-API-02; depois `start` | `503` com `postgres.status "down"`; recupera sozinho | ⚠️ só com dublê: os unitários "F0-API-04". ❌ parar o Postgres de verdade e a volta sozinha: manual |
+| F0-API-05 | `curl.exe -i http://localhost:3000/v1/nao-existe` | `404`, `{"code":"NOT_FOUND","message":...}`, sem stack | ✅ o e2e e o unitário "F0-API-05" (R3, R4) |
+| F0-API-06 | Remover `DATABASE_URL` do `.env` e iniciar a API | processo encerra no boot com mensagem citando `DATABASE_URL`; código ≠ 0 | ⚠️ o unitário "F0-API-06: sem DATABASE_URL falha citando a variável" (`env.schema.spec.ts`). O processo subindo sem a variável e o código de saída: manual |
+| F0-API-07 | Worker: iniciar e Ctrl+C | log de início e de desligamento gracioso; código 0 | ⚠️ os unitários "F0-API-07: SIGTERM fecha o app e sai com código 0" (API e worker, `shutdown.spec.ts`). O Ctrl+C no terminal: manual |
+| F0-API-08 | `curl.exe -i -H "Authorization: Bearer abc" http://localhost:3000/health` e ver o log | o valor do header não aparece no log (redact do pino) | ✅ o unitário "F0-API-08: o valor de Authorization não aparece no log" (`logger.options.spec.ts`) |
 
 ### 10.6 App (dev build)
-| # | Ação | Esperado |
-|---|---|---|
-| F0-APP-01 | `pnpm --filter @sussurro/mobile exec eas build --profile development --platform android` | build concluído; APK instalado num Android físico |
-| F0-APP-02 | idem `--platform ios` (exige conta Apple paga e `eas device:create`) | build concluído e instalado no iPhone com Modo de Desenvolvedor; **sem conta Apple: pendência registrada e aceita pelo PO** |
-| F0-APP-03 | `pnpm dev:mobile` com o celular na mesma Wi-Fi | o app abre; ícone e splash da marca; Inter e Bricolage carregadas (conferir com o catálogo "Fundamentos") |
-| F0-APP-04 | Abrir a rota do catálogo em dev | todos os componentes base com variantes e estados; aparência conferida contra p-01/p-06 com a sobreposição do protótipo (se implementada) |
-| F0-APP-05 | Build `preview` (ou teste de config): abrir `sussurro://dev/catalog` | redireciona para `/`; `app-config.test.ts` prova que `preview`/`production` não têm cleartext nem ATS liberado |
-| F0-APP-06 | MAN-A11Y-01 resumido no catálogo | botões e abas anunciados com papel e rótulo; fonte do sistema no máximo não corta texto; Reduzir movimento desliga animações |
-| F0-APP-07 | Prints de iOS e Android | anexados ao PR final e a `docs/evidencias/fase-0/` |
+| # | Ação | Esperado | CI |
+|---|---|---|---|
+| F0-APP-01 | `pnpm --filter @sussurro/mobile exec eas build --profile development --platform android` | build concluído; APK instalado num Android físico | ❌ (EAS e aparelho) |
+| F0-APP-02 | idem `--platform ios` (exige conta Apple paga e `eas device:create`) | build concluído e instalado no iPhone com Modo de Desenvolvedor; **sem conta Apple: pendência registrada e aceita pelo PO** | ❌ (EAS e aparelho) |
+| F0-APP-03 | `pnpm dev:mobile` com o celular na mesma Wi-Fi | o app abre; ícone e splash da marca; Inter e Bricolage carregadas (conferir com o catálogo "Fundamentos") | ❌ |
+| F0-APP-04 | Abrir a rota do catálogo em dev | todos os componentes base com variantes e estados; aparência conferida contra p-01/p-06 com a sobreposição do protótipo (se implementada) | ❌ |
+| F0-APP-05 | Build `preview` (ou teste de config): abrir `sussurro://dev/catalog` | redireciona para `/`; `app-config.test.ts` prova que `preview`/`production` não têm cleartext nem ATS liberado | ⚠️ o `app-config.test.ts` ("F0-APP-05") roda nos unitários do app (R3). O build `preview` com o deep link: manual |
+| F0-APP-06 | MAN-A11Y-01 resumido no catálogo | botões e abas anunciados com papel e rótulo; fonte do sistema no máximo não corta texto; Reduzir movimento desliga animações | ❌ (aparelho) |
+| F0-APP-07 | Prints de iOS e Android | anexados ao PR final e a `docs/evidencias/fase-0/` | ❌ |
 
 ### 10.7 CI (depende de D16: repositório no GitHub)
-| # | Ação | Esperado |
-|---|---|---|
-| F0-CI-01 | Abrir PR limpo | jobs `secrets`, `quality`, `test` e `build` verdes em até ~10 min (frio) |
-| F0-CI-02 | PR de teste com um erro de lint | `quality` vermelho (depois descartar o PR) |
-| F0-CI-03 | PR de teste com uma chave AWS falsa num arquivo | `secrets` (gitleaks) vermelho (descartar o PR e o branch) |
-| F0-CI-04 | PR de teste com um teste quebrado | `test` vermelho |
-| F0-CI-05 | Log do job `test` | mostra a execução de `test` **e** de `test:e2e` contra os services |
+| # | Ação | Esperado | CI |
+|---|---|---|---|
+| F0-CI-01 | Abrir PR limpo | jobs `secrets`, `quality`, `test` e `build` verdes em até ~10 min (frio) | ✅ R2 (PR #3 limpo): `secrets`, `quality`, `test` e `build` (e o `infra`) verdes; o mais lento, o `test`, em 6 min. O "frio" não está comprovado: o cache do pnpm e do turbo veio de runs anteriores |
+| F0-CI-02 | PR de teste com um erro de lint | `quality` vermelho (depois descartar o PR) | ❌ o PR de teste não foi aberto, e nenhum run teve o `quality` vermelho |
+| F0-CI-03 | PR de teste com uma chave AWS falsa num arquivo | `secrets` (gitleaks) vermelho (descartar o PR e o branch) | ✅ evidência natural em R1: o `secrets` ficou vermelho num PR com um token fictício sem `// gitleaks:allow` e verde em R2, depois do ajuste. Foi a regra `generic-api-key`, não uma chave AWS: o PR de teste com a chave AWS falsa não foi aberto |
+| F0-CI-04 | PR de teste com um teste quebrado | `test` vermelho | ⚠️ o PR de teste não foi aberto. Evidência natural em R0: o `test` ficou vermelho com um e2e falhando |
+| F0-CI-05 | Log do job `test` | mostra a execução de `test` **e** de `test:e2e` contra os services | ✅ R3: o job `test` roda o `pnpm test` (6 pacotes), o `pnpm db:migrate`, o compose dos emuladores e o `pnpm test:e2e` (db 59, worker 73, api 414), contra os services do Postgres e do Valkey |
 
 ### 10.8 Documentação
+CI: ❌ nos dois (cópia limpa no Windows e leitura do README).
+
 | # | Ação | Esperado |
 |---|---|---|
 | F0-DOC-01 | Numa cópia limpa (`C:\dev\sussurro-check`, sem `node_modules` nem `.env`), seguir só o README | do zero até `pnpm check` verde em até 5 comandos, depois dos pré-requisitos |
 | F0-DOC-02 | README | pré-requisitos do Windows (WSL2, Docker, long paths, autocrlf, pnpm sem corepack), tabela de scripts, como rodar no celular, firewall, links para `docs/equipe` e a seção "Estado das fases" |
+
+### 10.9 O que o CI não cobre (conferido em 2026-10-31)
+
+Fica manual, na máquina do PO, em aparelho ou para depois:
+- **Máquina e app:** F0-ENV-*, F0-GATE-02 a 05 e 07 no Windows, F0-APP-* (menos o `app-config.test.ts`) e F0-DOC-*.
+- **F0-API-03 e F0-API-04:** parar o Valkey e o Postgres de verdade e ver a API voltar sozinha. No CI, só os unitários com dublê.
+- **F0-DC-05** (portas só em `127.0.0.1`) e **F0-DC-06** (`down` e `up` de novo, com o `s3-init` idempotente).
+- **`pnpm spike:aws`** (F0-DC-07): o script não roda no CI. Os itens têm e2e equivalentes, menos o PUT do celular pelo `S3_PUBLIC_ENDPOINT_URL`.
+- **`pnpm --filter @sussurro/worker seed:media`:** precisa do SeaweedFS e do banco com o seed; manual.
+- **FEED-16** (`pnpm --filter @sussurro/api perf:feed`, p95 do feed com o seed volumoso): manual, fora do CI (§5.2).
+- **F0-CI-02 e F0-CI-04:** os PRs negativos de propósito não foram abertos (o F0-CI-04 tem a evidência natural de R0; o F0-CI-03, a de R1).
+- **F0-Q-07 e F0-Q-08** (sentinelas) e **F0-Q-09** (cobertura): o CI não publica lcov nem JUnit e não tem limite de cobertura.
+- **expo-doctor** (F0-GATE-02): roda, mas só informa, e hoje acusa as versões de patch atrás do SDK.
+- ⏳ **Build e smoke das imagens Docker da API e do worker:** pendente: job do PR 4. Hoje o CI só passa o `trivy config` nos Dockerfiles (job `infra`).
+- **NOT-10, NOT-11 e NOT-12** (PR 4): só o CI os roda (não há Docker na máquina do PO). Conferir no log do primeiro run do PR 4 que eles aparecem e passam, sem pulados.
 
 ---
 

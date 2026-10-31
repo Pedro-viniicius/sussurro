@@ -1,6 +1,7 @@
 # ADR 0010: Emulação local de S3 e SQS
 
-- Status: proposto, **decisão do PO** · Data: 2026-10-29
+- Status: ~~proposto, **decisão do PO**~~ Aceita (PO, 2026-10-29: D2, ElasticMQ + SeaweedFS) · Data: 2026-10-29
+- (revisto em 2026-10-31) Status atualizado: o PO decidiu o D2 pela recomendação desta ADR ao aprovar o plano em 2026-10-29 (`PROJETO.md`, topo e §8.1). A "Decisão (recomendada)" abaixo é a que vale; o compose e o CI usam o ElasticMQ e o SeaweedFS (`arquitetura.md` §16, R9).
 
 ## Contexto
 A especificação pede LocalStack ou uma fila local com a mesma interface. Fatos verificados em 2026-10-29:

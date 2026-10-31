@@ -1,6 +1,6 @@
-# Backlog do Sussurro v1 (rascunho)
+# Backlog do Sussurro v1
 
-> Autor: Dev. Data: 2026-10-29. Status: rascunho para o QA detalhar os critérios de aceite e para o PO priorizar.
+> Autor: Dev. Data: 2026-10-29. Status: aprovado pelo PO em 2026-10-29 (`PROJETO.md`, topo). (atualizado em 2026-10-31) As Fases 0 a 7 estão implementadas; o estado de cada uma está no `README.md`, em "Estado das fases".
 > Fontes: `briefing.md` (§8 fases), `arquitetura.md`, ADRs 0001 a 0011, `fase-0-plano.md`.
 
 **Legenda**
@@ -23,7 +23,7 @@
 | E5 Reels | 5 | 30 | 5.3 |
 | E6 Notificações, push e Sentry | 6 | 27 | 6.7 |
 | E7 Terraform e deploy | 7 | 36 | – |
-| EX Pendentes sem fase | ? | 26 | todas |
+| EX Pendentes sem fase | X.1 e X.2 na 3, X.3 e X.4 na 1; X.5 e X.6 fora da v1 | 26 | nenhuma (decididas em 2026-10-29) |
 | **Total (sem EX e sem 1.10)** | | **327** (≈ 650 h de um dev) | |
 
 ---
@@ -641,6 +641,8 @@ Para todo o épico: **CA0** Dado qualquer PR da Fase 7, quando o CI roda, então
 ## EX: Pendentes do PO, sem fase definida
 
 Nenhuma destas entra em fase até o PO decidir. Estimativas para ajudar a decisão.
+
+(atualizado em 2026-10-31) Decididas pela aprovação de 2026-10-29: X.1 e X.2 entraram na Fase 3, X.3 e X.4 na Fase 1, e X.5 (D14) e X.6 (D17) ficaram fora da v1.
 
 | # | História | Tarefas técnicas | Esp. | Pts | Decisão | Observação |
 |---|---|---|---|---|---|---|

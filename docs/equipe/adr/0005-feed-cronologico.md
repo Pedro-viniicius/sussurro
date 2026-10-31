@@ -1,6 +1,7 @@
 # ADR 0005: Feed cronológico por janela (fan-out na leitura)
 
-- Status: proposto · Data: 2026-10-29
+- Status: ~~proposto~~ Aceita (PO, 2026-10-29) · Data: 2026-10-29
+- (revisto em 2026-10-31) Status atualizado: o PO aprovou o plano em 2026-10-29, e as recomendações da §8 do `PROJETO.md` passaram a valer como decididas (`PROJETO.md`, topo).
 
 ## Contexto
 O feed mostra posts das conexões (bidirecional, par ordenado) e dos criadores seguidos, por aba (photo/text/reel), mais novos primeiro, das últimas 72 h (configurável), e termina em "Você está em dia". Não há ranqueamento.

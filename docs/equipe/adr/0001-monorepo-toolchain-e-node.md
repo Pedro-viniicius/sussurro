@@ -1,6 +1,7 @@
 # ADR 0001: Monorepo, toolchain e versão do Node
 
-- Status: proposto · Data: 2026-10-29
+- Status: ~~proposto~~ Aceita (PO, 2026-10-29) · Data: 2026-10-29
+- (revisto em 2026-10-31) Status atualizado: o PO aprovou o plano em 2026-10-29, e as recomendações da §8 do `PROJETO.md` passaram a valer como decididas (`PROJETO.md`, topo).
 
 ## Contexto
 O PO fixou pnpm workspaces + Turborepo, Expo (dev build) e NestJS. A máquina do PO é Windows 11 com Node v26.13.0. O iOS é buildado pelo EAS (sem Mac). Fatos verificados em 2026-10-29:

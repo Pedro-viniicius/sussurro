@@ -1,6 +1,7 @@
 # ADR 0009: Pipeline de mídia (upload direto, processamento, URLs assinadas)
 
-- Status: proposto · Data: 2026-10-29
+- Status: ~~proposto~~ Aceita (PO, 2026-10-29) · Data: 2026-10-29
+- (revisto em 2026-10-31) Status atualizado: o PO aprovou o plano em 2026-10-29, e as recomendações da §8 do `PROJETO.md` passaram a valer como decididas (`PROJETO.md`, topo).
 
 ## Contexto
 O upload vai direto ao S3 por URL pré-assinada. Fotos de celular carregam EXIF com GPS, e o produto promete que "ninguém vê sua localização". A mídia de contas pessoais só deve ser vista por conexões.

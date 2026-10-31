@@ -13,6 +13,7 @@
   - **Revisão 1 do A2 (2026-10-30, revisão final do `seguranca`, MÉDIOS 1 e 2 e BAIXOS 3 a 5; decisão do PO pela opção (a) no MÉDIO 2):** a observação passa a ter prazo deslizante; o app faz um relato por vez, com orçamento de relatos por minuto e uma regra nova de "token novo"; o cartão devido sai antes de qualquer recusa; bloquear e denunciar passam a funcionar pelo cartão enquanto o par vale; o sinal de abuso conta uma vez por casamento e por sentido. Seção "Adendo A2, revisão 1", antes das Fontes; trechos marcados com "→ A2 rev. 1". (revisto em 2026-10-30) Na implementação, o item do `touches` ganhou o `pairExpiresInS` (R1-10, decisão do Tech Lead); o PO aprovou o T46 e, para o próximo PR, "denunciar quem você bloqueou" (R1-PO-1). (revisto em 2026-10-31) A R1-PO-1 foi implementada no PR `feat/denunciar-bloqueado`: a denúncia de conta passa ao `canReportAccount`, e o bloqueio fica no `canBlockOrReport` (A3-8, item 6).
 - **Adendo A3 (2026-10-31, depois do merge do PR #2; para o PR `feat/denunciar-bloqueado`):** fecha os resíduos da revisão final do `seguranca`. O `touches` passa a fazer o mesmo caminho para todo token válido (R22); o servidor entrega o cartão devido de novo por até 10 s, e o app tenta de novo nas falhas de rede, renova os tokens sem parar a tela e mostra o cartão que chega fora do Pronto (R23); o cartão atrasado aparece sem ações, até a pessoa fechar (BAIXO 7); o `pairExpiresInS` fica limitado a 55. Seção "Adendo A3", antes das Fontes; trechos marcados com "→ A3". Muda a Política (decisão do PO, A3-PO-1).
   - **Depois da implementação (revisto em 2026-10-31; A3-8):** a revisão do `seguranca` sobre o A3 no servidor saiu sem veto, com três BAIXOs corrigidos no mesmo PR (decisão do Tech Lead). O `touches` passa a ler as duas contas pelo `findTouchPair`, e a política decide pelo `touchRevealParties` (BAIXO 1). Na reentrega, o rótulo só aceita o hash guardado (BAIXO 2). O texto da Política muda de novo (BAIXO 3). O orçamento do app chega a 56 inícios em 60 s com uma rede que alterna, e o Tech Lead aceitou. Ficam registrados dois riscos do `dados` (`arquitetura.md` §16, R24 e R25). (revisto em 2026-10-31, reconferência do `dados`) O R24 vale para o `findNearby` e o filtro de bloqueio (`hideBlockedFor`), não para o encosto; o R25 inclui o `searchCreators`.
+  - **Decisões do PO (revisto em 2026-10-31):** o "Denunciar" também na tela "Contas bloqueadas", no PR 5; os textos T47 e T48 como propostos; o Bloqueado sem prazo, com o nome e a foto até "Voltar". O texto da Política (A3-PO-1) continua para depois do deploy. Seção "Para o PO" do A3.
 
 ## Contexto
 
@@ -1187,6 +1188,7 @@ O maior ID em uso é o **PROX-57**. Novos: **PROX-58 a PROX-63**. (revisto em 20
 
 - (2026-10-30) **R1-PO-1: aprovada pelo PO, para o próximo PR** (não entra no PR da Fase 4). Vale o desenho abaixo: a consulta do `dados`, a regra na política e o teste.
   - (revisto em 2026-10-31) **Implementada** no PR `feat/denunciar-bloqueado`: `RelationsRepository.hasBlocked` e `AccessPolicyService.canReportAccount`, com o caso PROX-65. A ordem e o porquê estão no A3-8, item 6.
+  - (revisto em 2026-10-31) Decidido pelo PO: o "Denunciar" entra também na tela "Contas bloqueadas", no PR 5 (A3, "Para o PO").
 - (2026-10-30) **T46 aprovado pelo PO:** o aviso do prazo no formulário de denúncia aberto pelo cartão (o `ux-ui` registra o texto no `ux.md` §11.14).
 - **R1-PO-1 (recomendada; não bloqueia o merge): "denunciar quem você bloqueou".**
   - **Hoje**, com ou sem esta revisão, a denúncia exige ver o perfil ou, agora, o par vivo. Quem bloqueia primeiro não denuncia depois: isso já vale para qualquer perfil. No cartão, significa que a denúncia tem de ser enviada até 60 s depois do encosto.
@@ -1424,7 +1426,8 @@ A revisão do `seguranca` sobre o A3 no servidor saiu **sem veto**, com três BA
   - com o Valkey fora, só a denúncia de quem a pessoa bloqueou dá 202. Isso não revela nada: o `GET /me/blocks` já mostra essas contas a ela.
 - **Na tela** (`ux.md` §11.14):
   - o estado Bloqueado do cartão deixa de vencer, porque o ‹Denunciar› dele não depende mais do par;
-  - o nome e a foto ficam até "Voltar". Esse ponto do `seguranca` está com o PO (`ux.md` §11.16, item 4).
+  - o nome e a foto ficam até "Voltar". ~~Esse ponto do `seguranca` está com o PO~~ (revisto em 2026-10-31) Decidido pelo PO: manter como está (`ux.md` §11.16, item 4, opção (a));
+  - (revisto em 2026-10-31) Decidido pelo PO: o "Denunciar" entra também na tela "Contas bloqueadas" (`ux.md` §11.16, item 2), no PR 5 (`frontend`). A API já aceita, pelo passo 2 da ordem acima, sem mudança no servidor.
 
 ### Diagrama: a resposta com o cartão se perde
 
@@ -1484,7 +1487,7 @@ sequenceDiagram
 5. **Erros:** a tela parada por falta de rede (18) ou indisponível (19) pode aparecer até uns 10 s depois da queda, porque o app tenta de novo antes. Sem texto novo.
 6. **Opcional:** o 17 (cartão que venceu) pode seguir a ideia do atrasado (fica sem ações, até fechar) em vez de voltar ao Pronto com o T20. A arquitetura não exige.
 
-Os textos novos (T47 em diante) vão ao PO (A3-PO-2).
+Os textos novos (T47 em diante) vão ao PO (A3-PO-2). (revisto em 2026-10-31) Decidido pelo PO: T47 e T48 aprovados como propostos.
 
 ### Implementação, em ordem
 
@@ -1536,12 +1539,14 @@ O maior ID em uso é o PROX-64. A R1-PO-1, no mesmo PR, também pode pegar núme
 
 ### Para o PO
 
-- **A3-PO-1. Texto da Política (A3-6).** Muda uma promessa: "entregue uma vez" passa a ~~"entregue de novo por até 10 s, só a essa pessoa, se a resposta se perder"~~ (revisto em 2026-10-31, BAIXO 3) "pode ser entregue de novo, só a essa pessoa, a cada novo relato dela nos 10 s seguintes". As exceções ao "logo em seguida" também mudam. **Recomendação: aprovar, e publicar só depois do deploy.**
+- **A3-PO-1. Texto da Política (A3-6).** Muda uma promessa: "entregue uma vez" passa a ~~"entregue de novo por até 10 s, só a essa pessoa, se a resposta se perder"~~ (revisto em 2026-10-31, BAIXO 3) "pode ser entregue de novo, só a essa pessoa, a cada novo relato dela nos 10 s seguintes". As exceções ao "logo em seguida" também mudam. **Recomendação: aprovar, e publicar só depois do deploy.** (revisto em 2026-10-31) Continua com o PO, para depois do deploy.
   - (revisto em 2026-10-31) Vai junto a frase da R1-PO-1: "também se denuncia a conta de quem você bloqueou, sem prazo" (`arquitetura.md` §15, orientação 6). Também só depois do deploy e com a aprovação do PO.
-    - (revisto em 2026-10-31, BAIXO da segunda revisão do `seguranca`; decisão do Tech Lead) A frase depende do "Denunciar" na tela "Contas bloqueadas", que está com o PO (`ux.md` §11.16, item 2; recomendação do `ux-ui`: sim), porque hoje o app só oferece essa denúncia no estado Bloqueado do Conectar:
+    - (revisto em 2026-10-31, BAIXO da segunda revisão do `seguranca`; decisão do Tech Lead) A frase depende do "Denunciar" na tela "Contas bloqueadas", ~~que está com o PO~~ (`ux.md` §11.16, item 2; recomendação do `ux-ui`: sim), porque hoje o app só oferece essa denúncia no estado Bloqueado do Conectar:
       - **se o PO aprovar, e ele estiver no ar:** a frase fica como está, valendo também fora do Conectar. A publicar só depois do deploy e com a aprovação do PO (A3-PO-1);
-      - **senão:** "Depois de bloquear alguém pelo cartão do Conectar, você pode denunciar essa conta sem prazo." A publicar só depois do deploy e com a aprovação do PO (A3-PO-1).
-- **A3-PO-2. Textos novos do app.** O `ux-ui` propõe os do cartão atrasado e do cartão sem Conectar; o PO aprova, como o T46. **Recomendação: aprovar o que o `ux-ui` propuser dentro do A3-4.**
+      - ~~**senão:** "Depois de bloquear alguém pelo cartão do Conectar, você pode denunciar essa conta sem prazo." A publicar só depois do deploy e com a aprovação do PO (A3-PO-1).~~
+    - (revisto em 2026-10-31) **Decidido pelo PO: sim.** O "Denunciar" entra em "Contas bloqueadas" no PR 5 (`frontend`; a API já aceita), e a Política fica com a frase acima, valendo também fora do Conectar. Ela só vai ao site com o PR 5 em produção e com a aprovação do PO (A3-PO-1).
+- **A3-PO-2. Textos novos do app.** O `ux-ui` propõe os do cartão atrasado e do cartão sem Conectar; o PO aprova, como o T46. **Recomendação: aprovar o que o `ux-ui` propuser dentro do A3-4.** (revisto em 2026-10-31) **Decidido pelo PO: T47 e T48 aprovados como propostos** (`ux.md` §11.9).
+- (revisto em 2026-10-31) **Bloqueado sem prazo, com o nome e a foto até "Voltar"** (ponto do `seguranca`; `ux.md` §11.16, item 4; A3-8, item 6). Recomendação do `ux-ui`: manter. **Decidido pelo PO: manter como está.**
 - **Para ciência, sem decisão nova:** o que fica do R23 (A3-7) é menos do que o PO aceitou em A1-1. O cartão atrasado agora fica na tela, mas continua sem bloquear e denunciar pelo cartão. O aviso "Não deu para confirmar" passa de 4 s para 7 s (o `ux-ui` confirma).
 
 ### Consequências (A3)

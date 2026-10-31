@@ -1,0 +1,26 @@
+# Donos de código (B7; docs/equipe/infra.md §8.2). Um PR que mexe nestes caminhos pede a revisão do PO.
+#
+# Limite: em repositório privado, o GitHub só usa este arquivo com o GitHub Pro (ou Team), e só
+# EXIGE a revisão com a proteção da main ligada ("Require review from Code Owners"). É decisão do PO
+# (infra.md §10, P2; PROJETO.md, D16). Até lá, quem segura estes caminhos é a revisão do seguranca.
+
+# Exceções do gitleaks: impressões digitais de falsos positivos e a configuração das regras.
+/.gitleaksignore @Pedro-viniicius
+/.gitleaks.toml @Pedro-viniicius
+
+# CI, Dependabot e este arquivo.
+/.github/ @Pedro-viniicius
+
+# Exceções do pnpm audit (audit.ignore) e a política de supply-chain do pnpm, com o registro delas.
+/pnpm-workspace.yaml @Pedro-viniicius
+/scripts/audit-exceptions.mjs @Pedro-viniicius
+/.npmrc @Pedro-viniicius
+
+# Instruções e permissões dos agentes (o que cada um pode fazer e escrever).
+/CLAUDE.md @Pedro-viniicius
+/.claude/ @Pedro-viniicius
+
+# O que vai para produção: imagens, contexto delas e a infraestrutura.
+/apps/*/Dockerfile @Pedro-viniicius
+/.dockerignore @Pedro-viniicius
+/infra/terraform/ @Pedro-viniicius

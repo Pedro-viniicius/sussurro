@@ -113,7 +113,9 @@ O `.editorconfig` leva `end_of_line = lf`, e o Prettier, `endOfLine: "lf"`. Moti
 
 ---
 
-## 3. docker-compose da Fase 0 (esboço, não criado)
+## 3. docker-compose (criado na Fase 0: `docker-compose.yml`)
+
+> (atualizado em 2026-10-31) O compose existe desde a Fase 0, com a opção B (D2). A fonte da verdade é o `docker-compose.yml` da raiz; os esboços desta seção são a proposta original, e as diferenças estão em "Correções feitas na implementação" (§3.2). O CI usa o mesmo arquivo para os emuladores (jobs `test` e `images`, §4.1).
 
 ### 3.1 Decisão D2: LocalStack × ElasticMQ + SeaweedFS
 
@@ -150,7 +152,7 @@ Regras:
 - Nada de bind mount do código, só volumes nomeados. Bind mount de NTFS para o WSL é lento.
 - Os apps (API, worker, Metro) rodam no host com `pnpm dev`. Dockerfiles para API e worker ficam para a Fase 7 (deploy). Se o Dev os criar antes, o CI passa a fazer `docker build` de verificação.
 - O compose usa `name: sussurro`. `docker compose up -d --wait` sobe tudo e espera os healthchecks.
-- Tags fixadas no compose. O Dependabot (ecossistema `docker-compose`) propõe as atualizações.
+- Tags fixadas no compose. O Dependabot (ecossistema `docker-compose`) propõe as atualizações. (atualizado em 2026-10-31) Desde o PR 4, tag **e** digest do índice multi-arquitetura (`tag@sha256:…`, amd64 e arm64), e o Dependabot atualiza os dois juntos. Os services do `ci.yml` repetem os do Postgres e do Valkey; o Dependabot não os atualiza, e o job `quality` falha se divergirem do compose.
 
 **Correções feitas na implementação (Fase 0, revisão estática sem Docker; validar com F0-DC-01/02/06):**
 - `seaweedfs`: o comando `server` escuta só no IP do container quando não recebe `-ip.bind` (código do SeaweedFS 4.48), e o healthcheck em `127.0.0.1:9333` nunca passaria. O comando ganhou `-ip=seaweedfs -ip.bind=0.0.0.0` (padrão do compose oficial do SeaweedFS), e o healthcheck passou para `wget -q --spider http://127.0.0.1:8333/healthz`, porque o gateway S3 é o último componente a subir.
@@ -310,10 +312,13 @@ flowchart LR
 | Job | Passos | Roda em |
 |---|---|---|
 | `secrets` | `checkout` com `fetch-depth: 0` + **gitleaks CLI** via `docker run ghcr.io/gitleaks/gitleaks:v8.30.1 git --redact -v` | PR e main |
-| `quality` | install → `pnpm turbo run lint typecheck` → `pnpm format:check` → `pnpm --filter mobile exec expo-doctor` (não bloqueante na Fase 0) | PR e main |
+| `quality` | install → `pnpm turbo run lint typecheck` → `pnpm format:check` → `pnpm --filter mobile exec expo-doctor` (não bloqueante na Fase 0). (atualizado em 2026-10-31) Logo depois do install, bloqueantes: `scripts/audit-exceptions.mjs` (§8.3) e a paridade das imagens dos services com o `docker-compose.yml` | PR e main |
 | `test` | services `postgres:18.6-bookworm` e `valkey/valkey:8.1-alpine` com health options → install → `pnpm test` **e** `pnpm test:e2e` (migrations só a partir da Fase 1; filtros pelo nome completo `@sussurro/*`; resolvido na consolidação, A-24) (unidade + integração da API com `/health/ready` contra Postgres e Redis reais; jest-expo no app e no `ui`) | PR e main |
 | `build` | `pnpm turbo run build --filter=!mobile` (API, worker, shared, ui, db) | PR e main |
-| `audit` | `pnpm audit --prod --audit-level high` com `continue-on-error: true` na Fase 0 (só informa) | main (semanal via `schedule`) |
+| `infra` (Fase 7) | `terraform fmt -check`, `init` + `validate` das duas raízes (sem backend e sem credencial), `tflint` e `trivy config`. (atualizado em 2026-10-31, B6) Com o `.terraform.lock.hcl` no Git, o `init` usa `-lockfile=readonly`; sem ele, gera o lock (`providers lock`, 5 plataformas) e o publica no artefato `terraform-lock` | PR e main |
+| `changes` (B5) | Lista os arquivos do PR (`git diff HEAD^1 HEAD` no merge commit) e decide se o `images` roda. Só docs, `*.md`, `infra/` (menos `infra/local/`), testes, app e `ui` (menos os `package.json`), as exceções do gitleaks e do audit e alguns arquivos do `.github/` (`CODEOWNERS`, Dependabot e o modelo de PR) ficam de fora; qualquer outro caminho roda o `images` | PR |
+| `images` (B5) | Em **ARM64 nativo** (`ubuntu-24.04-arm`): build das duas imagens (`--platform linux/arm64`), arquitetura `arm64` e usuário `node` (uid 1000), a migration pela imagem duas vezes (`node dist/migrate.js`), a API com `NODE_ENV=production` respondendo `/health/ready` 200 contra Postgres e Valkey (services), o worker em produção no ar com os emuladores do compose e o `SIGTERM` saindo com 0 nos dois. Raiz só leitura, `/tmp` gravável e init, como no ECS | main e `workflow_dispatch`; no PR, se o `changes` disser que mexe nas imagens |
+| `audit` | `pnpm audit --prod --audit-level high`, que só informa (`continue-on-error` no passo). Desde 2026-10-31 (B8), também o `scripts/audit-exceptions.mjs`, que deixa o job vermelho, inclusive no agendado, quando uma exceção do `audit.ignore` sai do caminho registrado ou passa da data de revisão (§8.3) | main (push), semanal (`schedule`) e `workflow_dispatch` |
 
 Notas:
 - **Por que gitleaks CLI e não `gitleaks-action`:** a action exige licença para contas de organização. A CLI é MIT e não tem essa dependência.
@@ -321,6 +326,8 @@ Notas:
 - SQS e S3 entram no CI na Fase 2: um passo `docker compose up -d --wait elasticmq seaweedfs s3-init`, com o **mesmo compose do dev** (paridade).
 - Tempo esperado: **4 a 6 min** de relógio com cache quente, 8 a 10 min frio (o `pnpm install` do RN pesa). Jobs em paralelo consomem ~12 a 15 min por execução, então os 2.000 min grátis dão ~140 execuções por mês. É suficiente para uma pessoa.
 - Proteção da `main`: em repositório **privado no plano Free** não dá para exigir os checks. Opções: repositório público, GitHub Pro (US$ 4/mês) ou disciplina (PR sempre, merge só com tudo verde). Pergunta ao PO.
+- (atualizado em 2026-10-31, B5) **Imagens em ARM64 nativo, sem QEMU.** Desde 2026-01-29, o `ubuntu-24.04-arm` é runner padrão também em repositório privado: 2 vCPU (4 no público), gasta a franquia do plano como o x64 e, fora dela, custa US$ 0,005/min (o x64 custa US$ 0,006). Emular ARM64 com QEMU num runner x64 multiplica o tempo do `pnpm install` e do `tsc` (mais minutos e risco de timeout), e um smoke em amd64 testaria uma arquitetura que não roda no Fargate (o Node e o `sharp` têm binário por arquitetura). Por isso não há build amd64 nem QEMU: o `images` roda tudo em ARM64.
+- (atualizado em 2026-10-31) **Minutos do Actions** (repositório privado; o Free inclui 2.000/mês; cada job é cobrado em minutos inteiros, arredondados para cima). Os runs dos PRs #1 a #3 gastaram de 9 a 14 min cada: `test` de 3 a 7, `quality` de 2 a 4 e 1 em cada um dos outros. O `images` deve acrescentar de 6 a 10 min (estimativa, a confirmar no primeiro run) e o `changes`, 1 min por run de PR. Um PR que mexe nas imagens passa a gastar ~20 min por push; um só de docs, app ou testes, ~13. Quando a franquia acaba, as Actions param até o mês seguinte se a conta não tiver orçamento para elas (o padrão é US$ 0). Com orçamento, o `images` sai por ~US$ 0,05 por run. Se o consumo apertar, a alternativa mais barata é rodar o `images` só na `main` e no `workflow_dispatch` (uma linha no `if` do job), aceitando descobrir uma imagem quebrada depois do merge.
 
 ### 4.2 Fases futuras
 
@@ -486,8 +493,8 @@ infra/terraform/
 | Componente | Definição |
 |---|---|
 | **ECS API** | Fargate **ARM64 (Graviton, ~20% mais barato)**, 0,5 vCPU/1 GB, `desired = 2` em 2 AZs, autoscaling por CPU (alvo 60%, máximo 4). `stopTimeout` de 30 s com shutdown gracioso. |
-| **ECS worker** | 0,5 vCPU/1 GB, `desired = 1`. Os jobs agendados usam lock no Redis (arquitetura §5). Pode rodar em **FARGATE_SPOT** (economia de ~70%): uma interrupção só devolve as mensagens à fila. Shutdown gracioso no SIGTERM (2 min de aviso no Spot). |
-| **Imagens** | Multi-stage `node:26-slim` (ADR 0001), usuário não-root, `pnpm deploy --prod` por app, `sharp` nativo ARM64. Build ARM64 no CI: runner `ubuntu-24.04-arm` ou buildx/QEMU (definir na Fase 7, conforme a disponibilidade do runner ARM para repositório privado). |
+| **ECS worker** | 0,5 vCPU/1 GB, `desired = 1`. (corrigido em 2026-10-31) Os jobs agendados não usam lock no Redis: cada réplica roda o seu `setInterval`, e as linhas com efeito colateral (contas a apagar, rascunhos, posts apagados, uploads de avatar e recibos do push) são reservadas com `FOR UPDATE SKIP LOCKED` no Postgres; o resto são `DELETE` por prazo, que podem repetir sem efeito (arquitetura §5; `apps/worker/src/jobs`). Pode rodar em **FARGATE_SPOT** (economia de ~70%): uma interrupção só devolve as mensagens à fila. Shutdown gracioso no SIGTERM (2 min de aviso no Spot). |
+| **Imagens** | Multi-stage `node:26-slim` (ADR 0001), usuário não-root, `pnpm deploy --prod` por app, `sharp` nativo ARM64. Build ARM64 no CI: (atualizado em 2026-10-31, B5) runner `ubuntu-24.04-arm`, nativo e sem QEMU, no job `images` (§4.1). O push para o ECR fica para o `deploy.yml`, depois do apply autorizado (§4.2). |
 | **RDS** | PostgreSQL 18, `db.t4g.small` **Multi-AZ**, gp3 20 GB com autoscaling de storage até 100 GB, criptografado, `rds.force_ssl=1`, backups de 14 dias + PITR, `deletion_protection`, Performance Insights (7 dias grátis), senha mestre **gerenciada pelo RDS no Secrets Manager** (`manage_master_user_password`). Um usuário de aplicação sem privilégio de DDL; as migrations usam um usuário próprio. |
 | **ElastiCache** | Valkey 8.x, `cache.t4g.micro`, nó único na v1 (arquitetura §1), TLS em trânsito e AUTH. Réplica no cenário de crescimento. |
 | **S3** | Bucket `sussurro-prod-media`: Block Public Access, SSE-S3, **versioning com expiração de versões antigas em 7 dias** (protege contra deleção acidental e ainda cumpre a promessa de exclusão), lifecycle `incoming/` com 1 dia, abortar multipart incompleto em 1 dia. |
@@ -547,13 +554,72 @@ Conta AWS: usuário root com MFA e sem chaves. Acesso humano via IAM Identity Ce
 | Segredos locais | `.env` no `.gitignore`. Só `.env.example` é versionado. O script de setup gera `JWT_ACCESS_SECRET` localmente. |
 | Segredos em produção | Secrets Manager + IAM por ARN (§6.4/§6.5). Nada de segredo em `tfvars`, task definition em texto, `eas.json` ou `EXPO_PUBLIC_*`. |
 | Segredos no CI | Na Fase 0, nenhum. Depois: `EXPO_TOKEN` e `SENTRY_AUTH_TOKEN` como secrets do GitHub, e AWS **somente via OIDC**. |
-| **gitleaks** | No CI em todo PR e push, com histórico completo (§4.1). Opcional: hook local de pre-commit (`gitleaks git --staged`) se o Dev adotar lefthook/husky. `.gitleaks.toml` com allowlist só para os valores fictícios do `.env.example` (`local`, `sussurro`). |
+| **gitleaks** | No CI em todo PR e push, com histórico completo (§4.1). Opcional: hook local de pre-commit (`gitleaks git --staged`) se o Dev adotar lefthook/husky. `.gitleaks.toml` com allowlist só para os valores fictícios do `.env.example` (`local`, `sussurro`). Falso positivo: §8.1. Donos dos arquivos de exceção: §8.2. |
 | **Dependências** | **Dependabot** (nativo e grátis em repositório privado) com os ecossistemas `npm` (pnpm), `github-actions`, `docker-compose`, `docker` (Fase 7) e `terraform` (Fase 7). Atualizações semanais, **agrupadas** (dev-deps, `@nestjs/*`, `@sentry/*`). **Ignorar majors do `expo`, `react-native` e `react`**: o upgrade de SDK é manual com `expo install --fix`. Atualizações de segurança: imediatas. Renovate fica como alternativa se o Dependabot gerar ruído demais (agrupa melhor no monorepo, mas exige instalar um app). |
-| Cadeia de suprimentos | `--frozen-lockfile`, `minimumReleaseAge` e `onlyBuiltDependencies` no pnpm (§1.2), actions fixadas por SHA, imagens fixadas por tag (digest na Fase 7), `permissions: contents: read` no CI, `pnpm audit` semanal. |
+| Cadeia de suprimentos | `--frozen-lockfile`, `minimumReleaseAge` e `onlyBuiltDependencies` no pnpm (§1.2), actions fixadas por SHA, imagens fixadas por tag (digest na Fase 7), `permissions: contents: read` no CI, `pnpm audit` semanal (exceções: §8.3). |
 | Rede | §6.3: banco e cache sem rota para a internet, SG por origem, TLS no ALB e no CloudFront, `force_ssl` no RDS, TLS no Valkey. |
 | **Backups** | RDS: automáticos de 14 dias + PITR (5 min de RPO). **Snapshot manual antes de toda migration destrutiva.** S3: versioning com 7 dias de versões antigas. State do Terraform: versioning. Credenciais do app: guardadas no EAS + backup do keystore Android com o PO. |
 | **Restore** | Runbook na Fase 7: (1) PITR para uma nova instância `sussurro-restore-<data>`, (2) smoke test com a task de migration em modo `--check`, (3) troca do endpoint via Secrets Manager e redeploy, (4) remoção da instância antiga. **Exercício de restore a cada trimestre**, cronometrado (meta: RTO < 1 h), sempre com autorização do PO porque cria recurso pago por algumas horas. |
 | LGPD | Os backups expiram em 14 dias e as versões S3 antigas em 7, o que precisa constar na política de privacidade (arquitetura §15). Dados ficam em sa-east-1. |
+
+### 8.1 Falso positivo do gitleaks: passo a passo
+
+(atualizado em 2026-10-31, B7) O job `secrets` lê **todo o histórico** do PR. Tirar o valor do arquivo não basta, porque o commit que o trouxe continua no histórico do branch. O caminho padrão é o do PR #3:
+
+1. **Leia o achado no log do `secrets`.** Com `--redact`, o gitleaks mostra a regra (`RuleID`), o arquivo, a linha, o commit e a impressão digital (`Fingerprint`, no formato `commit:arquivo:regra:linha`), sem o valor. No PR #3: regra `generic-api-key`, linha 1513 de `apps/mobile/src/features/connect/useTouch.test.tsx`, commit 8b86e22, com o token fictício do teste PROX-70.
+2. **Decida se é segredo.** Na dúvida, é: revogue ou rotacione primeiro e só depois decida com o PO entre reescrever o histórico e registrar a exceção (cabeçalho do `.gitleaks.toml`). Um valor que já funcionou em algum lugar nunca é falso positivo.
+3. **Tire o literal do arquivo** num commit novo do mesmo PR, de um jeito que não case mais com a regra. Quem muda é o dono da pasta. No PR #3, o `testes` passou o valor para uma constante no topo do arquivo (commit 1d6ec15).
+4. **Registre a impressão digital do commit antigo** no `.gitleaksignore`: uma linha por achado, copiada do log, com um comentário (o commit, o caso de teste e por que o valor é fictício). Quem edita é o `devops`. Só a impressão digital exata: nada de ampliar o allowlist do `.gitleaks.toml` por caminho ou por regra, nem `gitleaks:allow` novo, que fica no código, fora do `CODEOWNERS` (§8.2).
+5. **Revisão do `seguranca`**, obrigatória. Ele confere que o valor é fictício, que o literal saiu do arquivo e que a linha nova cobre só aquele achado. No PR #3, aprovou sem achados e preferiu este caminho a reescrever o histórico, que exigiria force push e a confirmação do PO.
+6. **`secrets` verde** e o registro no PR e no README: o que era, o commit e quem aprovou.
+
+Com o squash merge, o commit antigo não chega à `main`. A linha do `.gitleaksignore` serve ao CI do PR e fica como registro.
+
+### 8.2 Donos dos arquivos de exceção (`CODEOWNERS`)
+
+(atualizado em 2026-10-31, B7) O `.github/CODEOWNERS` põe o PO (`@Pedro-viniicius`) como dono de:
+- `.gitleaksignore`, `.gitleaks.toml` e `.github/` (CI, Dependabot e o próprio `CODEOWNERS`);
+- `pnpm-workspace.yaml`, `scripts/audit-exceptions.mjs` e `.npmrc`: as exceções do audit (§8.3) e a configuração do pnpm;
+- `CLAUDE.md` e `.claude/`: as instruções e as permissões dos agentes;
+- `apps/*/Dockerfile`, `.dockerignore` e `infra/terraform/`: o que vai para produção.
+
+Sem isso, qualquer PR pode acrescentar uma impressão digital ou uma GHSA, e só a revisão do `seguranca` segura.
+
+O arquivo só tem efeito com as duas condições abaixo, e as duas são decisão do PO (§10, P2; `PROJETO.md`, D16; `testes.md`, A-42):
+- **Plano:** em repositório privado, o GitHub só usa o `CODEOWNERS` com o GitHub Pro (US$ 4/mês) ou o Team. No Free, nem o pedido automático de revisão acontece.
+- **Proteção da `main`**, com "Require a pull request before merging" e "Require review from Code Owners" (ou a regra equivalente num ruleset).
+
+Com uma conta só, há um efeito colateral: o GitHub não deixa o autor aprovar o próprio PR. Com o PO como único dono e os PRs abertos pela conta dele, a regra trava os PRs que mexem nesses caminhos, e o merge só sai com o bypass de administrador. Ela vale de verdade nos PRs de outros autores (o Dependabot, uma segunda pessoa). Recomendação: ligar junto com a proteção da `main`, quando houver uma segunda pessoa na equipe (a mesma recomendação da P2). Até lá, quem segura é a revisão do `seguranca` em todo diff.
+
+### 8.3 Exceções do `pnpm audit`
+
+(atualizado em 2026-10-31, B8) Uma exceção só entra quando não há versão corrigida que se possa usar e o caminho vulnerável não chega à API, ao worker nem ao app em produção. Ela tem três partes, mudadas juntas e com o aval do `seguranca`:
+- a GHSA no `audit.ignore` do `pnpm-workspace.yaml` (pnpm 12; o `auditConfig.ignoreGhsas` antigo ainda é lido, mas está obsoleto);
+- o registro em `scripts/audit-exceptions.mjs`: o pacote, a primeira versão corrigida, os únicos pacotes que podem trazer a versão vulnerável e a data de revisão;
+- a linha na tabela abaixo.
+
+O pnpm ignora a GHSA inteira, em qualquer caminho e sem prazo. Por isso o script roda no job `quality`, em todo PR e bloqueando o merge, e no job `audit` (push na `main`, agendado e manual), onde deixa o job vermelho. Ele falha fechado quando:
+- qualquer GHSA aparece no `pnpm-workspace.yaml`, no `package.json` ou no `.npmrc`, em qualquer lugar e grafia (comentário, aspas, estilo fluxo, o `auditConfig` antigo), sem registro no script;
+- a versão vulnerável chega por outro pacote, ou sem pacote conhecido. Pré-versão da versão corrigida (`4.6.6-beta.1`) e versão não numérica (`link:`, `file:`, git) contam como vulneráveis;
+- a data de revisão passa. Depois dela, todo PR fica vermelho até alguém revisar a exceção;
+- não sobra versão vulnerável (a exceção precisa sair);
+- um registro não tem a GHSA no `pnpm-workspace.yaml`.
+
+A conferência contra o próprio `pnpm audit --json` ficou de fora: no pnpm 12.13, o JSON só tira a GHSA ignorada de `advisories` (o `metadata` ainda a conta), não lista as ignoradas e depende da rede.
+
+| GHSA | Pacote e caminho | Por que a exceção | Saída | Revisar até |
+|---|---|---|---|---|
+| GHSA-mrhx-c7xc-m3w5 (CVE-2023-54404; alta, CVSS 4.0 8,2, só disponibilidade) | `zod` 3.25.76, só pelo `@expo/cli` 58.1.17 (`expo` 58.0.21), em 42 caminhos, todos do `apps/mobile` | Afeta todo `zod` anterior ao 4.6.6: a validação de um array sem limite de tamanho acumula um erro por elemento e pode estourar a memória. Não há 3.x corrigido (a última é a 3.25.76, de 2025-07-08), e um override para o 4.x quebraria o `@expo/cli`, que usa a API do zod 3. O `@expo/cli` é a CLI de desenvolvimento do Expo (`expo start`, `export`, `prebuild`): roda na máquina de dev e no EAS Build, com a configuração do próprio projeto, e não entra no bundle do app nem nas imagens. Nossos pacotes usam o `zod` 4.6.7 | O `@expo/cli` 58.1.18, publicado em 2026-10-31 com o `expo` 58.0.22, não depende mais do zod. Com o cooldown de 14 dias, o grupo `expo` do Dependabot deve propor a atualização a partir de 2026-11-14. Depois do merge, tire a GHSA do `audit.ignore` e o registro do script (o próprio script avisa) | 2026-11-30 |
+
+Os outros avisos do `pnpm audit --prod` em 2026-10-31 estão abaixo do nível `high` do CI e não falham o job:
+
+| GHSA | Severidade | Pacote | Corrigido em | De onde vem |
+|---|---|---|---|---|
+| GHSA-gcqx-w48m-w2h4 (prototype poisoning no `mergeObject()`) | baixa | `deepmerge` 4.3.1 | sem correção | `@expo/config` (por `expo`, `@expo/cli`, `@expo/metro-config` e `@expo/prebuild-config`), só no `apps/mobile` |
+| GHSA-g3hv-75wg-m249 (DoS por amplificação de "globparts") | moderada | `minimatch` 10.2.6 | 11.0.1 | o `glob` 13.0.6 dos pacotes `@expo/*` no app; o `eslint` do `packages/config`; e, na API e no worker, `@sentry/nestjs` → `@sentry/node` → `@sentry/bundler-plugins` → `glob` |
+| GHSA-3g3m-2fjr-6pw4 (cancelamento por `AbortSignal` ignorado) | moderada | `glob` 13.0.6 | 14.0.2 | os mesmos caminhos do `minimatch`, menos o `eslint` |
+
+Os dois moderados entram nas imagens pelo SDK do Sentry. O `@sentry/node` só usa o `@sentry/bundler-plugins` nas entradas `bundler-plugin/*` (plugins de esbuild, rollup e vite), que a API e o worker não importam. A correção vem do Sentry, e o grupo `sentry` do Dependabot a traz quando sair.
 
 ---
 
@@ -606,7 +672,7 @@ Outros cortes possíveis, não recomendados: tirar o ElastiCache (o Redis é cen
 | Google Play | — | US$ 25, pagamento único | + teste fechado de 14 dias (§1.5). |
 | EAS | US$ 0 (Free) | US$ 19/mês (Starter: fila prioritária, 3 mil MAU no Update) | Free pode bastar se a fila lenta for tolerável. |
 | Sentry | US$ 0 (Developer) | US$ 26/mês (Team, anual) | O Free (5 mil erros, 1 usuário) estoura rápido com usuários reais. |
-| GitHub | US$ 0 | US$ 0 a 4/mês | US$ 4 se o PO quiser branch protection em repositório privado (Pro). |
+| GitHub | US$ 0 | US$ 0 a 4/mês | US$ 4 se o PO quiser branch protection e `CODEOWNERS` em repositório privado (Pro). Actions: 2.000 min/mês no Free; o job `images` (ARM64) soma de 6 a 10 min por run que mexe nas imagens (§4.1). |
 | Domínio | — | R$ 40/ano (.com.br) ou ~US$ 15 a 20/ano (.app) | |
 | Docker Desktop | US$ 0 | US$ 0 | Dentro do limite de uso gratuito. |
 | LocalStack (só se o PO escolher a opção A) | US$ 39 a 45/mês | idem | Por desenvolvedor. |

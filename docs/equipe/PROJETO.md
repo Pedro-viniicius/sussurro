@@ -6,7 +6,7 @@
 > Bloqueios de ambiente que só o PO resolve (os testes que dependem deles ficam marcados como pendentes até lá):
 > - WSL2 e Docker (sem eles não há Postgres/Redis locais para os testes e2e);
 > - LongPathsEnabled;
-> - contas GitHub, Expo e Apple (CI remoto e dev builds EAS);
+> - conta Apple e credenciais de push (dev builds EAS). (atualizado em 2026-10-31) GitHub e Expo resolvidos: o CI roda desde o PR #1, e o PO criou o projeto do EAS em 2026-10-30;
 > - aparelhos físicos.
 
 ## 1. Resumo
@@ -24,7 +24,7 @@ O app é Expo/React Native. A API e o worker são NestJS (monólito modular). Os
 | Documento | Autor | Conteúdo |
 |---|---|---|
 | `briefing.md` | PO (transcrito) | Especificação original na íntegra e notas do protótipo |
-| `arquitetura.md` + `adr/0001…0011` | 🏛️ Arquiteto | Visão, C4, modelo de dados, feed, mídia, auth, protocolo de proximidade, segurança, riscos |
+| `arquitetura.md` + `adr/0001…0012` | 🏛️ Arquiteto | Visão, C4, modelo de dados, feed, mídia, auth, protocolo de proximidade, segurança, riscos |
 | `ux.md` | 🎨 UX/UI | Personas, jornadas, rotas Expo Router, wireframes, estados, design system (`theme.ts`, componentes, ícones, fontes), acessibilidade |
 | `fase-0-plano.md` | 💻 Dev | Escopo, árvore de pastas, ferramentas, scripts, convenções, tarefas e critério de pronto da Fase 0 |
 | `backlog.md` | 💻 Dev + 🧪 QA | Épicos E0–E7 + EX, histórias, pontos e critérios de aceite Dado/Quando/Então |
@@ -60,7 +60,7 @@ Da especificação:
 - Nearby Interaction/UWB;
 - qualquer recomendação ou ranqueamento.
 
-Recomendação da equipe, pendente de confirmação do PO:
+Recomendação da equipe, confirmada pela aprovação do PO de 2026-10-29 (topo):
 - troca de tipo de conta (D17);
 - itens de demo do protótipo na interface de produção (D15);
 - tema escuro, tablet e paisagem;
@@ -143,6 +143,7 @@ Lista completa: `arquitetura.md` §16, `infra.md` §10 e `testes.md` §11.
 | L1 | Controlador e encarregado (DPO) na Política de Privacidade | Definir antes de publicar nas lojas | Lançamento |
 | L2 | Idade mínima / ECA Digital (Lei 15.211/2025, em vigor desde 17/03/2026: contas de menores de 16 anos em redes sociais vinculadas a um responsável) | Decisão do PO com orientação jurídica. Se exigir idade ou vínculo, muda o cadastro da Fase 1 e a política | Antes do lançamento |
 | L3 | Guarda de registros de acesso (Marco Civil, art. 15) | Hoje não prevista na arquitetura. Se o PO confirmar, entra na Fase 7 (logs de acesso com retenção e acesso restrito) e na política | Fase 7 |
+| R1-PO-1 e A3-PO-2 | Fase 4d: denunciar quem você bloqueou (ADR 0012, Adendo A3; `ux.md` §11.16) | **Decidido pelo PO em 2026-10-31, as três recomendações:** (1) "Denunciar" também na tela "Contas bloqueadas", e a Política fica com a frase da R1-PO-1 que cita a lista; (2) os textos T47 e T48 aprovados como estão; (3) o cartão Bloqueado sem prazo continua com o nome e a foto até "Voltar". O texto da Política (A3-PO-1) sai só depois do deploy | Fase 4d (PR seguinte ao #3) |
 
 L1 a L3 foram levantados em 2026-10-29 pela sessão que publicou o site público (`https://sussurro-site.vercel.app`: `/privacidade`, `/termos`, `/excluir-conta`; código em `C:\dev\sussurro-site`, fora deste repositório). Os textos legais são versão preliminar. **A política descreve o tratamento de dados da arquitetura** (retenção, operadores AWS/Expo/Sentry, remoção de EXIF e GPS, comentários visíveis pelo D11, permissões BLE, @ aposentado): qualquer fase que mude um desses pontos precisa atualizar `src/privacidade.html` daquele projeto.
 
@@ -156,9 +157,9 @@ Divergências visuais do protótipo, com recomendação do UX (`ux.md` §9):
 
 - [ ] PowerShell **como administrador**: `wsl --install --no-distribution`, ativar o LongPathsEnabled e reiniciar (`infra.md` §1.1).
 - [ ] Criar `%UserProfile%\.wslconfig` com `memory=3GB`, abrir o Docker Desktop e aceitar os termos.
-- [ ] Instalar o pnpm: `npm i -g pnpm@12.13.0`. Configurar o Git: `git config --global core.longpaths true` e `git config --global core.autocrlf false`.
+- [x] Instalar o pnpm: `npm i -g pnpm@12.13.0`. Configurar o Git: `git config --global core.longpaths true` e `git config --global core.autocrlf false`. (conferido em 2026-10-31)
 - [ ] Firewall: liberar as portas 3000, 8081 e 8333 na rede Privada e marcar o Wi-Fi de casa como Privada (para o celular alcançar o PC).
-- [ ] Contas: **GitHub**, **Expo** (grátis) e **Apple Developer** (US$ 99/ano; pode demorar dias para aprovar). O Sentry pode esperar (D4).
+- [ ] Contas: **Apple Developer** (US$ 99/ano; pode demorar dias para aprovar). O Sentry pode esperar (D4). (atualizado em 2026-10-31) **GitHub** e **Expo** feitos: o CI roda desde o PR #1, e o projeto do EAS existe desde 2026-10-30.
 - [ ] Informar os aparelhos disponíveis (iPhones e Androids, com versões de SO).
 
 ## 10. Definition of Ready e Definition of Done
@@ -197,6 +198,8 @@ Resumo de `testes.md` §9. A versão completa e a tabela por fase estão lá.
 - **CI**: o job `test` roda `pnpm test` e `pnpm test:e2e`; as migrations entram só a partir da Fase 1 (A-24).
 
 ### Pendências técnicas para o Arquiteto (antes da Fase 1/2, não bloqueiam a Fase 0)
+
+(atualizado em 2026-10-31) Todas resolvidas nas Fases 1 a 4, conforme conferido pelo `arquiteto` no inventário de fechamento (por exemplo, A-28 em `packages/shared/src/auth.ts`).
 
 - A-11: o CTE do feed, os contadores e as listas devem filtrar `users.deleted_at`.
 - A-12: o hard delete precisa recalcular `like_count`/`comment_count`.

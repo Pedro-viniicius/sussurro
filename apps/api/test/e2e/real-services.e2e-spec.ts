@@ -15,12 +15,17 @@
 // - (ADR 0012, Adendo A3; PROX-66 e PROX-67) idem para o `refused` do `CLAIM_TOUCH_SCRIPT` (o
 //   cartão nulo, sem gravar nada) e a reentrega do `TAKE_OWED_CARD_SCRIPT` (a marca `!`, o prazo de
 //   até 10 s, o ocupado só na 1ª entrega, sem `DEL`, inclusive no valor ilegível).
-import { follows, refreshTokens } from '@sussurro/db';
+// - (Fase 6; NOT-10) só com várias conexões os follows de pessoas diferentes ao mesmo criador
+//   disputam a linha do dia da notificação de seguidores (o `INSERT … ON CONFLICT DO UPDATE` do
+//   `upsertFollowers`). A trava do par não os serializa: cada par tem a sua.
+import { eq, follows, notifications, refreshTokens, sql, type Transaction } from '@sussurro/db';
 import { createUser, isPgliteMode } from '@sussurro/db/testing';
+import { followersBucketKey } from '@sussurro/shared';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { RedisCounterCache } from '../../src/common/cache/counter-cache.js';
+import { rowsOf } from '../../src/common/db/rows.js';
 import { RedisRateLimitStore } from '../../src/common/rate-limit/rate-limit.store.js';
 import {
   generateProximityToken,
@@ -163,6 +168,155 @@ describe.skipIf(isPgliteMode())('seguir e bloquear ao mesmo tempo (Postgres real
       expect(await t.database.db.select().from(follows)).toHaveLength(0);
       expect(creator.user.handle).toBe('criadora');
     }
+  });
+});
+
+describe.skipIf(isPgliteMode())('seguidores do dia em paralelo (Postgres real, NOT-10)', () => {
+  /**
+   * Follows que chegam juntos. Abaixo do pool de 10 do banco de teste: cada follow segura uma
+   * conexão (a transação dele) e o teste usa mais duas (a barreira e a consulta ao
+   * `pg_stat_activity`). Com o pool cheio, o `connectionTimeoutMillis` de 1 s viraria 500.
+   */
+  const FANS = 6;
+  let t: TestApp;
+
+  beforeAll(async () => {
+    t = await createTestApp();
+  });
+
+  afterAll(async () => {
+    await t.close();
+  });
+
+  beforeEach(async () => {
+    await t.reset();
+  });
+
+  /** Conexões deste banco de teste paradas numa trava (a barreira é a única que as prende). */
+  async function waitingOnLock(): Promise<number> {
+    const result = await t.database.db.execute(sql`
+      select count(*)::int as waiting
+        from pg_stat_activity
+       where datname = current_database()
+         and backend_type = 'client backend'
+         and wait_event_type = 'Lock'`);
+    return rowsOf<{ waiting: number }>(result)[0]?.waiting ?? 0;
+  }
+
+  async function creatorAndFans() {
+    const creator = await directUser(t.app, t.database.db, { accountType: 'creator' });
+    const fans: { headers: Record<string, string> }[] = [];
+    for (let index = 0; index < FANS; index++) {
+      fans.push(await directUser(t.app, t.database.db));
+    }
+    return { creator, fans };
+  }
+
+  /**
+   * Os follows soltos juntos sobre a mesma linha do dia, sem depender da sorte: uma transação do
+   * teste (a barreira) segura a linha com `hold`; cada follow corre na transação dele, numa
+   * conexão própria do pool, e para no upsert esperando a barreira. Quando o `pg_stat_activity`
+   * mostra os `FANS` parados numa trava, a barreira é desfeita (ROLLBACK, nada fica) e todos
+   * disputam a linha ao mesmo tempo.
+   */
+  async function followTogether(
+    handle: string,
+    fans: readonly { headers: Record<string, string> }[],
+    hold: (tx: Transaction) => Promise<unknown>,
+  ) {
+    const release = new Error('barreira desfeita de propósito (ROLLBACK)');
+    const held = Promise.withResolvers<undefined>();
+    const barrier = t.database.db.transaction(async (tx) => {
+      await hold(tx);
+      held.resolve(undefined);
+      await expect
+        .poll(waitingOnLock, {
+          timeout: 10_000,
+          interval: 25,
+          message: `os ${String(fans.length)} follows parados no upsert, cada um na sua conexão`,
+        })
+        .toBe(fans.length);
+      throw release;
+    });
+    await Promise.race([held.promise, barrier]);
+    const requests = Promise.all(
+      fans.map((fan) => t.http.put(`/v1/creators/${handle}/follow`).set(fan.headers)),
+    );
+    const [barrierOutcome, responses] = await Promise.allSettled([barrier, requests]);
+    if (barrierOutcome.status === 'fulfilled') {
+      throw new Error('a barreira terminou sem ROLLBACK');
+    }
+    if (barrierOutcome.reason !== release) {
+      throw barrierOutcome.reason;
+    }
+    if (responses.status === 'rejected') {
+      throw responses.reason;
+    }
+    return responses.value.map((response) => response.status);
+  }
+
+  it('[NOT-10] [NOT-01] 6 follows ao mesmo criador, presos na linha do dia ainda não gravada e soltos juntos, cada um na sua conexão do pool: todos 200, 1 linha com count 6 e actor_id nulo, nenhum erro de unicidade e 1 push só', async () => {
+    const { creator, fans } = await creatorAndFans();
+    const now = t.clock.now();
+    const bucketKey = followersBucketKey(now);
+
+    const statuses = await followTogether(creator.user.handle, fans, (tx) =>
+      tx.insert(notifications).values({
+        recipientId: creator.user.id,
+        type: 'new_followers',
+        bucketKey,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+
+    // Um 23505 (unicidade) no upsert viraria 500 e desfaria o follow.
+    expect(statuses).toEqual(Array.from({ length: FANS }, () => 200));
+    expect(await t.database.db.select().from(follows)).toHaveLength(FANS);
+    const rows = await t.database.db.select().from(notifications);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      recipientId: creator.user.id,
+      type: 'new_followers',
+      bucketKey,
+      count: FANS,
+      actorId: null,
+      readAt: null,
+    });
+    // `becameUnread` só para quem criou a linha: os outros a encontram não lida.
+    expect(t.push.sent).toEqual([{ type: 'notification', notificationId: rows[0]!.id }]);
+  });
+
+  it('[NOT-10] [NOT-06] linha do dia já lida (count 2), 6 follows presos nela e soltos juntos: count 8, volta a não lida e 1 push só (o de quem a reabriu)', async () => {
+    const { creator, fans } = await creatorAndFans();
+    const now = t.clock.now();
+    const bucketKey = followersBucketKey(now);
+    const [existing] = await t.database.db
+      .insert(notifications)
+      .values({
+        recipientId: creator.user.id,
+        type: 'new_followers',
+        count: 2,
+        bucketKey,
+        readAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: notifications.id });
+
+    const statuses = await followTogether(creator.user.handle, fans, (tx) =>
+      tx
+        .select({ id: notifications.id })
+        .from(notifications)
+        .where(eq(notifications.id, existing!.id))
+        .for('update'),
+    );
+
+    expect(statuses).toEqual(Array.from({ length: FANS }, () => 200));
+    const rows = await t.database.db.select().from(notifications);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: existing!.id, count: 2 + FANS, readAt: null });
+    expect(t.push.sent).toEqual([{ type: 'notification', notificationId: existing!.id }]);
   });
 });
 
