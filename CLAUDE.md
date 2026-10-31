@@ -4,7 +4,7 @@ Rede social sem algoritmo: app Expo/React Native e API + worker NestJS, em monor
 
 > Em 2026-10-29 o PO aprovou o plano e autorizou executar as fases em sequência, sem parada intermediária para aprovação (`docs/equipe/PROJETO.md`, topo). As Fases 0 a 7 foram implementadas em 2026-10-30.
 > - **Estado atual:** a seção "Estado das fases" do `README.md`.
-> - **Git:** os PRs #1 (Fases 0 a 7) e #2 (encostar, ADR 0012) já estão na `main`. A branch `feat/denunciar-bloqueado` (Fase 4d: R1-PO-1 e adendo A3) tem PR aberto para a `main` (remoto `origin` = `Pedro-viniicius/sussurro`). Commit e push só com pedido explícito do PO.
+> - **Git:** os PRs #1 (Fases 0 a 7) e #2 (encostar, ADR 0012) já estão na `main`. A branch `feat/denunciar-bloqueado` (Fase 4d: R1-PO-1 e adendo A3) tem o PR #3 aberto para a `main` (remoto `origin` = `Pedro-viniicius/sussurro`). Commit e push só com pedido explícito do PO.
 > - **Ambiente:** Docker/WSL2 ainda não estão instalados, então `pnpm test:e2e` só roda no modo PGlite (`TEST_DB=pglite`), de forma direcionada.
 > - **Abra o Claude Code em `C:\dev\sussurro`**: só assim este arquivo e os agentes de `.claude/agents/` são carregados.
 
