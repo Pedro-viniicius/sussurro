@@ -1066,6 +1066,8 @@ Resumo: a paleta do PO **passa** para texto principal e ações (blue/white 4,83
 > **O que continua valendo:** o QR (meu código, ler o código e o fluxo cruzado do D7, §4.10), a folha do pedido recebido (§4.11, com os textos da §11.9), o p13 (Aguardando), o p14 (Conectados), o p22 (criador) e os estados Sem internet, Indisponível, Muitas tentativas e E-mail não confirmado.
 >
 > **Aprovado pelo PO em 2026-10-30**, com todas as recomendações: a ADR 0012 (`adr/0012-conectar-encostando.md`) e esta seção, com as decisões da §11.10 e os textos T1 a T42 da §11.9. As premissas técnicas da §11.2 foram confirmadas ou corrigidas pela ADR 0012 (§9 e §10), e as correções já estão incorporadas aqui.
+>
+> **Bloquear e denunciar pelo cartão** (decisão do PO de 2026-10-30; ADR 0012, Adendo A2, revisão 1): §11.14. O texto novo T46 foi aprovado pelo PO em 2026-10-30, exatamente como proposto.
 
 ### 11.1 Princípios
 1. **Só quem encosta aparece.** Antes do "encostado" confirmado pelos dois aparelhos, a tela não mostra o nome, o @, a foto, a quantidade de pessoas nem a distância de ninguém.
@@ -1160,23 +1162,23 @@ De qualquer estado, um erro de rede ou do servidor leva aos estados 18 a 20. O Q
 | # | Estado | Quando | O que a pessoa vê | Ações | Leitor de tela | Vibração (opcional) |
 |---|---|---|---|---|---|---|
 | 1 | Verificando | abre a aba; confere a permissão, o Bluetooth e o próprio token (no Android, a varredura começa uns 500 ms depois, P7) | título, introdução e seletor; a área do estado fica vazia, com Spinner 20 grey só depois de 300 ms | — | — | — |
-| 2 | Explicação do Bluetooth | permissão nunca pedida | EmptyState `bluetooth` (T23; no Android ≤ 11, também o T24) | [Continuar] → pedido do sistema · ‹Usar QR code› | título e texto | — |
+| 2 | Explicação do Bluetooth | permissão nunca pedida | EmptyState `bluetooth` (T44; no Android ≤ 11, também o T24) | [Continuar] → pedido do sistema · ‹Usar QR code› | título e texto | — |
 | 3 | Bluetooth negado | negado, ou o sistema não pergunta mais | EmptyState `bluetooth-off` (T25) | [Abrir Ajustes] ‹Usar QR code›; na volta dos Ajustes, confere de novo | título e texto | — |
-| 4 | Bluetooth desligado | rádio desligado | EmptyState `bluetooth-off` (T26) | iOS [Abrir Ajustes] · Android [Ligar Bluetooth] · ‹Usar QR code›; ligou → Pronto sozinho | título e texto | — |
+| 4 | Bluetooth desligado | rádio desligado | EmptyState `bluetooth-off` (T26) | iOS [Abrir Ajustes] · Android [Ligar Bluetooth] · ‹Usar QR code›; ligou → Pronto sozinho, com o foco no título do Pronto (motivo `bluetooth`, §11.8) | título e texto | — |
 | 4b | Localização desligada (opcional) | só Android ≤ 11, que exige a localização ligada para varrer; depende de o módulo nativo informar isso | EmptyState `bluetooth-off` (T27) | [Abrir Ajustes] ‹Usar QR code› | título e texto | — |
 | 5 | Sem suporte | sem BLE, sem o módulo nativo ou sem conseguir anunciar (P6) | a aba **abre direto no QR**, com a faixa T30; tocar em "Encostar" mostra o EmptyState `bluetooth-off` (T28, T29) | [Usar QR code] | título e texto | — |
-| 6 | Pronto | tudo certo, com a permissão já dada; anuncia e varre (P7) | ilustração em demonstração (2 ciclos e para, §11.7), T4, T5 e a nota T6 | seletor | foco normal | — |
+| 6 | Pronto | tudo certo, com a permissão já dada; anuncia e varre (P7) | ilustração em demonstração (2 ciclos e para, §11.7), T4, T5 e a nota T43 | seletor | foco normal | — |
 | 7 | Aproximando | sinal forte, abaixo do limiar (P2) | ilustração na pose "quase", T7 e T8. **Nenhum dado de ninguém** | — | A1, uma vez por aproximação e no máximo a cada 5 s | — |
 | 8 | Confirmando | este celular chegou ao limiar; espera o servidor confirmar o outro lado (P3; o normal é de 1 a 3 s) | ilustração "encostados" com o selo, T9 e Spinner 16 + T10 ("segurem": ainda não é hora de afastar) | — | A2 | — |
-| 9 | Não deu para confirmar | 4 s sem confirmação (P3, P10, sem dizer o motivo) | volta ao Pronto com o T11 no lugar do T5 por 6 s. O app continua relatando até 8 s depois do primeiro encosto: se o casamento chegar nesse intervalo, o cartão abre (9 → 11) | — | T11 | — |
+| 9 | Não deu para confirmar | 4 s sem confirmação (P3, P10, sem dizer o motivo). **Inclui o teto de pessoas novas** (10 por hora e 30 por dia, A2-1; o servidor só não confirma, sem mensagem especial e sem diferença para o app). Pode se repetir quando as pessoas tentam de novo poucos segundos depois de uma tentativa em que os dois celulares se viram (A2 rev. 1; sem texto novo, §11.14) | volta ao Pronto com o T11 no lugar do T5 por 6 s. O app continua relatando até 8 s depois do primeiro encosto: se o casamento chegar nesse intervalo, o cartão abre (9 → 11) | — | T11 | — |
 | 10 | Nada detectado | P9 | Pronto + o bloco "Não está dando certo?" (T12, T13) com [Usar QR code]; a varredura continua | [Usar QR code] | A6, uma vez | — |
-| 11 | Encostado | o servidor confirmou os dois lados (P1), inclusive até 8 s depois do encosto, já no estado 9 (P3) | cartão: Avatar 72, nome, @, T15, [Conectar com Caio] e ‹Cancelar›. Sem a introdução e sem o seletor. É aqui, e não no Confirmando, que a pessoa pode afastar os celulares | Conectar · Cancelar → Pronto | foco no nome; A3 | impacto médio, 1 vez: o "pode afastar" |
-| 12 | Encostado, já conectados | o servidor diz que já são conexão | cartão com T18 e (Voltar) | Voltar → Pronto | foco no nome; A4 | impacto médio, 1 vez |
+| 11 | Encostado | o servidor confirmou os dois lados (P1), inclusive até 8 s depois do encosto, já no estado 9 (P3) | cartão: Avatar 72, nome, @, T15, [Conectar com Caio] e ‹Cancelar›. Sem a introdução e sem o seletor. É aqui, e não no Confirmando, que a pessoa pode afastar os celulares | Conectar · Cancelar → Pronto · ‹Denunciar› ‹Bloquear› (§11.14) | foco no nome; A3 | impacto médio, 1 vez: o "pode afastar" |
+| 12 | Encostado, já conectados | o servidor diz que já são conexão (no casamento ou no 409 `ALREADY_CONNECTED` ao tocar em Conectar, sem Toast) | cartão com T18 e (Voltar). **Sem prazo** (2026-10-30, §11.13): não vence aos 55 s, não mostra o T20 e não mantém a tela acesa | Voltar → Pronto · ‹Denunciar› ‹Bloquear›, sem prazo (§11.14) | foco no nome; A4 | impacto médio, 1 vez |
 | 13 | Aguardando (p13) | tocou em Conectar e o outro ainda não tocou | p13 sem mudança | (Cancelar pedido) | "Pedido enviado" | — |
-| 14 | Pedido recebido | o outro tocou em Conectar primeiro | **no próprio cartão**, se ele é da mesma pessoa; senão, a folha da §4.11. Daqui em diante vale o prazo do pedido (120 s), não o do cartão (P4) | [Aceitar] (Recusar) · "Expira em 1:45" | foco no título; A5 | impacto leve, 1 vez |
+| 14 | Pedido recebido | o outro tocou em Conectar primeiro | **no próprio cartão**, se ele é da mesma pessoa; senão, a folha da §4.11. Daqui em diante vale o prazo do pedido (120 s), não o do cartão (P4) | [Aceitar] (Recusar) · "Expira em 1:45" · ‹Denunciar› ‹Bloquear› até o `expiresAt` do cartão (§11.14) | foco no título; A5 | impacto leve, 1 vez |
 | 15 | Conectados (p14) | aceito, ou os dois tocaram em Conectar | p14 sem mudança | [Ir para o início] ‹Conectar outra pessoa› → Pronto | "Vocês estão conectados" | sucesso, 1 vez |
 | 16 | Não confirmado | recusa, expiração (120 s) ou cancelamento, sem diferença | o da §5.2 (tracejado cinza), com o T21 | [Tentar de novo] → Pronto · ‹Voltar› | "Pedido recusado ou expirado" | — |
-| 17 | Cartão venceu | 55 s no Encostado sem tocar em nada (P4; 60 s no servidor), ou o pedido recusado por token vencido. Não vale para o cartão que já virou pedido (estado 14) | volta ao Pronto + Toast T20 | — | T20 | — |
+| 17 | Cartão venceu | 55 s no Encostado sem tocar em nada (P4; 60 s no servidor), ou o pedido recusado por token vencido. Não vale para o cartão que já virou pedido (estado 14) nem para o de quem já é conexão (estado 12) | volta ao Pronto + Toast T20. **Cartão que virou pedido e o pedido vence (120 s):** o cartão fecha do mesmo jeito, com o Toast "O pedido de {primeiro nome} expirou." (texto já existente, §4.11) | foco no título do Pronto (§11.8) | T20 ou o "expirou" (o próprio Toast anuncia, depois do foco e em fila; sem anúncio extra) | — |
 | 18 | Sem internet | erro de rede ao pedir o token ou durante o Confirmando | EmptyState `wifi-off` da §5.2, sem mudança | [Tentar de novo] | título e texto | — |
 | 19 | Servidor indisponível | 503/5xx, Redis fora (fail-closed) | EmptyState `circle-alert` da §5.2, sem mudança | [Tentar de novo] | título e texto | — |
 | 20 | Muitas tentativas | 429 | EmptyState `clock` da §5.2, com o T22 | [Tentar de novo] | título e texto | — |
@@ -1184,13 +1186,15 @@ De qualquer estado, um erro de rede ou do servidor leva aos estados 18 a 20. O Q
 
 Regras gerais:
 - **O cartão não some quando os celulares se afastam.** Ele fica até alguém tocar em Conectar, Cancelar ou Recusar, ou até vencer aos 55 s (P4). Virou pedido, vale o prazo do pedido (120 s). O app deixa de tirar a pessoa da tela quando o anúncio dela para (o "saiu de perto" de hoje).
+- **R21 e o A2 da ADR 0012 (2026-10-30, aceitos pelo PO), sem tela nem texto novo.** (1) **Teto de pessoas novas:** 10 por hora e 30 por dia, por conta. Acima disso o encosto só não confirma: a pessoa vê o estado 9 (T11) e, depois de 2 "não deu" seguidos, a dica do QR (estado 10). Não há mensagem especial, para o teto não virar uma pista sobre o outro lado. (2) **Revelação simétrica garantida:** quem viu o cartão de alguém tem o próprio cartão guardado para essa pessoa (até 60 s), mesmo que ela bloqueie logo depois. Então o cartão do estado 11 pode aparecer de uma pessoa que já bloqueou quem o vê; o app não trata esse caso de forma diferente. (3) **Bloquear e denunciar pelo cartão** (A2 rev. 1, decisão do PO de 2026-10-30): enquanto o par vale, quem vê o cartão pode bloquear e denunciar a outra pessoa, mesmo desconhecida (§11.14).
 - **Quando afastar.** "Segurem" vale até o cartão (estados 7 a 9); o "pode afastar" é o cartão, com a vibração. Quem afasta antes de o outro celular detectar o encosto impede o casamento (ADR 0012 §9).
 - **Pedido recebido no cartão.** Quando o cartão de Helena está na tela e chega o pedido de Helena, o cartão vira o pedido (§11.5). O botão principal fica no mesmo lugar e com o mesmo estilo: um toque durante a troca conecta do mesmo jeito (P5). A folha da §4.11 só aparece quando o cartão não é dessa pessoa: o cartão já fechou, a pessoa está no QR, ou o pedido chegou por push.
-- **Erro de rede no toque em Conectar ou Aceitar:** Toast com o `OFFLINE_MESSAGE`, e o cartão continua, para tentar de novo enquanto valer. Erro de rede ao abrir a aba ou no Confirmando: estado 18.
+- **Erro de rede no toque em Conectar:** Toast com o `OFFLINE_MESSAGE`, e o cartão continua, para tentar de novo enquanto valer. **No Aceitar** (cartão ou folha), o `OFFLINE_MESSAGE` vai na linha de erro acima do prazo, como na folha (ajustado em 2026-10-30, §11.13). Erro de rede ao abrir a aba ou no Confirmando: estado 18.
 - **O seletor** aparece nos estados 6 a 10 e no QR. Some do cartão em diante (estados 11 a 17), para a pessoa se concentrar na decisão.
 - **Background:** pausa e volta no mesmo estado (4.3 CA3). Se o cartão venceu no meio-tempo, cai no estado 17. **Sair da aba** para tudo, e a volta começa no Verificando.
-- **Tela acesa:** no Pronto, só nos primeiros 2 min sem encostar (depois o sistema pode apagar a tela; ao voltar, a tela recomeça no Pronto); sempre no Confirmando, no Encostado e no Aguardando.
-- `testID` sugeridos: `conectar-pronto`, `conectar-aproximando`, `conectar-confirmando`, `conectar-nao-deu`, `conectar-dica-qr`, `conectar-encostado`, `conectar-encostado-conectados`, `conectar-pedido-cartao`, `conectar-sem-suporte`, `bt-localizacao`. Continuam: `conectar-aguardando`, `conectar-nao-confirmou`, `conectar-conectados`, `conectar-qr`, `bt-explicacao`, `bt-negado`, `bt-desligado` e os de erro.
+- **Tela acesa:** no Pronto, só nos primeiros 2 min sem encostar (depois o sistema pode apagar a tela; ao voltar, a tela recomeça no Pronto); sempre no Confirmando, no Encostado (menos o estado 12, que não tem prazo) e no Aguardando.
+- **Saída do Aproximando** (precisado em 2026-10-30, §11.13): uns 2 s depois que o detector deixa de ver o "quase". Como o detector usa uma janela de 1,5 s, na prática o "Quase lá" some até uns 3,5 s depois do último anúncio. Fica assim: o objetivo é não piscar.
+- `testID` sugeridos: `conectar-pronto`, `conectar-aproximando`, `conectar-confirmando`, `conectar-nao-deu`, `conectar-dica-qr`, `conectar-encostado`, `conectar-encostado-conectados`, `conectar-pedido-cartao`, `conectar-sem-suporte`, `bt-localizacao`. Continuam: `conectar-aguardando`, `conectar-nao-confirmou`, `conectar-conectados`, `conectar-qr`, `bt-explicacao`, `bt-negado`, `bt-desligado` e os de erro. Novos (§11.14): `cartao-denunciar`, `cartao-bloquear`, `conectar-encostado-bloqueado`, `conectar-denunciar` e `conectar-denunciar-erro`.
 
 ### 11.5 Wireframes
 
@@ -1221,9 +1225,11 @@ Convenções da §4: `[Botão]` primário, `(Botão)` secundário, `‹link›`,
 │  Juntem as partes de cima dos    │
 │  celulares e segurem por um      │
 │  instante.                       │
-│  (cadeado 16) Só quem encosta    │ caption grey (T6)
-│  aparece. Quem está por perto    │
-│  não vê seu nome nem sua foto.   │
+│  (cadeado 16) Seu nome e sua     │ caption grey (T43, aprovado em
+│  foto só aparecem quando os dois │ 2026-10-30): uns 4 a 5 linhas, a
+│  celulares percebem o encosto, e │ tela continua em ScrollView
+│  você vê a outra pessoa na mesma │
+│  hora.                           │
 └──────────────────────────────────┘
 ```
 
@@ -1239,10 +1245,10 @@ APROXIMANDO                           CONFIRMANDO
 │             │  ▬  │              │  │             └─────┘              │
 │             │     │              │  │  Encostou!                       │ titleMd (T9)
 │             └─────┘              │  │  ◌ Segurem mais um instante…     │ Spinner 16 + bodySm grey (T10)
-│  Quase lá                        │  │  (nota T6)                       │
+│  Quase lá                        │  │  (nota T43)                      │
 │  Encostem os celulares e         │
 │  segurem por um instante.        │ vão de 8 pt; selo do logo a 40%
-│  (nota T6)                       │ nenhum nome, foto ou @
+│  (nota T43)                      │ nenhum nome, foto ou @
 ```
 
 **Encostado (11)**, sem a introdução e sem o seletor:
@@ -1260,7 +1266,7 @@ APROXIMANDO                           CONFIRMANDO
 │            ‹Cancelar›            │ Button link sm, hitSlop 5 (T17)
 └──────────────────────────────────┘
 ```
-Medidas: coluna centralizada, paddingTop 32, gap 8 entre avatar, nome, @ e verificação; botões a 24 da verificação; o link a 12 do botão. Entrada: fade de 200 ms (sem fade com Reduzir movimento).
+Medidas: coluna centralizada, paddingTop 32, gap 8 entre avatar, nome, @ e verificação; botões a 24 da verificação; o link a 12 do botão. Entrada: fade de 200 ms (sem fade com Reduzir movimento). A linha ‹Denunciar› ‹Bloquear›, o cartão Bloqueado e o formulário de denúncia por cima do cartão estão na §11.14.
 
 **Encostado, já conectados (12)** e **Pedido recebido no cartão (14)**, do lado de quem recebe:
 ```
@@ -1274,9 +1280,9 @@ JÁ CONECTADOS                          PEDIDO RECEBIDO (Bia vê o pedido de Hel
 │                                  │   │ (            Recusar           ) │ lg secondary
 │                                  │   │          Expira em 1:45          │ caption grey, não anunciado a cada s
 ```
-Erro no aceite: linha `bodySm` danger acima do prazo, como na folha (T35, T36).
+Erro no aceite: linha `bodySm` danger acima do prazo, como na folha (T35, T45).
 
-**Nada detectado (10)**: o bloco entra no lugar do T5 e da nota T6, com fade de 200 ms, sem mexer na ilustração.
+**Nada detectado (10)**: o bloco entra no lugar do T5 e da nota T43, com fade de 200 ms, sem mexer na ilustração.
 ```
 │  (ilustração em repouso)         │
 │  Encoste o seu celular no da     │ titleMd (T4)
@@ -1336,7 +1342,7 @@ O T32 (explicação) fica logo abaixo do seletor. "Aguardando por QR", leitura e
 | Pedido recebido por QR | sem mudança: "Ler código para aceitar" (D7) |
 
 **Como explicar a diferença sem jargão.**
-- Encostar: "Encoste o seu celular no da outra pessoa." É o caminho principal: rápido, sem câmera, e ninguém por perto vê você.
+- Encostar: "Encoste o seu celular no da outra pessoa." É o caminho principal: rápido, sem câmera, e o nome e a foto só aparecem quando os dois celulares percebem o encosto. (Ajustado em 2026-10-30: "ninguém por perto vê você" prometia um absoluto que o R21 da `arquitetura.md` §16 não garante; ver T43, §11.13.)
 - QR code: "Use quando encostar não funcionar: um celular mostra o código e o outro lê com a câmera." (T32)
 - Privacidade no QR: "Mostre só para quem está com você." (T33). Um QR na tela pode ser lido a alguns metros, com zoom; a frase mantém a promessa do PO também na reserva.
 - Nunca: "BLE", "sinal", "NFC", "token", "proximidade", "varredura", "anúncio".
@@ -1404,7 +1410,8 @@ Se outro gesto vencer, mudam só a ilustração e os textos T5 e T13.
 **Leitor de tela**
 - A ilustração é decorativa (`accessibilityElementsHidden` / `importantForAccessibility="no-hide-descendants"`); todo o significado está no texto ao lado. O título de cada estado (T4, T7, T9 e o nome no cartão) tem `accessibilityRole="header"`.
 - Ordem de foco: título da tela → introdução → seletor → título do estado → texto → nota (ou o bloco da dica com o botão).
-- Anúncios: no iOS, `announceForAccessibility`; no Android, `accessibilityLiveRegion="polite"` no bloco do estado.
+- Anúncios: ~~no iOS, `announceForAccessibility`; no Android, `accessibilityLiveRegion="polite"` no bloco do estado~~. **Atualizado em 2026-10-30 (§11.13):** `announceForAccessibility` nos dois sistemas, como o `frontend` implementou. A região viva releria o bloco inteiro (título, texto e nota) a cada fase e brigaria com as mudanças de foco. A conferir no teste em aparelho, porque as versões recentes do Android desencorajam o anúncio avulso.
+- **Foco e anúncio juntos** (2026-10-30, §11.13): quando o foco muda e há anúncio no mesmo momento (A3, A4, A5, o "Vocês estão conectados" e os Toasts T20 e "O pedido de {nome} expirou"), **primeiro o foco, depois o anúncio**, em fila. No iOS, `announceForAccessibilityWithOptions(texto, { queue: true })`, disparado depois do foco. Sem isso, a leitura do elemento focado corta o anúncio.
 
 | # | Quando | Anúncio |
 |---|---|---|
@@ -1415,9 +1422,13 @@ Se outro gesto vencer, mudam só a ilustração e os textos T5 e T13.
 | A5 | pedido recebido (cartão ou folha) | "{primeiro nome} quer se conectar com você." |
 | A6 | Nada detectado (uma vez) | "Não está dando certo? Você pode usar o QR code." |
 | — | "não deu", cartão vencido | T11, T20 |
-| — | mantidos | "Pedido enviado", "Vocês estão conectados", "Pedido recusado ou expirado" |
+| — | mantidos | "Pedido enviado", "Vocês estão conectados" (agora depois do foco no título do p14, em fila), "Pedido recusado ou expirado" |
 
 - Foco: quando o cartão aparece, o foco vai para o nome (`AccessibilityInfo.setAccessibilityFocus`, uns 300 ms depois); no pedido recebido, para o título; em Conectados, para o título do p14; de volta ao Pronto, para o título do estado.
+  - **Precisado em 2026-10-30 (§11.13):** o foco só vai para o título do Pronto quando o controle que tinha o foco **sumiu da tela**: Cancelar, Voltar, Recusar, cartão vencido, "Conectar outra pessoa", "Tentar de novo", "Continuar" da explicação, a volta dos Ajustes e o Bluetooth ligado pelo sistema a partir do estado 4 (o EmptyState some; motivo `bluetooth`, 2026-10-30).
+  - O Toast que acompanha o foco usa `announceAfterMs` (`ToastProvider`): ele mesmo anuncia depois do foco, em fila, nos dois sistemas, e desliga a região viva no Android para não anunciar duas vezes.
+  - Na volta pelo **seletor** ("QR code" → "Encostar") e na volta do background, o foco **fica onde estava**. Mover o foco ao escolher uma opção é mudança de contexto (WCAG 3.2.2).
+  - Para isso, o seletor não pode ser desmontado entre o Verificando, o Pronto e o QR.
 - Botão do cartão: label "Conectar com {nome}, @{handle}".
 - Quem usa leitor de tela costuma contar com a outra pessoa para encostar. O A2 diz para segurar; o A3 (ou o A4) e a vibração do cartão avisam que já dá para afastar os celulares.
 
@@ -1430,7 +1441,7 @@ Se outro gesto vencer, mudam só a ilustração e os textos T5 e T13.
 | Encostou (o cartão aparece): o "pode afastar" | `impactAsync(Medium)`, 1 vez | Android: 40 ms · iOS: nada |
 | Pedido recebido (o cartão vira pedido ou a folha abre) | `impactAsync(Light)` | nada |
 | Conectados | `notificationAsync(Success)` | Android: `[0, 40, 80, 40]` · iOS: nada |
-| Aproximando, Confirmando, "não deu", vencido, erros | nada | nada |
+| Aproximando, Confirmando, "não deu", vencido, erros, bloquear e denunciar pelo cartão (§11.14) | nada | nada |
 
 - Nada vibra no Confirmando: ali a pessoa ainda precisa segurar os celulares juntos.
 - Nunca é o único aviso: cada vibração acompanha um texto na tela e um anúncio.
@@ -1446,11 +1457,11 @@ Se outro gesto vencer, mudam só a ilustração e os textos T5 e T13.
 
 **Tempo limitado (2.2.1):** o cartão vale 55 s no app (P4; 60 s no servidor) e o pedido, 120 s. São limites essenciais à segurança (exceção "essencial"). O cartão de quem pede não tem contagem, para não pressionar; encostar de novo está sempre disponível; o vencimento é anunciado (T20).
 
-**Contraste:** texto do bloco da dica, `greyStrong` sobre `greySoft`, 4,99:1; título do bloco, black sobre greySoft, 18,3:1; nota T6, `grey` sobre white, 4,74:1. A ilustração é decorativa (contorno black 21:1; arcos blueMid 3,0:1, só gráfico).
+**Contraste:** texto do bloco da dica, `greyStrong` sobre `greySoft`, 4,99:1; título do bloco, black sobre greySoft, 18,3:1; nota T43 (mesmo estilo da antiga T6, só mais longa), `grey` sobre white, 4,74:1. A ilustração é decorativa (contorno black 21:1; arcos blueMid 3,0:1, só gráfico).
 
 ### 11.9 Microcopy (aprovada pelo PO em 2026-10-30)
 
-**Os textos T1 a T42 foram aprovados pelo PO em 2026-10-30 como estão**; o PO revisa de novo no app, em uso. Situação: **novo**, **alterado**, **mantido** ou **removido**. A chave é a do `apps/mobile/src/features/connect/copy.ts`, quando existe.
+**Os textos T1 a T42 foram aprovados pelo PO em 2026-10-30 como estão**; o PO revisa de novo no app, em uso. **Os T43 a T45 foram propostos depois, na revisão da implementação (§11.13), e o PO os aprovou no mesmo dia (2026-10-30), exatamente como propostos.** Eles **substituem o T6, o T23 e o T36**, que ficam riscados abaixo como substituídos. **O T46 foi proposto em 2026-10-30, com a §11.14 (bloquear e denunciar pelo cartão), e o PO o aprovou no mesmo dia, exatamente como proposto.** Situação: **novo**, **alterado**, **mantido** ou **removido**. A chave é a do `apps/mobile/src/features/connect/copy.ts`, quando existe.
 
 | # | Onde (chave) | Hoje (Fase 4b) | Proposta | Situação |
 |---|---|---|---|---|
@@ -1459,7 +1470,7 @@ Se outro gesto vencer, mudam só a ilustração e os textos T5 e T13.
 | T3 | Seletor, nome do grupo (`modeGroup`) e 2º segmento (`modeQr`) | "Como conectar" / "QR code" | iguais | mantido |
 | T4 | Pronto, título (no lugar do `search`) | botão "Procurar por perto" | "Encoste o seu celular no da outra pessoa" | novo |
 | T5 | Pronto, texto (no lugar do `searchHint`) | "Fiquem a poucos metros, os dois com esta tela aberta." | "Os dois com esta tela aberta. Juntem as partes de cima dos celulares e segurem por um instante." (o gesto depende do D-UX23) | alterado |
-| T6 | Pronto, nota de privacidade (no lugar do `nearbyFooter`) | "Via Bluetooth. Só aparece quem está com a tela Conectar aberta agora. Ninguém vê sua localização." | "Só quem encosta aparece. Quem está por perto não vê seu nome nem sua foto." | alterado |
+| T6 | Pronto, nota de privacidade (no lugar do `nearbyFooter`) | "Via Bluetooth. Só aparece quem está com a tela Conectar aberta agora. Ninguém vê sua localização." | ~~"Só quem encosta aparece. Quem está por perto não vê seu nome nem sua foto."~~ | alterado · **substituído pelo T43** (aprovado pelo PO em 2026-10-30; R21) |
 | T7 | Aproximando, título | — | "Quase lá" | novo |
 | T8 | Aproximando, texto | — | "Encostem os celulares e segurem por um instante." | novo |
 | T9 | Confirmando, título | — | "Encostou!" | novo |
@@ -1476,7 +1487,7 @@ Se outro gesto vencer, mudam só a ilustração e os textos T5 e T13.
 | T20 | Cartão venceu: Toast e anúncio (no lugar do `left`) | "{nome} saiu de perto. Procure de novo." | "O tempo para conectar com {primeiro nome} acabou. Encostem os celulares de novo." | alterado |
 | T21 | Não confirmado, texto (`notConfirmedText`) | "O pedido vale por 2 minutos. Vocês podem tentar de novo." | pelo encostar: "O pedido vale por 2 minutos. Para tentar de novo, encostem os celulares outra vez." · pelo QR: igual ao de hoje | alterado |
 | T22 | Muitas tentativas, texto (`pausedText`) | "Você poderá procurar de novo em alguns minutos." | "Você poderá tentar de novo em alguns minutos." | alterado |
-| T23 | Bluetooth, explicação (`btExplainText`) | "O Sussurro usa o Bluetooth para achar quem está com esta tela aberta perto de você. Ninguém vê sua localização, e nada é transmitido com o app fechado." | "O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa. Quem está por perto não vê seu nome nem sua foto, e nada é transmitido com o app fechado." | alterado |
+| T23 | Bluetooth, explicação (`btExplainText`) | "O Sussurro usa o Bluetooth para achar quem está com esta tela aberta perto de você. Ninguém vê sua localização, e nada é transmitido com o app fechado." | ~~"O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa. Quem está por perto não vê seu nome nem sua foto, e nada é transmitido com o app fechado."~~ | alterado · **substituído pelo T44** (aprovado pelo PO em 2026-10-30; R21) |
 | T24 | Bluetooth, explicação, só Android ≤ 11 | — | "Neste celular, o sistema chama essa permissão de localização. O Sussurro não usa nem guarda onde você está." | novo |
 | T25 | Bluetooth negado (`btDeniedText`) | "Para achar pessoas por perto, permita o Bluetooth nos Ajustes." | "Para encostar os celulares, permita o Bluetooth nos Ajustes." | alterado |
 | T26 | Bluetooth desligado (`btOffText`) | "Ligue o Bluetooth para procurar quem está por perto." | "Ligue o Bluetooth para encostar os celulares." | alterado |
@@ -1488,14 +1499,18 @@ Se outro gesto vencer, mudam só a ilustração e os textos T5 e T13.
 | T32 | QR, explicação | — | "Use quando encostar não funcionar: um celular mostra o código e o outro lê com a câmera." | novo |
 | T33 | QR, dica (`qrHint`) | "Peça para a outra pessoa ler este código." | "Peça para a outra pessoa ler este código. Mostre só para quem está com você." | alterado |
 | T34 | QR, botão (`readTheirCode`) | "Ler o código dela" | "Ler o código da outra pessoa" (sozinho no botão, o "dela" soa como gênero) | alterado |
-| T35 | Aceite sem ter visto quem pediu (`notSeen`) | "O Sussurro ainda não encontrou {nome} por perto. Aproximem os celulares e tentem de novo." | "Encoste o seu celular no de {primeiro nome} e toque em Aceitar de novo." | alterado |
-| T36 | Aceite recusado (`acceptFailed`) | "Não foi possível confirmar agora. Aproximem os celulares e tentem de novo." | "Não foi possível confirmar agora. Encostem os celulares e tentem de novo." | alterado |
+| T35 | Aceite sem ter visto quem pediu (`notSeen`) | "O Sussurro ainda não encontrou {nome} por perto. Aproximem os celulares e tentem de novo." | "Encoste o seu celular no de {primeiro nome} e toque em Aceitar de novo." | alterado · hoje só por defesa: o aceite `ble` não confere o par (ADR 0012 §4), então o servidor não devolve esse erro (2026-10-30) |
+| T36 | Aceite recusado (`acceptFailed`) | "Não foi possível confirmar agora. Aproximem os celulares e tentem de novo." | ~~"Não foi possível confirmar agora. Encostem os celulares e tentem de novo."~~ | alterado · **substituído pelo T45** (aprovado pelo PO em 2026-10-30): depois da ADR 0012 §4, o `acceptFailed` só aparece no aceite **por QR**, e "Encostem os celulares" ali era a instrução errada |
 | T37 | Pedido recebido no cartão | — | os mesmos textos da folha: `sheetTitle`, `sheetConfirm`, `accept`, `decline`, `expiresIn` | mantido |
 | T38 | Leitor de tela (`announceFound`) | "{nome} encontrado por perto" | sai; entram A1 a A6 (§11.8) | removido / novo |
 | T39 | Diálogo do sistema no iOS (`BLUETOOTH_USAGE` em `apps/mobile/modules/sussurro-proximity/app.plugin.js`) | "O Sussurro usa o Bluetooth para achar quem está com a tela Conectar aberta perto de você. Ninguém vê sua localização, e nada é transmitido com o app fechado." | "O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa, com a tela Conectar aberta. Ninguém vê sua localização, e nada é transmitido com o app fechado." | alterado |
 | T40 | Lista de conexões vazia (`apps/mobile/src/features/lists/OwnListScreens.tsx`, opcional) | "Conexões acontecem ao vivo: as duas pessoas confirmam, uma perto da outra." | "Conexões acontecem ao vivo: as duas pessoas encostam os celulares e confirmam." | alterado |
 | T41 | Nota opcional, só no iPhone: quando o app fica `inactive` durante o Confirmando ou o Encostado, uma vez por visita à aba (§11.7; ADR 0012 §9) | — | "Se o iPhone abrir a troca de contatos, não precisa usar: o Sussurro conecta sem ela." | novo |
 | T42 | Erro novo da ADR 0012, se houver (em `apps/mobile/src/lib/error-messages.ts`) | — | o mesmo T11 | novo, condicional |
+| T43 | Pronto, nota de privacidade (`privacyNote`), no lugar do T6 | o T6 | "Seu nome e sua foto só aparecem quando os dois celulares percebem o encosto, e você vê a outra pessoa na mesma hora." | **aprovado pelo PO em 2026-10-30, exatamente como proposto** · substitui o T6 (A1-2, R21; §11.13) |
+| T44 | Bluetooth, explicação (`btExplainText`), no lugar do T23 | o T23 | "O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa. Seu nome e sua foto não passam pelo Bluetooth, e nada é transmitido com o app fechado." | **aprovado pelo PO em 2026-10-30, exatamente como proposto** · substitui o T23 (A1-2, R21; §11.13) |
+| T45 | Aceite por QR recusado pelo código lido (`acceptFailed`), no lugar do T36 | o T36 | "Não foi possível confirmar agora. Leia o código de {primeiro nome} de novo." | **aprovado pelo PO em 2026-10-30, exatamente como proposto** · substitui o T36 (§11.13) |
+| T46 | Formulário de denúncia aberto pelo cartão (11, 14 e Bloqueado; não no 12 nem na rota `/denunciar`): logo abaixo da pergunta, com o ícone `clock` 16, em `bodySm` grey | — | "Envie em até 1 minuto depois do encosto." | **novo · aprovado pelo PO em 2026-10-30, exatamente como proposto** (§11.14; ADR 0012, "Decisões do PO"). Sem ele, o formulário funciona igual, mas a pessoa só descobre o prazo quando o envio falha e o texto digitado se perde |
 
 Mantidos sem mudança: `title`, `cancelRequest`, `waitingTitle`, `waitingText`, `waitingQr`, `notConfirmedTitle`, `tryAgain`, `back`, `connectedTitle`, `connectedSince`, `connectedText`, `goHome`, `connectAnother`, `alreadyConnected`, `cannotSend`, `unavailable*`, `offline*`, `email*`, `btExplainTitle`, `continue`, `btDeniedTitle`, `openSettings`, `btOffTitle`, `turnOnBluetooth`, os textos da câmera e do leitor de QR, `qrInvalid`, `qrNotTheirs`, os textos da folha e os do criador. No `error-messages.ts`, o `PROXIMITY_TOKEN_INVALID` continua genérico de propósito (não revela recusa nem bloqueio).
 
@@ -1507,7 +1522,7 @@ O PO aprovou em 2026-10-30 todas as recomendações desta seção: as divergênc
 |---|---|---|---|---|
 | p10, seletor | "NFC / Bluetooth", com Bluetooth ativo | "Bluetooth / QR code" | **"Encostar / QR code"**, com Encostar ativo | Aprovar. O "NFC" do protótipo prometia encostar; agora o gesto é esse, sem NFC. Mesmo componente, no mesmo lugar (D-UX22). |
 | p10, centro | botão azul de 160 "Procurar por perto", com anéis | igual | a ilustração dos dois celulares (§11.7), sem botão: a tela começa pronta | Aprovar (D-UX21). |
-| p10, textos | "…com os celulares próximos…" / "Fiquem a poucos metros…" | iguais | T1, T4, T5, T6 | Aprovar os textos. |
+| p10, textos | "…com os celulares próximos…" / "Fiquem a poucos metros…" | iguais | T1, T4, T5, T43 (o T6 foi substituído) | Aprovar os textos. |
 | p11 | "Procurando por perto…", radar, "Mantenha o app aberto", (Cancelar) | igual | sai: o Pronto já é a espera, e sair da aba para tudo | Aprovar. |
 | p12 | lista "Por perto agora" com "a ~1 m", rodapé "Via Bluetooth…", (Procurar de novo) | faixas "bem perto" / "por perto" | sai: um cartão só, de quem encostou (§11.5) | Aprovar (é consequência direta do D13 substituído). |
 | Folha do pedido (não desenhada) | — | folha (`Modal`) | dentro do cartão quando o cartão é da mesma pessoa; a folha nos outros casos | Aprovar. |
@@ -1534,7 +1549,7 @@ O PO aprovou em 2026-10-30 todas as recomendações desta seção: as divergênc
 | `UserRow` | Sai do Conectar e continua nas listas e na busca. |
 | `EmptyState`, `Avatar`, `Button`, `Toast` | Sem mudança. O cartão usa o Avatar 72, o `Button lg` e o `link sm`. |
 | Cartão de quem encostou (`apps/mobile/src/features/connect`, novo) | Composto no app, com as variantes `touched`, `alreadyConnected` e `incoming` (§11.5). Opcional: extrair o cabeçalho "avatar + título + subtítulo" para servir também a `IncomingRequestSheet`. |
-| `IncomingRequestSheet.tsx` | Não abre quando o cartão da mesma pessoa está na tela (o pedido vira o cartão). Textos T35 e T36. Vibração leve (D-UX24). |
+| `IncomingRequestSheet.tsx` | Não abre quando o cartão da mesma pessoa está na tela (o pedido vira o cartão). Textos T35 e T45 (o T36 foi substituído). Vibração leve (D-UX24). |
 | `ConnectScreen.tsx` / `useConnectSession.ts` | Os estados da §11.4: sem `BluetoothStart`, `Searching` e `NearbyList`; com Pronto, Aproximando, Confirmando, "Não deu para confirmar", Encostado e a dica do QR; o "Sem suporte" abre no QR; começo automático só com a permissão já dada (P7); o relato continua até 8 s depois do primeiro encosto, e o cartão abre mesmo depois do aviso (9 → 11, P3); o cartão vence aos 55 s, e o pedido segue os 120 s (P4); o cartão não some quando o anúncio da pessoa para; um par por vez (P8); a tela acesa como nas regras gerais; a nota T41 opcional no iPhone. |
 | `nearby.ts` | Sem faixas e sem lista. Entra o estado do contato (`none`, `approaching`, `touching`) com histerese: entra no "encostado" depois de leituras seguidas acima do limiar (P2) e sai do "aproximando" depois de 2 s sem sinal, sem piscar. Os valores vêm da ADR 0012. O RSSI continua sem sair do aparelho. |
 | `timing.ts` e o arquivo de calibração da ADR 0012 | Da ADR (nomes dela): `noTouchFallbackMs` 20 s, `nearFallbackMs` 10 s, `failuresBeforeQr` 2, `confirmWarnAfterMs` 4 s, o relato por até 8 s depois do primeiro encosto e `cardTtlMarginMs` (o cartão vence aos 55 s). Da tela, sugeridos: `notConfirmedNoticeMs` 6 s, `approachingLeaveMs` 2 s, `keepAwakeIdleMs` 120 s, `announceApproachingEveryMs` 5 s. |
@@ -1544,6 +1559,7 @@ O PO aprovou em 2026-10-30 todas as recomendações desta seção: as divergênc
 | Vibração | `expo-haptics` (D-UX24 aprovado; adicionar só com o aval do `seguranca`): um helper com os 3 momentos da §11.8. O "Encostou" vibra no cartão, nunca no Confirmando. |
 | `features/catalog/Phase4Blocks.tsx` | Trocar o bloco "Radar" pelo "TouchHint" e atualizar a legenda do seletor. |
 | Testes (`testes`) | Os `testID` mudam (§11.4); os casos de "Por perto" e das faixas saem; entram os do encostar, os do cartão vencido e os do QR em destaque. |
+| Bloquear e denunciar pelo cartão (2026-10-30) | Ver a §11.14: `TouchCard`, `useConnectSession`, `useBlockAccount`, `ReportScreen` e `ConnectScreen`. Sem mudança no `packages/ui`. |
 
 ### 11.12 Pontos para validar com usuários e em aparelho
 
@@ -1556,15 +1572,308 @@ O PO aprovou em 2026-10-30 todas as recomendações desta seção: as divergênc
 2. Só com a ilustração, que gesto as pessoas fazem? Entendem que os dois precisam estar com a tela aberta?
 3. Duas pessoas que acabaram de se conhecer chegam a "Conectados" em menos de 20 s, sem ajuda?
 4. O "Quase lá" ajuda ou confunde num lugar cheio, quando aparece por causa de outra pessoa?
-5. "Só quem encosta aparece. Quem está por perto não vê seu nome nem sua foto." é entendido e passa segurança?
-6. Quando a dica do QR aparece, as pessoas usam? O "Use quando encostar não funcionar" basta para explicar a diferença?
-7. Só com VoiceOver/TalkBack, a pessoa completa o fluxo? A vibração ajuda a saber a hora de afastar?
+5. A nota de privacidade (T43, aprovado em 2026-10-30) é entendida e passa segurança? As pessoas entendem que, se o cartão de alguém aparecer, essa pessoa também viu o delas?
+6. Quando a dica do QR aparece, as pessoas usam? O "Use quando encostar não funcionar" basta para explicar a diferença? Isso vale também para quem bateu no teto de pessoas novas (A2-1, num evento cheio), que só vê o "Não deu para confirmar" e depois a dica.
+7. Só com VoiceOver/TalkBack, a pessoa completa o fluxo? A vibração ajuda a saber a hora de afastar? Conferir também a ordem "foco, depois anúncio" nos casos da §11.13 (cartão vencido, pedido expirado, conectados) e o foco no título do Pronto quando o Bluetooth liga sozinho, inclusive com o app em segundo plano no iOS.
 8. Num lugar barulhento e escuro, com uma mão só, funciona?
 9. As pessoas acham a função pela aba com o ícone `radio`?
+10. **Bloquear e denunciar pelo cartão (§11.14):** as pessoas acham a linha ‹Denunciar› ‹Bloquear›? Ela incomoda no encontro comum ou passa segurança? Quem quer denunciar consegue enviar antes do prazo? O T46 ajuda ou pressiona?
+11. **"Não deu para confirmar" repetido** (A2 rev. 1): quem tenta de novo logo depois de uma tentativa que falhou espera uns segundos, ou insiste e cai no QR? Se muita gente travar aí, avaliar com o PO um ajuste no T11 que peça uma pausa curta.
+
+### 11.13 Revisão da implementação (2026-10-30)
+
+Revisão da branch `feat/f4-encostar` (sem commit), já com o Adendo A1 da ADR 0012. O A1 não muda estados nem textos da tela, mas tira o absoluto das promessas de privacidade (T6 e T23, substituídos pelo T43 e pelo T44, aprovados pelo PO em 2026-10-30), por causa do R21.
+
+**Veredito: aprovado com ajustes.** Os T1 a T42, os estados 1 a 20, os tempos, a ilustração, os alvos de toque e a vibração batem com esta seção.
+
+**O que mudou nesta especificação** (decisões de UX; não mexem em decisão nem em texto aprovado pelo PO):
+
+| # | Tema | Antes | Agora | Dono do código |
+|---|---|---|---|---|
+| R1 | Anúncios no Android | região viva no bloco do estado | `announceForAccessibility` nos dois sistemas (§11.8) | nada a mudar |
+| R2 | Foco e anúncio juntos | não dizia a ordem | primeiro o foco, depois o anúncio, em fila (§11.8) | `frontend` |
+| R3 | Foco na volta ao Pronto | "de volta ao Pronto, para o título" | só quando o controle focado sumiu; pelo seletor e na volta do background, o foco fica (§11.8) | `frontend` |
+| R4 | Estado 12 (já conectados) | não dizia se vencia | sem prazo, sem T20 e sem tela acesa (§11.4) | `frontend` |
+| R5 | T20 no leitor de tela | "Toast + T20" | o Toast já anuncia; sem anúncio extra (§11.4) | `frontend` |
+| R6 | Erro de rede no Aceitar | Toast | linha de erro, como na folha (§11.4) | nada a mudar |
+| R7 | Saída do Aproximando | "2 s sem sinal" | uns 2 s depois que o detector deixa de ver o "quase", até uns 3,5 s depois do último anúncio (§11.4) | nada a mudar |
+| R8 | 409 `ALREADY_CONNECTED` no Conectar | não previsto | o cartão vira o estado 12 (A4, foco no nome), sem Toast | nada a mudar |
+| R9 | Erro desconhecido do rádio (varredura ou anúncio) | não previsto | estado 5 (abre no QR, com a faixa T30) | nada a mudar; sugestão abaixo |
+| R10 | 403 `ACCOUNT_TYPE_NOT_ALLOWED` | não previsto | estado 19 (indisponível). Não deveria acontecer: o criador é desviado para o p22 pela rota. A mensagem é genérica, então não revela nada | nada a mudar |
+| R11 | 429 no relato do encosto (`touches`) | estado 20 | estado 20, sem usar o `retryAfterS`, como os outros 429 da tela | nada a mudar; sugestão abaixo |
+| R12 | Post ou perfil aberto de uma aba sem `p/` e `u/`, ou `origem` desconhecido | não previsto | abre na aba Perfil, como o app já fazia fora das abas (folha de comentários). Hoje o Conectar não tem link para post nem perfil, então é só proteção | nada a mudar |
+| R13 | T35 (`notSeen`) | aceite `ble` sem ter visto | o servidor não devolve mais esse erro no aceite `ble` (ADR 0012 §4); o texto fica só como defesa | nada a mudar |
+
+**Sugestões** (não bloqueiam; o Tech Lead decide). **Situação em 2026-10-30, depois dos ajustes 3 a 6 do `frontend`:** a da folha foi feita; as outras quatro ficaram de fora **por decisão do Tech Lead** e seguem **abertas, para depois**.
+- **R9 (aberta, para depois):** quando o "Sem suporte" vier de erro do rádio, e não das capacidades, tocar em "Encostar" pode voltar ao Verificando uma vez, em vez de cair no EmptyState fixo. Assim, uma falha passageira não marca o celular como "não consegue encostar" até sair da aba.
+- **R11 (aberta, para depois):** o 429 do relato (60 por minuto, uns 7 encostos sem sucesso) pode levar à dica do QR (estado 10), com o relato suspenso pelo `retryAfterS`, em vez de parar a tela. O QR tem limite próprio, e é a saída certa para quem falhou tantas vezes. O 429 do bloqueio de 15 min continua no estado 20.
+- ~~Folha do pedido (§4.11): mandar o foco para o título, como o cartão já faz.~~ **Feita** (`IncomingRequestSheet` usa o `useFocusOnShow`).
+- **A5 com a câmera aberta (aberta, para depois):** o efeito da vibração e do A5 dispara mesmo com a câmera aberta, quando a folha ainda não aparece. Vibrar e anunciar só quando a folha abrir.
+- **Fade de 200 ms no Encostado (aberta, para depois):** a ilustração sai sem o fade de 200 ms da §11.7. É detalhe; pode ficar.
+
+**Textos propostos e aprovados** (T43 a T45 na §11.9; **aprovados pelo PO em 2026-10-30, exatamente como propostos**, e no lugar do T6, do T23 e do T36). O PO aceitou o R21 com as duas mitigações do A2 no servidor (teto de 10 pessoas novas por hora e 30 por dia; revelação simétrica garantida), registradas na §11.4 sem texto novo. A justificativa fica abaixo como histórico; as "alternativas" e o "manter o T6" não foram escolhidos.
+- **T43, a nota de privacidade (`privacyNote`), no lugar do T6.** "Seu nome e sua foto só aparecem quando os dois celulares percebem o encosto, e você vê a outra pessoa na mesma hora."
+  - **Por quê:** o T6 ("Quem está por perto não vê seu nome nem sua foto") é um absoluto, e o R21 (`arquitetura.md` §16) o desmente. Um transmissor amplificado, voltado para a pessoa, pode fazer o celular dela perceber um encosto a 1 ou 2 m. Com isso, a Política e a tela se contradiriam.
+  - **As duas frases do T43 continuam verdadeiras mesmo no R21:** o celular da vítima precisa perceber o encosto (o servidor só revela com observação mútua), e a revelação é simétrica **e garantida pelo A2-2**: a vítima sempre vê o cartão de quem a viu, mesmo que essa pessoa bloqueie logo depois. (Correção de 2026-10-30: antes eu escrevi "e pode bloquear e denunciar". Se o atacante bloquear a vítima, o perfil dele some para ela, e ela não consegue denunciar pelo app; o bloqueio logo depois do encosto vira sinal para a moderação, A2-3. O T43 só promete que ela vê, e isso vale.) (Atualizado em 2026-10-30, A2 rev. 1: agora ela consegue bloquear e denunciar pelo cartão enquanto o par vale, mesmo que o atacante a tenha bloqueado; §11.14. O T43 não muda.)
+  - **Saiu o "Só quem encosta aparece."**, que no R21 também deixa de ser verdade. Ele continua valendo como princípio de design (§11.1).
+  - O detalhe da exceção fica na Política (A1-2), não na nota.
+  - **Alternativa, se o PO quiser nomear a exceção:** "Com celulares comuns, só quem encosta vê seu nome e sua foto. E você vê a outra pessoa na mesma hora." Não recomendo: "celulares comuns" levanta a dúvida sem dar o que fazer com ela.
+  - **Manter o T6: não recomendo**, porque ele promete o que o R21 não garante.
+- **T44, a explicação do Bluetooth (`btExplainText`), no lugar do T23.** "O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa. Seu nome e sua foto não passam pelo Bluetooth, e nada é transmitido com o app fechado."
+  - **Por quê:** o T23 repete o absoluto do T6.
+  - O T44 diz o que vale sempre: o anúncio leva só o código anônimo que muda a cada 20 s, e o nome e a foto vêm do servidor, depois do encosto mútuo.
+- **T45, o aceite por QR recusado (`acceptFailed`), no lugar do T36.** "Não foi possível confirmar agora. Leia o código de {primeiro nome} de novo."
+  - **Por quê:** depois da ADR 0012 §4, o aceite `ble` não usa token, e o `acceptFailed` só aparece no aceite por QR. Ali, "Encostem os celulares" é a instrução errada.
+  - A folha já mostra o botão "Ler código para aceitar".
+
+**Reconferência dos ajustes 3 a 6 (2026-10-30).** O `frontend` implementou os ajustes 3 a 6 e aplicou a regra da §11.8 ("primeiro o foco, depois o anúncio em fila; foco no título do Pronto só quando o controle focado sumiu") em três casos que não estavam na minha lista. Li `a11y.ts`, `useConnectSession.ts`, `ConnectScreen.tsx` e `ToastProvider.tsx`. **Veredito: ✅ aprovado, com os três avais abaixo.**
+
+| Caso | O que o código faz | Aval |
+|---|---|---|
+| "Vocês estão conectados" (estado 15) | O foco vai ao título do p14 (`useFocusOnShow` na chave do @), e o anúncio sai depois, em fila (`announceAfterFocus`). | ✅ **Aval.** Já estava na §11.8 que o foco vai ao título do p14; o que faltava era a ordem. O controle que tinha o foco (Conectar, Aceitar ou Cancelar pedido) sai da tela, então mover o foco é certo, e o anúncio deixa de ser cortado. Sem texto novo. |
+| Toast "O pedido de {nome} expirou." com o pedido feito no cartão (estados 14 → 17) | O cartão fecha (`cardClosed`), o foco vai ao título do Pronto, e o Toast anuncia depois, em fila (`announceAfterMs`). O `ToastProvider` desliga a região viva no Android com essa opção (`live={false}`), para não anunciar duas vezes. | ✅ **Aval.** O Aceitar e o título do pedido somem junto com o cartão, então o foco no título do Pronto segue a regra do R3. A opção `announceAfterMs` é compatível com o R5 (o próprio Toast anuncia, sem anúncio extra) e deixa o Toast comum como era (anúncio na hora no iOS, região viva no Android). Sem texto novo (o "expirou" é o da §4.11). O mesmo caminho serve ao "não está mais disponível", quando a outra pessoa cancela o pedido; aceito. Quando o pedido é de uma pessoa que não está no cartão (a folha), o Toast sai como antes, sem mover o foco, que é o certo: não há título do Pronto a levar (a pessoa pode estar no QR). Ver a sugestão pequena abaixo. |
+| Bluetooth ligado pelo sistema, a partir do estado 4 | A volta ao Verificando e ao Pronto leva o motivo `bluetooth`: o foco vai ao título do Pronto. | ✅ **Aval.** O EmptyState "Ligue o Bluetooth" (e o botão em foco, se houver) some quando o rádio liga sozinho, então vale a mesma regra de "Continuar" e da volta dos Ajustes (R3). Só entra nessa regra o estado 4; a volta do background e o seletor continuam deixando o foco onde estava. |
+
+- **A conferir no aparelho (não bloqueia):** no iOS, se o Bluetooth ligar nos Ajustes com o app em segundo plano, o evento de foco pode sair antes da volta e se perder. Se isso acontecer, repetir o foco na volta ao primeiro plano quando o motivo for `bluetooth`. Entra no teste do §11.12, item 7.
+- **Sugestão pequena (opcional):** quando o Toast do pedido expirado vier da folha (sem o cartão), considerar também o `announceAfterMs`, porque o sistema devolve o foco ao fechar o `Modal` e pode cortar o anúncio imediato no iOS. A conferir em aparelho antes de mudar.
+
+**Textos só de dev** (D15; não precisam do PO): "Simular o outro celular encostando", "Calibração do encostar (dev)" e os rótulos da `/dev/proximidade`. Estão claros. Aparecem só com as simulações ligadas, e a rota redireciona fora do dev.
+
+### 11.14 Bloquear e denunciar pelo cartão (2026-10-30)
+
+> **Decisão do PO (2026-10-30), opção (a) do MÉDIO 2:** "Bloquear" e "Denunciar" no cartão enquanto o encosto vale. A especificação técnica está na ADR 0012, "Adendo A2, revisão 1", R1-5 e R1-9. O servidor aceita bloquear e denunciar a conta, pelo @, de quem tem **par encostado vivo** com quem pede: até 60 s depois do casamento, mesmo que um dos dois já tenha bloqueado o outro. Antes, o perfil pessoal só aparecia para conexões, e quem recebia o cartão de um desconhecido não conseguia fazer nenhum dos dois. Isso pesa no R21: um transmissor forte pode colher o cartão de alguém sem encostar, e o sinal do A2-3 só dispara se a pessoa conseguir bloquear.
+>
+> **Reaproveita** os fluxos e os textos do perfil (X.1 e X.2). **Texto novo:** só o T46, aprovado pelo PO em 2026-10-30, exatamente como proposto. **Vibração nova:** nenhuma. **Sem mudança** no `packages/ui`.
+
+**Onde as ações aparecem**
+
+| Cartão | Ações | Até quando |
+|---|---|---|
+| 11, Encostado | ‹Denunciar› ‹Bloquear› | enquanto o cartão vale (`agora < expiresAt`, 55 s depois do casamento no app). O cartão fecha nessa hora, então a linha fica até o fim |
+| 14, Pedido recebido no cartão | ‹Denunciar› ‹Bloquear› | até o `expiresAt` do cartão, o mesmo do 11. O pedido continua até os 120 s, sem a linha. **Por quê:** depois do par, o bloqueio de quem a pessoa não vê responde 204 sem gravar (R1-5), e o app diria "Você bloqueou" sem ter bloqueado |
+| 12, Já conectados | ‹Denunciar› ‹Bloquear› | enquanto o cartão estiver na tela, sem prazo (o 12 não vence) |
+| Bloqueado (novo; depois do Bloquear no 11 ou no 14) | só ‹Denunciar› | até o `expiresAt`. Nessa hora, o cartão fecha |
+| QR (meu código, leitura e aguardando por QR), p13, p14, p16 e a folha da §4.11 | nenhuma | o QR não tem par (R1-9.1); as outras telas não são o cartão e ficam como estão |
+
+**No 12 faz sentido? Sim, com o comportamento do perfil.** Quem já é conexão vê o perfil, então bloquear e denunciar seguem o caminho de sempre: sem o par, sem prazo e sem depender do Valkey (R1-5, "alvo visível"). Motivos:
+- **Uma conexão que a pessoa não quer por perto.** No R21, o cartão do 12 também revela que as duas pessoas estão no mesmo lugar. Bloquear ali, na hora, é mais fácil do que procurar o perfil depois, e o bloqueio feito até 60 s depois do encosto conta para o sinal do A2-3.
+- **A linha fica no mesmo lugar em todo cartão de encosto**, então a pessoa aprende onde ela está.
+- **Custo baixo:** no 12, nada vence. Depois do bloqueio, o cartão fecha, como o perfil fecha depois do bloqueio (`UserProfileScreen.tsx:83-84`).
+
+**Alternativa descartada:** o menu ⋯ do perfil (D-UX14) num canto do cartão. Deixaria o cartão mais limpo, mas tem três problemas:
+- esconde as ações justo de quem não espera precisar delas (a vítima do R21);
+- custa um toque a mais num prazo de 1 minuto;
+- no leitor de tela, ficaria antes do nome, fora da ordem do cartão.
+
+#### Wireframes
+
+Convenções da §4.
+- **Posição:** a linha fica **32 abaixo** do último elemento do cartão: o ‹Cancelar› no 11, o (Voltar) no 12 e o "Expira em" no 14.
+- **Alvos:** são dois `Button variant="link" size="sm"` lado a lado, centralizados, com **32 entre eles**. Cada um tem 34 de altura e `hitSlop` vertical de 5: alvos de 44, que não se tocam. Se não couberem numa linha (fonte grande), quebram em duas, centralizados, com 8 entre as linhas.
+- **Ordem:** "Denunciar" e depois "Bloquear", a mesma do menu ⋯ do perfil (D-UX14).
+- **Cor:** nenhum dos dois fica vermelho. O vermelho fica na confirmação (o "Bloquear" do `Alert`).
+- **Hierarquia, sem competir com o "Conectar":** o "Conectar" continua sendo o único botão cheio, e o ‹Cancelar› continua a 12 dele. A linha nova fica no fim, separada por 32, o dobro desse espaço. Ela é lida como outro grupo e vem por último na ordem de leitura.
+
+**Encostado (11)**:
+```
+│               ◯ 72               │
+│           Caio Ribeiro           │ titleMd, header, recebe o foco (sem mudança)
+│             @caio.r              │
+│   Confira se é a pessoa que      │ T15
+│   está com você.                 │
+│                                  │
+│ [       Conectar com Caio      ] │ lg primary (T16)
+│            ‹Cancelar›            │ link sm (T17)
+│                                  │ 32
+│     ‹Denunciar›   ‹Bloquear›     │ 2 × link sm, centralizados, 32 entre eles
+```
+
+**Já conectados (12)** e **Pedido recebido (14)**:
+```
+JÁ CONECTADOS (12)                     PEDIDO RECEBIDO (14)
+│               ◯ 72               │   │               ◯ 72               │
+│           Caio Ribeiro           │   │     Helena quer se conectar      │
+│             @caio.r              │   │     @helena · Helena Souza       │
+│   Vocês já estão conectados.     │   │  Confirme só se Helena estiver   │
+│                                  │   │  aí com você.                    │
+│ (             Voltar           ) │   │ [            Aceitar           ] │
+│                                  │   │ (            Recusar           ) │
+│     ‹Denunciar›   ‹Bloquear›     │   │          Expira em 1:45          │
+│                                  │   │                                  │
+│                                  │   │     ‹Denunciar›   ‹Bloquear›     │ some no expiresAt
+```
+
+**Bloqueado** (depois do Bloquear no 11 ou no 14):
+```
+│               ◯ 72               │
+│           Caio Ribeiro           │ titleMd, header, recebe o foco
+│             @caio.r              │
+│      Você bloqueou @caio.r.      │ bodySm grey, no lugar do T15 (blockedMessage)
+│                                  │
+│ (             Voltar           ) │ lg secondary (back) → Pronto
+│                                  │ 32
+│           ‹Denunciar›            │ link sm, centralizado
+```
+- Sem o "Conectar", porque o pedido seria recusado.
+- No 14, sem Aceitar e sem Recusar: o servidor cancelou o pedido (R1-9.3). O nome volta a ser o título.
+- O (Voltar) é o mesmo do 12, no lugar do botão principal.
+
+**Formulário de denúncia, por cima do cartão:**
+```
+┌──────────────────────────────────┐
+│ Cancelar     Denunciar    Enviar │ ScreenHeader modal, como na rota /denunciar
+│ Por que você está denunciando    │ titleSm, header, recebe o foco
+│ @caio.r?                         │
+│ (clock 16) Envie em até 1 minuto │ bodySm grey (T46, aprovado); não aparece no 12
+│ depois do encosto.               │
+│ Conectar está indisponível       │ linha de erro, bodySm danger, só depois de um erro
+│ agora. Tente de novo em…         │
+│ Motivo                           │ RadioOptionList, os 8 motivos
+│ ◯ …                              │
+│ Detalhes (opcional)              │ Input multiline, contador de 500
+│ (lock 16) A pessoa denunciada    │ REPORT_PRIVACY_NOTE
+│ não é avisada.                   │
+└──────────────────────────────────┘
+```
+- **É o formulário da rota `/denunciar`** (`ReportScreen.tsx:109-160`), com o mesmo conteúdo e os mesmos textos. Ele abre num `Modal` de tela cheia **dentro da sessão do Conectar**, como a folha do pedido e o leitor de QR (`ConnectScreen.tsx:620-640`).
+- **Não navega para a rota.** A sessão do Conectar só existe com a aba em foco (`ConnectScreen.tsx:666`). Abrir `/denunciar` desmontaria a sessão, e o cartão se perderia.
+- Entra deslizando de baixo, sem animação com Reduzir movimento. A tab bar fica coberta, e o "voltar" do Android vale como "Cancelar".
+- **A linha de erro fica dentro do formulário**, e não num Toast. O Toast ficaria atrás do `Modal`, porque o `ToastProvider` é desenhado na raiz do app (`ToastProvider.tsx:99-126`). Ela fica logo abaixo da pergunta, para continuar visível com o teclado aberto.
+
+#### Estados e transições
+
+O prazo é o `expiresAt` do cartão: 55 s depois do casamento, no app (R1-5 e P4), ou menos no cartão devido, porque o app o calcula com o `pairExpiresInS` que vem do servidor (R1-10; ver o ponto para o `arquiteto`, abaixo). "Ainda vale" quer dizer `agora < expiresAt`. No 12, vale sempre. "Cabeçalho do cartão" é o elemento que já recebe o foco: o nome no 11, no 12 e no Bloqueado, e o título no 14.
+
+| # | Quando | O que acontece | Foco | Anúncio |
+|---|---|---|---|---|
+| M1 | toca em ‹Bloquear› | abre o `Alert` do perfil: o título `blockTitle` ("Bloquear @caio.r?"), o `BLOCK_MESSAGE` e os botões "Cancelar" e "Bloquear" (destrutivo) | o sistema | o próprio `Alert` |
+| M2 | "Cancelar" no `Alert` | nada muda | volta ao ‹Bloquear› (o sistema) | — |
+| M3 | "Bloquear" no `Alert`, com o cartão ainda valendo | `POST /me/blocks {handle}`. O ‹Bloquear› fica em `loading`, e as outras ações do cartão ficam desativadas: Conectar, Cancelar, Aceitar, Recusar, Voltar e Denunciar | fica | — |
+| M4 | 204, no 11 ou no 14 | o cartão vira o **Bloqueado**. Sem Toast, porque a linha do cartão já diz. No 14, o app descarta o pedido dessa pessoa sem o Toast "O pedido de {nome} não está mais disponível.": quem o cancelou foi o bloqueio. Roda o mesmo que o perfil roda depois do bloqueio: a conta some do feed e das listas, e o `GET /me` é recarregado | o nome (o ‹Bloquear› sumiu) | `blockedMessage`, depois do foco, em fila |
+| M5 | 204, no 12 | o cartão fecha e volta ao Pronto, como o perfil depois do bloqueio | o título do Pronto (motivo `cardClosed`) | o Toast `blockedMessage`, com `announceAfterMs` |
+| M6 | 503, 429 ou sem rede no bloqueio | Toast com a mensagem do erro (`messageForError`). O cartão fica como estava, para tentar de novo enquanto valer. **Nunca** leva aos estados 18 a 20 | fica no ‹Bloquear› | o próprio Toast |
+| M7 | "Bloquear" no `Alert` com o cartão já vencido. Só acontece no 11 e no 14, porque o `Alert` segurou o cartão (M15) | **não chama a API.** Fora do par, o 204 não grava, e o app diria "Você bloqueou" sem ter bloqueado. Mostra o Toast `PROFILE_GONE_MESSAGE` e segue o vencimento da variante, sem o T20: o 11 volta ao Pronto; o 14 perde a linha e continua como pedido | 11: o título do Pronto; 14: o título do cartão | o Toast, com `announceAfterMs` |
+| M8 | toca em ‹Denunciar› | abre o formulário por cima do cartão, com o alvo `{type: 'account', handle}`. O cartão continua montado | a pergunta | — (o foco lê a pergunta) |
+| M9 | 202 | o formulário fecha, com o Toast `REPORT_SENT_MESSAGE`. **Se o cartão ainda vale,** volta como estava: Denunciar e Bloquear continuam, como no perfil, e o Conectar também (denunciar não bloqueia). **Se venceu,** volta ao Pronto, **sem o T20**; no 14, fica o pedido sem a linha | cartão: o cabeçalho; Pronto: o título | o Toast, com `announceAfterMs` |
+| M10 | 404 (o par acabou no servidor, ou a conta foi excluída) | o formulário fecha, e o texto digitado se perde (R1-9.5). Mostra o Toast `PROFILE_GONE_MESSAGE`. O 11, o Bloqueado e o 12 voltam ao Pronto, sem o T20. O 14 continua como pedido, sem a linha | Pronto: o título; 14: o título do cartão | o Toast, com `announceAfterMs` |
+| M11 | 503 (`PROXIMITY_UNAVAILABLE`), 429 ou sem rede no envio | o formulário fica aberto, com o motivo e o texto. A linha de erro mostra a mensagem (`messageForError`), e o "Enviar" volta a funcionar. A linha some no envio seguinte | fica no "Enviar" | a linha de erro, uma vez |
+| M12 | "Cancelar" ou o "voltar" do Android no formulário | fecha sem enviar, e o texto se perde, como na rota. **Se o cartão ainda vale,** volta a ele. **Se venceu,** é o estado 17 de sempre (Pronto + T20); no Bloqueado, volta ao Pronto sem Toast; no 14, fica o pedido sem a linha | cartão: o cabeçalho; Pronto: o título | no 17, o T20 com `announceAfterMs`, como hoje |
+| M13 | o Bloqueado vence (`expiresAt`), ou a pessoa toca em "Voltar" | volta ao Pronto, **sem Toast**: o T20 diria "encostem os celulares de novo" a quem acabou de bloquear | o título do Pronto | — (o foco lê o título) |
+| M14 | o 14 chega ao `expiresAt` | a linha some com fade de 200 ms (sem fade com Reduzir movimento), e o pedido continua | se estava na linha, vai ao título do cartão; senão, fica | — |
+| M15 | o cartão venceria com o `Alert` ou o formulário aberto | **nada fecha nem some** enquanto um dos dois estiver aberto: o vencimento espera. Ao fechar, valem M7, M9, M10 ou M12. Vale também para o 14 que chega aos 120 s. Na volta do background, quem estava com o formulário aberto o encontra como deixou | — | — |
+| M16 | o pedido da mesma pessoa chega com o `Alert` ou o formulário aberto (11 → 14) | o cartão vira o 14 por baixo, mas a vibração leve e o A5 esperam. Se o formulário fechar e o cartão ainda for o 14, o foco vai ao título, e o A5 sai depois, em fila. Se a pessoa bloqueou, o pedido foi cancelado: nada de vibração nem de A5 | ao fechar: o título do 14 | o A5, depois do foco |
+
+- Enquanto o Conectar ou o Aceitar estão em andamento, ‹Denunciar› e ‹Bloquear› ficam desativados, como o ‹Cancelar› fica hoje.
+- **Tela acesa:** sem regra nova. O Bloqueado conta como "Encostado" e mantém a tela acesa até fechar. Com o formulário aberto, vale a regra do cartão de baixo: acesa sobre o 11, o 14 e o Bloqueado, e não sobre o 12.
+- **Encosto recusado pelo orçamento do app** (transmissor hostil; R1-3 e R1-9.7): a fase não muda. O Pronto continua, e o QR ganha destaque aos 20 s (P9). Sem tela nem texto novo.
+- **"Não deu para confirmar" repetido** (R1-9.7, texto novo opcional): **sem texto novo.** Logo depois de uma tentativa em que os dois celulares se viram mas não casaram, uma tentativa nova pode falhar por uns 10 s (ADR 0012, A2 rev. 1, Consequências). A pessoa vê o T11 de novo e, no 2º aviso seguido, a dica do QR (P9). Fica como ponto de validação (§11.12, item 11).
+
+#### Foco e anúncios
+
+- **Regra da §11.8:** primeiro o foco, depois o anúncio, em fila.
+  - O Toast que acompanha uma mudança de foco usa `announceAfterMs`: M5, M7, M9, M10 e M12.
+  - O anúncio avulso usa `announceAfterFocus`: M4 e M16.
+- **Quando o foco muda:** só quando o controle focado some (M4, M5, M7, M9, M10, M12, M13 e M14) ou quando o formulário abre (M8). Nos erros (M6 e M11), o foco fica onde está.
+- **Ao fechar o formulário,** o foco vai ao cabeçalho do cartão, e não ao ‹Denunciar›. O cabeçalho é a âncora do cartão, que já recebe o foco no A3, e o `Button` não expõe `ref`. No iOS, o foco só se move depois do `onDismiss` do `Modal`. Antes disso, o sistema devolve o foco a outro lugar e corta o anúncio (§11.13).
+- **A linha de erro do formulário** é anunciada uma vez, com `announce`, nos dois sistemas (R1 da §11.13). Ela não usa região viva, para não ser anunciada duas vezes no Android.
+- **Rótulos:** "Denunciar" e "Bloquear", os mesmos do menu ⋯ (`REPORT_ACTION` e `BLOCK_ACTION`). O nome da pessoa já foi lido antes, na ordem do cartão. Pôr o @ no rótulo seria texto novo, e não é indispensável.
+- **Ordem de leitura do 11:** nome → @ → T15 → Conectar → Cancelar → Denunciar → Bloquear.
+
+**Vibração:** nenhuma nova. Bloquear, denunciar, os erros e o vencimento do Bloqueado não vibram. A vibração leve do pedido (14) espera o formulário fechar (M16).
+
+**Tempo limitado (2.2.1):** o prazo da denúncia é essencial (o par, R1-5), como o do cartão.
+- O `Alert` e o formulário seguram o cartão (M15), então nada some enquanto a pessoa decide ou escreve.
+- A única perda possível é o envio depois dos 60 s (M10), e o T46 avisa antes.
+- O PO aprovou a R1-PO-1 ("denunciar quem você bloqueou", ADR 0012) em 2026-10-30, **para o próximo PR**, não para este. Até lá, o T46 aparece nos três: no formulário aberto pelo 11, pelo 14 e pelo Bloqueado (decisão do PO). Quando a R1-PO-1 entrar, quem bloqueia deixa de ter pressa para denunciar, e o T46 sai do formulário aberto pelo Bloqueado, continuando no aberto pelo 11 e pelo 14.
+
+**Ponto para o `arquiteto`** (resolvido em 2026-10-30; ADR 0012, R1-10; não bloqueava a tela): o `expiresAt` era contado da **chegada** do cartão (`matchedAt` = agora, `useTouch.ts:299-304`), e o par é contado do casamento, no servidor. Se o cartão devido chegasse mais de 5 s depois do casamento (rede lenta, com um relato em voo), sobrava uma janela em que o app ainda mostrava ‹Bloquear› e o servidor já não tinha o par. Nessa janela, o 204 não gravaria, e o M4 diria "Você bloqueou" sem ter bloqueado.
+- **Como foi resolvido:** cada cartão do `touches` agora traz **`pairExpiresInS`**, os segundos que faltam para o par vencer no servidor, arredondados para baixo em múltiplos de 5 (55 no casamento na hora). O app usa `expiresAt = chegada + min(cardTtlMs, pairExpiresInS × 1000)`, sem margem à parte: o arredondamento do servidor para baixo, em múltiplos de 5 s, já é a margem. Como o casamento na hora dá 55, o cartão vence aos 55 s, e os "55 s" da §11 continuam valendo. Assim, o app passa a conhecer o prazo do par, em vez de supor que ele coincide com a chegada.
+- **O que muda na tela:** nada de estado nem de texto. Tudo o que esta seção diz de "enquanto o cartão vale" (a linha ‹Denunciar› ‹Bloquear›, o M7, o M14 e o vencimento do Bloqueado) segue o `expiresAt` novo. No cartão devido, ele pode ser menor que o do casamento na hora, e a linha some antes.
+- **O T46 continua verdadeiro** no cartão devido, porque o prazo dele é "depois do encosto", e não "depois da chegada do cartão".
+
+#### Textos
+
+**Reaproveitados, sem mudança:**
+
+| Onde | Texto | Fonte |
+|---|---|---|
+| Ações da linha | "Denunciar", "Bloquear" | `apps/mobile/src/features/moderation/useModerationMenu.ts:12-13` (`REPORT_ACTION`, `BLOCK_ACTION`) |
+| Confirmação: título | "Bloquear @{handle}?" | `moderation/useBlockAccount.ts:19-21` (`blockTitle`) |
+| Confirmação: texto | "Vocês deixam de ver o perfil, as publicações e os comentários um do outro. A conexão e os follows entre vocês são desfeitos, e os comentários de um nas publicações do outro são apagados." | `useBlockAccount.ts:12-13` (`BLOCK_MESSAGE`). Entre desconhecidos, a parte da conexão e dos follows não se aplica, mas continua verdadeira; fica como está |
+| Confirmação: botões | "Cancelar", "Bloquear" | `useBlockAccount.ts:55-57` |
+| Bloqueado (linha do cartão) e Toast do M5 | "Você bloqueou @{handle}." | `useBlockAccount.ts:27-29` (`blockedMessage`) |
+| Bloqueado: botão | "Voltar" | `apps/mobile/src/features/connect/copy.ts:80` (`back`, T18) |
+| Formulário: cabeçalho | "Cancelar", "Denunciar", "Enviar" | `moderation/ReportScreen.tsx:111-116` |
+| Formulário: pergunta | "Por que você está denunciando @{handle}?" | `ReportScreen.tsx:49-50` (`question`) |
+| Formulário: motivos | "Motivo" e os 8 motivos | `ReportScreen.tsx:132-138`; `packages/shared/src/reports.ts:23` (`REPORT_REASON_LABELS`) |
+| Formulário: detalhes | "Detalhes (opcional)" e "Use no máximo 500 caracteres." | `ReportScreen.tsx:34` e `:36` |
+| Formulário: nota | "A pessoa denunciada não é avisada." | `ReportScreen.tsx:33` (`REPORT_PRIVACY_NOTE`) |
+| Denúncia enviada (M9) | "Denúncia enviada. Obrigado por avisar." | `ReportScreen.tsx:32` (`REPORT_SENT_MESSAGE`) |
+| 404 (M10) e bloqueio depois do prazo (M7) | "Este perfil não está mais disponível." | `apps/mobile/src/features/relations/useFollowToggle.ts:14` (`PROFILE_GONE_MESSAGE`), como pede a R1-9.5 |
+| 503 | "Conectar está indisponível agora. Tente de novo em instantes." | `apps/mobile/src/lib/error-messages.ts:33-34` (`PROXIMITY_UNAVAILABLE`) |
+| 429 | "Muitas tentativas. Espere um pouco e tente de novo." | `error-messages.ts:19` (`RATE_LIMITED`) |
+| Sem rede | "Sem conexão com a internet. Tente de novo." | `error-messages.ts:42` (`OFFLINE_MESSAGE`) |
+| Cartão vencido (M12) | T20 | `connect/copy.ts:62-63` (`cardExpired`) |
+| Pedido recebido (M16) | A5, "{primeiro nome} quer se conectar com você." | `connect/copy.ts:162` (`announceIncoming`) |
+
+**Novo, aprovado pelo PO em 2026-10-30, exatamente como proposto:** só o **T46** (§11.9), a nota do prazo no formulário aberto pelo cartão: "Envie em até 1 minuto depois do encosto." Aparece só no formulário aberto pelo cartão 11, pelo 14 e pelo Bloqueado, e nunca no 12 nem na rota `/denunciar`. Por que é indispensável: sem ele, a pessoa só descobre o prazo quando o envio falha. Nesse momento, o texto digitado se perde, e o aviso ("Este perfil não está mais disponível.") não explica o motivo. Quem escreve uma denúncia longa costuma ser justamente quem passou pelo caso do R21.
+
+#### Impacto nos componentes (indicação para o `frontend`; eu não altero código)
+
+| Onde | Mudança |
+|---|---|
+| `connect/TouchCard.tsx` | **Linha nova.** Entra nas variantes `touched`, `alreadyConnected` e `incoming`, depois do último elemento de cada uma: o `link` do Cancelar (`:162-170`), as ações do 12 (`:177-179`) e o prazo do 14 (`:120-128`). Estilo: `marginTop` 32, `flexDirection: 'row'`, `flexWrap: 'wrap'`, `justifyContent: 'center'`, `columnGap` 32 e `rowGap` 8. Cada ação é um `Button variant="link" size="sm"`, desativado com `busy`; o ‹Bloquear› fica em `loading` no M3. **Variante nova `blocked`:** o nome como título, o `blockedMessage`, o (Voltar) `secondary` e, enquanto valer, só o ‹Denunciar›. **Foco:** mudar a chave do `useFocusOnShow` (`:65`) no M4, no M9, no M12 e no M16, para o foco voltar ao cabeçalho. |
+| `connect/useConnectSession.ts` | **Estado por cartão:** `alertOpen`, `formOpen`, `blocking` e `blocked`. **Vencimento (M15):** o `expireCard` (`:496-507`), o timer (`:527-538`) e o fechamento pelo pedido vencido (`:264-276`) esperam enquanto `alertOpen` ou `formOpen`. **Bloqueio:** chama `blockAccount(api, {handle})` (`relations/api`), com os mesmos efeitos do `useBlockAccount` (`hideAuthor`, `follows.set`, `reloadUser`), sem o Toast no 11 e no 14 (M4). Depois do 204, `incoming.dismiss` do pedido dessa pessoa, sem Toast. Aplica a regra do M7: nenhuma chamada depois do `expiresAt`. **Erros:** os de bloquear e de denunciar **não** chamam o `halt` (o `connectCard` chama hoje, `:602`). **Pedido:** a vibração e o A5 (`:287-294`) esperam o formulário (M16), e o 14 perde a linha no `expiresAt` (M14). |
+| `moderation/useBlockAccount.ts` | Reaproveitar o `Alert` e os textos. Sugestão: uma opção para o sucesso sem Toast e um retorno do "Cancelar" (para o M15 saber que o `Alert` fechou), ou exportar o `Alert` à parte. Os textos continuam vindo das mesmas constantes. |
+| `moderation/ReportScreen.tsx` | Extrair o formulário (`:109-160`) num componente (por exemplo, `ReportForm`). Props: `target`, `onClose`, `onSent`, `onGone`, o modo do erro (`toast` na rota, `inline` no Conectar) e a nota opcional (T46). A rota `/denunciar` continua com o mesmo comportamento. |
+| `connect/ConnectScreen.tsx` | O `Modal` do formulário dentro do `ConnectSessionView`, junto da folha do pedido e do leitor de QR (`:620-640`). |
+| `connect/copy.ts` | O T46 (aprovado pelo PO em 2026-10-30): "Envie em até 1 minuto depois do encosto." |
+| `packages/ui` | Sem mudança. |
+| `testID` | `cartao-denunciar`, `cartao-bloquear`, `conectar-encostado-bloqueado`, `conectar-denunciar` (o `Modal`) e `conectar-denunciar-erro` (a linha de erro). |
+
+#### Testes sugeridos (app; o `testes` dá os IDs)
+
+1. **11:** a linha mostra "Denunciar" e depois "Bloquear", abaixo do ‹Cancelar›, com alvos de 44 (`hitSlop`). As duas ficam desativadas enquanto o Conectar está em andamento.
+2. **Bloquear no 11:**
+   - o `Alert` aparece com `blockTitle` e `BLOCK_MESSAGE`;
+   - "Cancelar" não muda nada;
+   - "Bloquear" manda `POST /me/blocks {handle}`;
+   - o 204 leva ao Bloqueado: sem Conectar, com o `blockedMessage`, o "Voltar" e só o "Denunciar";
+   - o foco vai ao nome, com o `blockedMessage` depois, em fila;
+   - sem Toast e sem vibração.
+3. **Bloqueado:** no `expiresAt`, volta ao Pronto sem Toast, com o foco no título. "Voltar" faz o mesmo.
+4. **Bloquear no 14:** o Bloqueado aparece sem Aceitar e sem Recusar. O pedido sai sem o Toast "não está mais disponível", mesmo quando o polling devolve 404 ou o pedido cancelado.
+5. **14:** a linha some no `expiresAt`, e o pedido continua com o "Expira em". O foco só vai ao título se estava na linha.
+6. **12:** a linha continua depois de 55 s. "Bloquear" com 204 fecha o cartão, com o Toast `blockedMessage` (`announceAfterMs`) e o foco no título do Pronto.
+7. **Erros no bloqueio:**
+   - 503 `PROXIMITY_UNAVAILABLE` mostra o Toast com o texto, e o cartão fica igual, com o Conectar;
+   - não vai ao estado 19;
+   - o mesmo vale para o 429 e para a falta de rede (`OFFLINE_MESSAGE`).
+8. **M7:** com o `Alert` aberto no `expiresAt`, o cartão não vence. "Bloquear" não chama a API e mostra o Toast `PROFILE_GONE_MESSAGE`; o 11 volta ao Pronto.
+9. **Denunciar:**
+   - o formulário abre num `Modal`, a aba continua em foco e o cartão continua montado;
+   - o foco vai à pergunta;
+   - o alvo é `account` com o @;
+   - "Enviar" fica desativado até escolher o motivo;
+   - o T46 aparece no 11, no 14 e no Bloqueado, e não aparece no 12 nem na rota `/denunciar`.
+10. **202 antes do prazo:** volta ao cartão, com o Toast `REPORT_SENT_MESSAGE` (`announceAfterMs`) e o foco no nome. "Denunciar" e "Bloquear" continuam.
+11. **Formulário aberto depois do `expiresAt`:**
+    - o cartão não vence, e o texto fica;
+    - o 202 volta ao Pronto com o `REPORT_SENT_MESSAGE`, sem o T20;
+    - o 404 mostra o `PROFILE_GONE_MESSAGE` e volta ao Pronto, sem o T20.
+12. **503, 429 e falta de rede no envio:**
+    - o formulário fica, com o motivo e o texto;
+    - a linha de erro aparece com o texto e é anunciada uma vez;
+    - "Enviar" volta a funcionar;
+    - nenhum Toast.
+13. **Cancelar o formulário:** antes do prazo, volta ao cartão. Depois, vai ao estado 17, com o T20.
+14. **11 → 14 com o formulário aberto:** sem vibração e sem A5 até fechar. Depois de fechar, o foco vai ao título, e o A5 sai em fila.
+15. **Background com o formulário aberto:** na volta, o formulário e o texto estão como estavam.
+16. **Onde a linha não aparece:** no QR, no p13 e na folha da §4.11.
 
 ---
 
 ### Arquivos
 - Criado: `docs/equipe/ux.md` (este documento).
-- Alterado em 2026-10-30: §11 nova (Conectar por encostar os celulares) e avisos "(atualizado em 2026-10-30)" no topo e nas §2.1, 4.10, 4.12, 5.2, 6.10, 6.14, 7.3, 8, 9 e 10. No mesmo dia: a aprovação do PO (D-UX21, D-UX22, D-UX24, T1 a T42 e a remoção do `Radar`; o D-UX23 fica para o spike) e as correções da ADR 0012 §9 e §10 às premissas (P3, P4, P7 e o NameDrop).
+- Alterado em 2026-10-30: §11 nova (Conectar por encostar os celulares) e avisos "(atualizado em 2026-10-30)" no topo e nas §2.1, 4.10, 4.12, 5.2, 6.10, 6.14, 7.3, 8, 9 e 10. No mesmo dia: a aprovação do PO (D-UX21, D-UX22, D-UX24, T1 a T42 e a remoção do `Radar`; o D-UX23 fica para o spike) e as correções da ADR 0012 §9 e §10 às premissas (P3, P4, P7 e o NameDrop). Ainda no mesmo dia, a revisão da implementação (§11.13), que mudou a §11.4 (estados 12 e 17, erro de rede no Aceitar, tela acesa e saída do Aproximando), a §11.6 (a frase do encostar), a §11.8 (anúncios, a ordem entre foco e anúncio e o foco na volta ao Pronto), a §11.9 (T35 e T36 anotados e os T43 a T45 propostos) e a §11.12 (item 5). Ainda em 2026-10-30: o PO aprovou os T43 a T45 exatamente como propostos (T6, T23 e T36 marcados como substituídos na §11.9, e as referências na §11.4, nos wireframes, na §11.8, na §11.10, na §11.11 e na §11.12 ajustadas); o PO aceitou o R21 com o teto de pessoas novas e a revelação simétrica garantida (A2 da ADR 0012), registrados na §11.4 sem texto novo; e a §11.13 ganhou a reconferência dos ajustes 3 a 6 do `frontend` (três avais) e a situação das sugestões abertas (R9, R11, o fade e o A5 com a câmera aberta, para depois). Ainda em 2026-10-30: a §11.14 nova (bloquear e denunciar pelo cartão, pela decisão do PO e pela ADR 0012, A2 rev. 1), com o T46 proposto na §11.9 e as referências no topo da §11, na §11.4 (estados 9, 11, 12 e 14, regras gerais e `testID`), na §11.5, na §11.8 (vibração), na §11.11, na §11.12 (itens 10 e 11) e na §11.13 (nota do T43). Ainda em 2026-10-30: o PO aprovou o T46 exatamente como proposto (§11.9 e §11.14 ajustadas, com o topo da §11 e os "se o PO aprovar" trocados pela decisão), e o ponto para o `arquiteto` da §11.14 ficou registrado como resolvido pela R1-10 da ADR 0012 (`pairExpiresInS` em cada cartão do `touches`).
 - Previsto para a Fase 0 (Dev): `packages/ui/theme.ts`, `packages/ui/icons/HouseFill.tsx`, `packages/ui/avatar/color.ts`, componentes da seção 6.13–6.14, `packages/ui/catalog/fixtures/*`, `apps/mobile/src/app/dev/catalog.tsx`.

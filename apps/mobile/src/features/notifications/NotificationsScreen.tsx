@@ -28,6 +28,7 @@ import { useNotifications } from './NotificationsProvider';
 import { messageForError } from '../../lib/error-messages';
 import { useAuth, useSignedInUser } from '../auth/AuthProvider';
 import { useCursorList } from '../lists/useCursorList';
+import type { TabBase } from '../navigation/routes';
 import { postHref, profileHref, reelHref, useTabBase } from '../posts/navigation';
 
 export const NOTIFICATIONS_TITLE = 'Notificações';
@@ -61,7 +62,7 @@ function RowSkeleton() {
 }
 
 /** Abre o post da notificação: reel no visualizador (5.5), foto e texto no detalhe `p/[id]`. */
-function openPost(post: NotificationPost, base: string) {
+function openPost(post: NotificationPost, base: TabBase) {
   router.push(post.type === 'reel' ? reelHref(post.id, base) : postHref(base, post.id));
 }
 

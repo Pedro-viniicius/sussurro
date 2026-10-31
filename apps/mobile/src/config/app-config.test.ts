@@ -151,10 +151,12 @@ describe('app.config', () => {
     });
   });
 
-  it('4.3: iOS só com o texto do Bluetooth em pt-BR, sem modo de background', () => {
+  it('4.3 / T39 (ADR 0012): iOS só com o texto do Bluetooth em pt-BR, sem modo de background', () => {
     const plist = proximityPlugin.setIosBluetoothUsage({});
     expect(plist).toEqual({ NSBluetoothAlwaysUsageDescription: proximityPlugin.BLUETOOTH_USAGE });
-    expect(proximityPlugin.BLUETOOTH_USAGE).toMatch(/Ninguém vê sua localização/);
+    expect(proximityPlugin.BLUETOOTH_USAGE).toBe(
+      'O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa, com a tela Conectar aberta. Ninguém vê sua localização, e nada é transmitido com o app fechado.',
+    );
   });
 
   it('Fase 6: expo-notifications com o ícone branco, a cor da marca e sem push silencioso', () => {

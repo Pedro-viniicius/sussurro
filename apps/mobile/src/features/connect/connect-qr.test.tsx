@@ -16,7 +16,8 @@ import {
   connectionRequest,
   HELENA_TOKEN,
   incomingRequest,
-  MY_TOKENS,
+  MY_BLE_TOKENS,
+  MY_QR_TOKENS,
   nearbyPerson,
 } from '../../test-utils/connect-fixtures';
 import { creatorMe, type FakeApi, type FakeCall, personalMe } from '../../test-utils/fake-api';
@@ -62,7 +63,7 @@ function qrPathOf(testID: string): unknown {
 }
 
 beforeEach(() => {
-  Object.assign(connectTiming, { pollMs: 20, resolveMinIntervalMs: 0, tickMs: 20 });
+  Object.assign(connectTiming, { pollMs: 20, tickMs: 20 });
   cameraMock.reset();
 });
 
@@ -72,7 +73,7 @@ afterEach(() => {
 });
 
 describe('Conectar por QR code (4.7, D3 e D7)', () => {
-  it('4.7 CA1: a aba "QR code" mostra meu código (sussurro://c/{token}) com o @, renovado sem piscar', async () => {
+  it('4.7 CA1 / ADR 0012 §1: a aba "QR code" mostra o meu qrToken (sussurro://c/{qrToken}), nunca o bleToken; renovado sem piscar', async () => {
     await renderApp({
       signedInAs: personalMe(),
       initialUrl: '/pessoal/conectar',
@@ -80,17 +81,19 @@ describe('Conectar por QR code (4.7, D3 e D7)', () => {
     });
     await userEvent.press(await screen.findByRole('radio', { name: 'QR code' }));
     await waitFor(() => {
-      expect(qrPathOf('qr-card-qr')).toBe(qrMatrix(proximityQrPayload(MY_TOKENS[0])).path);
+      expect(qrPathOf('qr-card-qr')).toBe(qrMatrix(proximityQrPayload(MY_QR_TOKENS[0])).path);
     });
     expect(screen.getByText('helena')).toBeOnTheScreen();
     expect(screen.getByText(COPY.qrHint)).toBeOnTheScreen();
+    expect(screen.getByText(COPY.qrExplain)).toBeOnTheScreen();
+    expect(qrPathOf('qr-card-qr')).not.toBe(qrMatrix(proximityQrPayload(MY_BLE_TOKENS[0])).path);
 
     // 20 s depois, o token novo vira o QR novo; nunca há quadro "carregando" no meio.
     await act(async () => {
       await jest.advanceTimersByTimeAsync(20_000);
     });
     await waitFor(() => {
-      expect(qrPathOf('qr-card-qr')).toBe(qrMatrix(proximityQrPayload(MY_TOKENS[1])).path);
+      expect(qrPathOf('qr-card-qr')).toBe(qrMatrix(proximityQrPayload(MY_QR_TOKENS[1])).path);
     });
     expect(screen.queryByTestId('qr-card-carregando')).not.toBeOnTheScreen();
   });
@@ -218,6 +221,36 @@ describe('Conectar por QR code (4.7, D3 e D7)', () => {
     expect(
       api.callsTo(`POST /v1/connections/requests/${HELENA_QR_REQUEST.id}/accept`)[0]?.body,
     ).toEqual({ observedToken: HELENA_TOKEN });
+  });
+
+  it('T45: o aceite por QR recusado pelo servidor mostra "Leia o código de Helena de novo" na folha, e o pedido continua', async () => {
+    const { api } = await renderApp({
+      signedInAs: personalMe({ handle: 'caio.r', name: 'Caio Ribeiro' }),
+      initialUrl: '/pessoal/conectar',
+      configure: (fake) => {
+        configureQr(fake);
+        fake.on('GET /v1/connections/requests/incoming', {
+          status: 200,
+          body: { items: [HELENA_QR_REQUEST] },
+        });
+        fake.on(
+          `POST /v1/connections/requests/${HELENA_QR_REQUEST.id}/accept`,
+          apiError(400, 'PROXIMITY_TOKEN_INVALID'),
+        );
+      },
+    });
+    await screen.findByRole('header', { name: 'Helena quer se conectar' });
+    await userEvent.press(screen.getByRole('button', { name: COPY.acceptByQr }));
+    await scan(proximityQrPayload(HELENA_TOKEN));
+    expect(await screen.findByTestId('folha-pedido-erro')).toHaveTextContent(
+      'Não foi possível confirmar agora. Leia o código de Helena de novo.',
+    );
+    expect(screen.getByTestId('folha-pedido-erro')).toHaveTextContent(COPY.acceptFailed('Helena'));
+    // O pedido continua: a folha segue com "Ler código para aceitar".
+    expect(screen.getByRole('button', { name: COPY.acceptByQr })).toBeOnTheScreen();
+    expect(
+      api.callsTo(`POST /v1/connections/requests/${HELENA_QR_REQUEST.id}/accept`),
+    ).toHaveLength(1);
   });
 });
 

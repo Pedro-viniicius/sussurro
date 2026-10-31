@@ -17,7 +17,7 @@ export interface UserRowProps {
   onPress?: () => void;
   /** Ação à direita, fora da área tocável da linha (ex.: Seguir/Seguindo, Desbloquear). */
   action?: ReactNode;
-  /** 44 nas listas; 48 em "Por perto agora" (ux.md §6.8). */
+  /** Tamanho do avatar: 44 (`lg`) por padrão, nas listas (ux.md §6.8). */
   avatarSize?: AvatarSize;
   testID?: string;
 }

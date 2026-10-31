@@ -86,7 +86,7 @@ As versões foram verificadas em 2026-10-29. Os números exatos ficam fixados no
 | Runtime | **Node.js 26 LTS** (Active LTS desde 2026-10-28, suporte até abr/2029), fixado em `.nvmrc`, `engines` e `eas.json` | É a versão instalada na máquina do PO e já está em LTS. Expo SDK 58 pede Node >= 22.13 e NestJS 12 pede >= 20. A Fase 0 inclui um smoke test, com fallback para Node 24 (ADR 0001). |
 | Gerenciador | pnpm 12.13.0 instalado à parte (`npm i -g`; o Node 26 não traz corepack) + `packageManager`; Turborepo 2.x | Fixado pelo PO. Usamos `nodeLinker` isolado (o padrão), suportado pelo Expo desde o SDK 54, com fallback para `hoisted` (ADR 0001). |
 | App | Expo SDK 58 (RN 0.88, React 19.3, New Architecture), Expo Router, TS strict, dev build | Fixado pelo PO. O SDK 58 é o atual (out/2026). O fallback é o SDK 57 se alguma lib crítica não suportar o 58. |
-| BLE | **Módulo Expo próprio `sussurro-proximity`** (Expo Modules API, Swift + Kotlin) que anuncia e varre sem conexão GATT | Diverge do `react-native-ble-plx`, que não anuncia (ADR 0002). (atualizado em 2026-10-30, ADR 0012) Serve só para reconhecer o celular **encostado**: o Android anuncia com potência baixa e o campo TX Power, e o servidor só revela a pessoa com observação mútua (§11). |
+| BLE | **Módulo Expo próprio `sussurro-proximity`** (Expo Modules API, Swift + Kotlin) que anuncia e varre sem conexão GATT | Diverge do `react-native-ble-plx`, que não anuncia (ADR 0002). (atualizado em 2026-10-30, ADR 0012) Serve só para reconhecer o celular **encostado**: ~~o Android anuncia com potência baixa e o campo TX Power~~ (atualizado em 2026-10-30, adendo A1 da ADR 0012: o Android anuncia perto da potência do iPhone, sem o campo TX Power, e o "encostado" usa só o RSSI medido por quem recebe), e o servidor só revela a pessoa com observação mútua (§11). |
 | QR | `expo-camera` (leitura) + `react-native-qrcode-svg` ou equivalente (exibição) | Plano B da conexão. |
 | Armazenamento seguro | `expo-secure-store` | Refresh token no Keychain/Keystore. |
 | API | NestJS 12.x, adapter Fastify ou Express (padrão Express; não há motivo para trocar) | Fixado pelo PO. |
@@ -131,14 +131,14 @@ Regra de dependência: os controllers só falam com services do próprio módulo
 |---|---|
 | `auth` | Cadastro, login, refresh com rotação, logout, guard JWT, `@CurrentUser()`. Rate limit de login. |
 | `users` | Perfil próprio (`/me`), edição, perfil por @ (com regras de visibilidade), contadores, exclusão de conta. |
-| `policies` | `AccessPolicyService`: `canViewProfile`, `canViewPost`, `isConnected`, `isFollowing`, `assertPersonal`, `assertCreator`. É o único ponto que decide visibilidade e é coberto por testes de permissão. (atualizado na Fase 3) Também decide o bloqueio (X.2), nos dois sentidos: `canViewProfile`, `canViewPost`, `visibleProfiles`, `canFollow`, `canRequestConnection` (pronto para a Fase 4; atualizado na Fase 4: `connectionRequestState`, que também diz "já conectados") e `hideBlockedFor` (filtro SQL das listas com conteúdo de várias contas: comentários e busca). As consultas ficam no `RelationsRepository` ("é conexão?", "há bloqueio?", "segue?"), que nunca devolve listas. |
+| `policies` | `AccessPolicyService`: `canViewProfile`, `canViewPost`, `isConnected`, `isFollowing`, `assertPersonal`, `assertCreator`. É o único ponto que decide visibilidade e é coberto por testes de permissão. (atualizado na Fase 3) Também decide o bloqueio (X.2), nos dois sentidos: `canViewProfile`, `canViewPost`, `visibleProfiles`, `canFollow`, `canRequestConnection` (pronto para a Fase 4; atualizado na Fase 4: `connectionRequestState`, que também diz "já conectados") e `hideBlockedFor` (filtro SQL das listas com conteúdo de várias contas: comentários e busca). As consultas ficam no `RelationsRepository` ("é conexão?", "há bloqueio?", "segue?"), que nunca devolve listas. (atualizado em 2026-10-30, ADR 0012, A2 rev. 1) `canBlockOrReport`: bloquear e denunciar a conta pelo @ de quem o leitor vê ou, entre contas pessoais, de quem tem par encostado vivo com ele (60 s). A regra fica aqui; o fato "o par existe" vem do `proximity`, que é quem fala com o Valkey. |
 | `connections` | Pedidos de conexão, aceite/recusa/cancelamento, criação do par ordenado, lista **própria** de conexões. (atualizado na Fase 4) A lista própria continua no `own-lists`. Aqui ficam os pedidos (`/connections/requests/*`) e desfazer conexão (`DELETE /connections/:handle`, D8). Toda escrita do par pega a trava do par (`lockAccountPair`, a mesma de seguir e bloquear) e decide pelo `AccessPolicyService.connectionRequestState` (tipo de conta, bloqueio e "já conectados") dentro da transação. O `ConnectionsService` é usado pelo `auth` no logout e na exclusão de conta (cancela os pendentes e revoga os tokens, PROX-27). |
 | `proximity` | Emissão/rotação de tokens no Redis, resolução de tokens em cartões, validação de tokens cruzados, rate limits. Não grava no Postgres (delega a `connections`). (atualizado na Fase 4) O estado fica atrás da porta `ProximityStore`: `RedisProximityStore` em produção e `MemoryProximityStore` nos testes (sobre o `Clock`) e no desenvolvimento sem Docker (`PROXIMITY_STORE=memory`, recusado em produção). Os limites da proximidade são contados no próprio store e falham **fechados**, como os tokens. (atualizado em 2026-10-30, ADR 0012) Cada emissão traz dois tokens, um por canal (`bleToken` no anúncio, `qrToken` no QR). O `POST /proximity/touches` recebe os encostos, detecta a observação mútua e grava o par que libera o pedido `ble`. O `resolve` passa a servir só ao QR. A proximidade continua sem gravar no Postgres. |
 | `dev` (atualizado na Fase 4) | `POST /dev/simulate-request` (4.11, D15): uma persona do seed (@lucasf ou @tomas) pede conexão para a conta logada e a resposta traz um token da persona para o aceite. O módulo só é importado com `NODE_ENV=development` (`devModules` no `AppModule`): em `test` e `production` a rota não existe (PROX-30). |
 | `follows` | Seguir/deixar de seguir (personal→creator), lista **própria** de seguidos, busca de criadores por prefixo. (atualizado na Fase 3) A lista própria de seguidos saiu para o `own-lists`. Seguir pega a trava do par (`pg_advisory_xact_lock`), a mesma do bloqueio, e decide pelo `canFollow` dentro da transação. |
 | `own-lists` (atualizado na Fase 3) | As **únicas** listas de relacionamento da API: `GET /me/connections`, `GET /me/following` e `GET /me/blocks`. O `OwnListsRepository` recebe `AuthContext` e só lista as relações de `auth.userId`. Regra de lint (`apps/api/eslint.config.mjs`, `no-restricted-imports`): o repositório só é importável pelo `OwnListsService`, e o service só pelo `MeListsController` (3.6 CA5, com teste). |
-| `blocks` (atualizado na Fase 3) | Bloquear (`POST /me/blocks`) e desbloquear (`DELETE /me/blocks/:handle`). Grava o bloqueio e, na mesma transação, desfaz a conexão e os follows do par e apaga os comentários de cada um nos posts do outro. O efeito na visibilidade é todo do `policies`. |
-| `reports` (atualizado na Fase 3) | Denúncias (`POST /reports`) e a fila de moderação mínima: um e-mail para `MODERATION_EMAIL` por denúncia nova, pela porta `EmailSender`. Sem painel na v1. |
+| `blocks` (atualizado na Fase 3) | Bloquear (`POST /me/blocks`) e desbloquear (`DELETE /me/blocks/:handle`). Grava o bloqueio e, na mesma transação, desfaz a conexão e os follows do par e apaga os comentários de cada um nos posts do outro. O efeito na visibilidade é todo do `policies`. (atualizado em 2026-10-30, ADR 0012, A2 rev. 1) O @ vale também para quem tem par encostado vivo (`canBlockOrReport`), e o sinal de abuso do Conectar roda depois do commit. |
+| `reports` (atualizado na Fase 3) | Denúncias (`POST /reports`) e a fila de moderação mínima: um e-mail para `MODERATION_EMAIL` por denúncia nova, pela porta `EmailSender`. Sem painel na v1. (atualizado em 2026-10-30, ADR 0012, A2 e rev. 1) A denúncia de conta aceita também quem tem par encostado vivo (`canBlockOrReport`; importa `proximity` e `policies`), e o `ModerationSignalsService` manda o sinal de abuso do Conectar. |
 | `posts` | Criação de texto, rascunhos de foto/reel, publicação, exclusão, leitura por perfil e aba. |
 | `media` | URLs pré-assinadas (PUT), verificação de objeto (HEAD), enfileiramento, URLs assinadas do CloudFront para leitura. |
 | `feed` | Query cronológica por janela e tipo, cursor, `caughtUp`. |
@@ -407,9 +407,11 @@ Constraints/índices:
 | ~~`prox:cool:{from}:{to}`~~ | (atualizado na Fase 4) não existe: o intervalo de 1 h depois da recusa é lido da linha `declined` em `connection_requests` | |
 | `prox:ut:{uid}` | (atualizado na Fase 4) conjunto dos hashes emitidos pela conta, para revogar no logout e na exclusão (PROX-27) | 120 s, renovado a cada token |
 | `prox:lock:{uid}` | (atualizado na Fase 4) proximidade bloqueada depois de 20 falhas de token em 10 min | 15 min |
-| `prox:o:{observadorUid}:{donoUid}` | (atualizado em 2026-10-30, ADR 0012) o observador relatou um token **BLE** do dono com força de encosto; só o horário (ms) | 10 s (`PROX_TOUCH_WINDOW_S`) |
-| `prox:m:{menorUid}:{maiorUid}` | (atualizado em 2026-10-30, ADR 0012) par com **encosto mútuo**, sem bloqueio: libera o pedido `ble` entre os dois; só o horário (ms) | 60 s (`PROX_TOUCH_PAIR_TTL_S`) |
-| `rl:{rota}:{uid\|ip}` | contadores de rate limit. (atualizado na Fase 4) Os da proximidade (`rl:prox-tokens:user`, `rl:prox-resolve:user`, `rl:conn-requests:user:min` e `:day`, `rl:conn-accepts:user`, `rl:prox-failures:user`) ficam no `ProximityStore` e falham fechados. (atualizado em 2026-10-30) Mais `rl:prox-touches:user` (60/min) | janela |
+| `prox:o:{observadorUid}:{donoUid}` | (atualizado em 2026-10-30, ADR 0012) o observador relatou um token **BLE** do dono com força de encosto; só o horário (ms). (atualizado em 2026-10-30, A2) `"{primeiroMs}:{hash}"`: o horário do **primeiro** relato (não renova) e o hash do token relatado por último | 10 s (`PROX_TOUCH_WINDOW_S`) (A2: `2 × PROX_TOUCH_WINDOW_S` = 10 s desde o primeiro relato; só casa nos primeiros 5 s) (atualizado em 2026-10-30, A2 rev. 1: 10 s **desde o último relato**, prazo deslizante; o `primeiroMs` não muda enquanto a chave vive) |
+| `prox:m:{menorUid}:{maiorUid}` | (atualizado em 2026-10-30, ADR 0012) par com **encosto mútuo**, sem bloqueio: libera o pedido `ble` entre os dois; só o horário (ms). (atualizado em 2026-10-30, A2 rev. 1) Libera também bloquear e denunciar pelo @ (cartão do encosto). O valor ganha os sentidos já contados no sinal de abuso, `"{horário}:{a\|b\|ab\|ba}"` (conjunto de sentidos, na ordem da contagem; `a` = o menor id bloqueou o maior); o casamento regrava só o horário | 60 s (`PROX_TOUCH_PAIR_TTL_S`) |
+| `prox:v:{uid}` | (2026-10-30, A2) o **cartão devido** à conta: `"{hash}\|{json}"`, com o id, o horário, o @, o nome, a chave da foto e o `alreadyConnected` de quem casou com ela; no máximo um; entrega única | 60 s (`PROX_TOUCH_PAIR_TTL_S`) |
+| `prox:c:{uid}` | (2026-10-30, A2) a conta recebeu um cartão há pouco (ocupada): ninguém casa com ela; só "1" | 10 s (`2 × PROX_TOUCH_WINDOW_S`) |
+| `rl:{rota}:{uid\|ip}` | contadores de rate limit. (atualizado na Fase 4) Os da proximidade (`rl:prox-tokens:user`, `rl:prox-resolve:user`, `rl:conn-requests:user:min` e `:day`, `rl:conn-accepts:user`, `rl:prox-failures:user`) ficam no `ProximityStore` e falham fechados. (atualizado em 2026-10-30) Mais `rl:prox-touches:user` (60/min). (A2) Mais `rl:prox-pairs:hour:{uid}` e `rl:prox-pairs:day:{uid}` (pessoas novas, fail-closed) e `rl:prox-block-after-touch:blocker:{uid}` e `:blocked:{uid}` (sinal de abuso, 7 dias, falha aberta; A2 rev. 1: contam bloqueios, no máximo um por casamento e por sentido) | janela |
 | `cnt:followers:{creatorId}` | número de seguidores do criador (atualizado na Fase 3) | 60 s |
 
 ## 7. Regras de negócio no servidor
@@ -503,26 +505,29 @@ Texto: `POST /v1/posts {type:'text', text}` publica direto.
 
 ## 11. Conexão presencial (ADR 0002, ADR 0003; atualizado em 2026-10-30: ADR 0012)
 
-> (atualizado em 2026-10-30) **Encostar os celulares** (revisão do D3; substitui o D13). O Bluetooth deixa de mostrar quem está "por perto": só quem **encosta** o celular, com a tela Conectar aberta nos dois, vê a pessoa. A garantia não é o limiar do app, que um cliente modificado ignora. É a **observação mútua** no servidor: um token BLE só vira pessoa quando os dois aparelhos afirmam, numa janela de 10 s, que viram o token um do outro com força de encosto. O QR continua de reserva, com token próprio. Resumo do que muda:
+> (atualizado em 2026-10-30) **Encostar os celulares** (revisão do D3; substitui o D13). O Bluetooth deixa de mostrar quem está "por perto": só quem **encosta** o celular, com a tela Conectar aberta nos dois, vê a pessoa. A garantia não é o limiar do app, que um cliente modificado ignora. É a **observação mútua** no servidor: um token BLE só vira pessoa quando os dois aparelhos afirmam, numa janela de ~~10 s~~ 5 s contados do primeiro relato de cada lado (atualizado em 2026-10-30, A2), que viram o token um do outro com força de encosto. O QR continua de reserva, com token próprio. Resumo do que muda:
 > - **Desenho:** §11.1 (anúncio), §11.2 (detecção no app), §11.3 (protocolo novo), §11.4 (garantia e o que o servidor revela), §11.5 (QR), §11.6 (calibração) e §11.7 (contratos).
 > - **O que não muda:** a trava do par, a corrida A→B ∥ B→A, o pendente único, a recusa, o bloqueio, o logout e o desfazer da Fase 4a.
+> - **Adendo A1 da ADR 0012 (2026-10-30, veto ALTO do `seguranca`):** o "encostado" usa só o RSSI medido por quem recebe, com uma referência única para todo emissor. O campo TX Power sai do anúncio e da varredura, e o Android anuncia perto da potência do iPhone (`HIGH`). Fica o risco residual do transmissor amplificado (R21). Muda em §11.1, §11.2, §11.4, §11.6, §15 e §16.
+> - (atualizado em 2026-10-30) **Revisão do A1:** o R21 com a ordem de grandeza honesta (de cerca de 1 m a mais de 10 m, conforme o equipamento), a linha "atacante" do spike medindo afastando o transmissor, e o endereço Bluetooth no R17. **Adendo A2 (decidido pelo PO):** teto de 10 pessoas novas por hora e 30 por dia por conta, revelação simétrica garantida (o cartão de quem casou fica guardado para o outro por até 60 s), uma pessoa por vez no servidor e o sinal de abuso do bloqueio logo depois do encosto. **O PO aceitou o R21 com o A2 implementado antes do merge.** Muda em §6, §11.1, §11.2, §11.4, §11.6, §11.7, §15 e §16.
+> - (atualizado em 2026-10-30) **Revisão 1 do A2** (revisão final do `seguranca`; MÉDIO 2 decidido pelo PO, opção (a)): a observação passa a ter prazo deslizante; o app faz um relato por vez, com orçamento de relatos e uma regra nova de "token novo"; o cartão devido sai antes de qualquer recusa; bloquear e denunciar funcionam pelo cartão enquanto o par vale (60 s); o sinal de abuso conta uma vez por casamento e por sentido. Muda em §5, §6, §11.2, §11.4, §11.7, §15 e §16.
 
 ### 11.1 Descoberta por BLE sem conexão
 - Cada app com a tela Conectar aberta (em foreground) **anuncia e varre ao mesmo tempo**.
 - O anúncio leva um único UUID de serviço de 128 bits: `4 bytes de prefixo fixo do Sussurro + 12 bytes do token`. Nada de nome local, nome do aparelho ou user id. No iOS em foreground, o `CBPeripheralManager` só anuncia `LocalName` e `ServiceUUIDs` em até 28 bytes; um UUID de 128 bits ocupa 18, então cabe. No Android: `AdvertiseData.addServiceUuid`, `setIncludeDeviceName(false)`.
 - A varredura no Android usa `ScanFilter` com máscara no prefixo. No iOS a varredura é sem filtro (foreground) e filtra em código. `AllowDuplicates` fica ligado para atualizar o RSSI.
-- O token é rotacionado a cada 20 s (TTL 30 s), sempre com novo anúncio. O endereço MAC já é aleatório pelo SO.
+- O token é rotacionado a cada 20 s (TTL 30 s), sempre com novo anúncio. ~~O endereço MAC já é aleatório pelo SO.~~ (atualizado em 2026-10-30, revisão do A1) O endereço Bluetooth é aleatório pelo SO, mas **não troca junto com o token**: no iOS o endereço privado dura cerca de 15 min, e o app só reinicia o anúncio; no Android, depende de o sistema trocar a cada `startAdvertising` (o spike confere). Com a tela aberta, um scanner passivo liga os tokens sucessivos ao mesmo aparelho (R17).
 - Tela fechada ou app em background: o anúncio e a varredura param.
 - **Token**: 12 bytes aleatórios (96 bits, CSPRNG), em base64url com 16 caracteres. O mesmo valor vai no QR (`sussurro://c/{token}`).
 - (atualizado na Fase 4) O prefixo fixo do UUID é `53555353` ("SUSS" em ASCII): o UUID anunciado é `53555353-xxxx-xxxx-xxxx-xxxxxxxxxxxx`, com os 12 bytes do token. Montar e ler o UUID e o QR são funções puras em `packages/shared/src/proximity.ts` (`proximityTokenToServiceUuid`, `serviceUuidToProximityToken`, `proximityQrPayload`, `parseProximityQr`), com testes (4.3 CA6), sem `Buffer` (rodam no Hermes).
 - (atualizado em 2026-10-30, ADR 0012) O que muda no rádio:
   - **Dois tokens por emissão:** o anúncio leva o `bleToken`, e o QR leva o `qrToken`, que nunca vai ao ar. Os helpers de UUID e de QR não mudam.
-  - **Android anunciando:**
-    - potência configurável (`ULTRA_LOW`, -21 dBm no AOSP, como padrão inicial; `LOW` como alternativa do spike);
-    - o campo **TX Power** no anúncio (`setIncludeTxPowerLevel(true)`; 24 de 31 bytes);
+  - **Android anunciando** (atualizado em 2026-10-30, adendo A1 da ADR 0012):
+    - potência configurável: ~~`ULTRA_LOW`, -21 dBm no AOSP, como padrão inicial; `LOW` como alternativa do spike~~ → `HIGH` (+1 dBm no AOSP) como padrão inicial e `MEDIUM` (-7 dBm) como alternativa do spike. O objetivo é ficar perto da potência do iPhone, que não dá para baixar (§11.2);
+    - ~~o campo **TX Power** no anúncio (`setIncludeTxPowerLevel(true)`; 24 de 31 bytes)~~ → **sem** o campo TX Power (`setIncludeTxPowerLevel(false)`), como o iPhone;
     - continua `LOW_LATENCY` e não conectável.
-  - **iOS anunciando:** a potência e o campo TX não são configuráveis (o `CBPeripheralManager` só aceita `LocalName` e `ServiceUUIDs`). Anúncio **sem** campo TX = iPhone.
-  - **Varredura:** o evento passa a ser `{uuid, rssi, txPower | null}` (Android: `ScanRecord.getTxPowerLevel()`; iOS: `CBAdvertisementDataTxPowerLevelKey`), com o intervalo mínimo por UUID vindo do TypeScript (200 ms, hoje 500 ms fixo).
+  - **iOS anunciando:** a potência e o campo TX não são configuráveis (o `CBPeripheralManager` só aceita `LocalName` e `ServiceUUIDs`). ~~Anúncio **sem** campo TX = iPhone.~~ (atualizado em 2026-10-30, A1) Os dois sistemas anunciam igual: só o UUID de 128 bits, sem nome e sem campo TX. Um scanner passivo não distingue Android de iPhone pelo anúncio.
+  - **Varredura:** ~~o evento passa a ser `{uuid, rssi, txPower | null}` (Android: `ScanRecord.getTxPowerLevel()`; iOS: `CBAdvertisementDataTxPowerLevelKey`)~~ (atualizado em 2026-10-30, A1) o evento é `{uuid, rssi}`, e o nativo não lê o campo TX, com o intervalo mínimo por UUID vindo do TypeScript (200 ms, hoje 500 ms fixo). Anúncio que traga o campo é tratado como qualquer outro: o campo é ignorado, e o anúncio não é descartado.
   - **Android:** uma **sessão contínua** de varredura por tela, porque o sistema segura a varredura em silêncio com mais de cerca de 5 inícios em 30 s. Só reinicia quando o Bluetooth liga ou desliga, ou ao voltar do background.
   - **Capacidades:** ganham `locationServices: 'on' | 'off' | 'not_required'` (Android ≤ 11 exige a localização do sistema ligada para varrer) e o modelo do aparelho (usado só no aparelho, para a correção de calibração).
   - **Aparelho que não anuncia** (`canAdvertise = false`): vai direto para o QR. Só varrer não serve, porque o encosto exige os dois anunciando.
@@ -531,18 +536,21 @@ Texto: `POST /v1/posts {type:'text', text}` publica direto.
 
 ~~Distância "a ~1 m": lista ordenada por RSSI suavizado, com as faixas "bem perto" (acima de -60 dBm) e "por perto" (até -90 dBm).~~ A lista "Por perto agora" e as faixas saem.
 
-O app só afirma "encostado" para o servidor. O RSSI, o campo TX e o modelo **nunca saem do aparelho**.
+O app só afirma "encostado" para o servidor. O RSSI e o modelo **nunca saem do aparelho**. (atualizado em 2026-10-30, A1) O campo TX nem é lido.
 
 **Onde fica:**
 - a detecção é TypeScript puro e testável (`apps/mobile/src/features/connect/touch-detector.ts`);
 - os valores ficam num **ponto único de calibração**, `touch-calibration.ts`, ao lado (tabela completa e valores iniciais na ADR 0012 §2);
 - o nativo recebe a potência e o intervalo como parâmetros e não guarda limiares.
 
-**Métrica: perda estimada.**
-- `perda = txRef − rssi − correçãoRx` (dB; quanto menor, mais perto);
-- `txRef` = o campo TX do anúncio (Android) ou `iosAdvertiserTxDbm` (anúncio sem o campo = iPhone);
-- `correçãoRx` = por plataforma de quem recebe, mais uma tabela opcional por modelo, só para os outliers medidos;
-- **por quê:** a variação entre aparelhos é grande (o padrão "Presence" do Android aceita mediana entre -65 e -45 dBm a 1 m), e a perda torna a potência do Android um botão de calibração, sem refazer os limiares.
+**Métrica: perda estimada** (atualizado em 2026-10-30, adendo A1 da ADR 0012).
+- `perda = advertiserTxDbm − rssi − correçãoRx` (dB; quanto menor, mais perto);
+- ~~`txRef` = o campo TX do anúncio (Android) ou `iosAdvertiserTxDbm` (anúncio sem o campo = iPhone)~~ → `advertiserTxDbm` é **uma referência única, igual para todo emissor** (inicial 0), que nunca vem do anúncio. Na prática é um limiar absoluto de RSSI: com referência 0 e sem correção, `encostando` = mediana do RSSI ≥ -40 dBm;
+- `correçãoRx` = por plataforma de quem recebe, mais uma tabela opcional por modelo, só para os outliers medidos. É o único ajuste, e vem do próprio aparelho;
+- ~~**por quê:** a variação entre aparelhos é grande (o padrão "Presence" do Android aceita mediana entre -65 e -45 dBm a 1 m), e a perda torna a potência do Android um botão de calibração, sem refazer os limiares.~~
+- **por que não usar o campo TX do anúncio:** é um número que o emissor escreve, e o receptor não tem como conferi-lo. Com o campo na conta, um atacante declarava -100 dBm e a vítima calculava "encostado" a 15–30 m (veto ALTO do `seguranca`, 2026-10-30). Para os aparelhos honestos, o campo só trazia o nível nominal pedido, que já é conhecido pelo build;
+- **por que o Android anuncia em `HIGH`:** com um limiar único, ele precisa pegar no encosto o emissor honesto mais fraco, e a vantagem de um atacante é a potência dele menos a desse emissor. O iPhone não deixa baixar a potência; então o Android sobe até perto dela. O spike escolhe entre `HIGH` e `MEDIUM` (§11.6);
+- **o que não muda:** para emissores honestos, a distância do "quase" e do "encostado" é a mesma (os limiares já eram perda em relação ao emissor). A variação real entre aparelhos (o padrão "Presence" do Android aceita mediana entre -65 e -45 dBm a 1 m) nunca foi corrigida pelo campo e continua com a correção de quem recebe, a histerese, a dica, o QR e o spike.
 
 **Suavização e tempo sustentado:**
 - mediana das amostras dos últimos 1,5 s, com pelo menos 3 amostras; a mediana ignora os vales de multipercurso;
@@ -567,7 +575,13 @@ Os números do diagrama são **provisórios**: o spike 4.1-B (§11.6) define os 
 
 **Relato ao servidor:**
 - `POST /proximity/touches` a cada 1 s, por até 8 s desde o primeiro `encostado`, **mesmo depois de afastar**, até o cartão chegar. Sem isso, quem detecta primeiro pode ficar sem o cartão que o outro recebeu;
-- sem cartão aberto, um token por chamada (o de menor perda); com cartão aberto, nenhum. É isso que garante uma pessoa por vez (P8 do UX);
+  - (atualizado em 2026-10-30, A2) o prazo de 8 s também recomeça na resposta do primeiro relato de cada token novo (vale o mais tardio). Como a janela do servidor é de 5 s desde o primeiro relato, o app sempre relata de novo depois do último casamento possível, e recebe o cartão de quem o viu;
+  - (atualizado em 2026-10-30, A2 rev. 1) o **invariante**: toda janela que o servidor abre sobre a pessoa é seguida de pelo menos 8 s de relatos dela. Para isso:
+    - "token novo" é o token nunca aceito no período do Pronto, ou cujo último relato aceito começou há 5 s ou mais (medido na resposta);
+    - o prazo é um só e nunca desce;
+    - há um relator só, com um relato por vez e pelo menos 1 s entre inícios no processo inteiro (também na troca de sessão e entre visitas à tela);
+    - **orçamento:** um encosto novo ou um token novo só entram com no máximo 30 relatos começados nos últimos 60 s (40 de teto, 10 de reserva). Acima disso, o token novo é ignorado, mas o prazo já aberto nunca é cortado. Assim o app fica em até 39 relatos por minuto, contra 60 do servidor (ADR 0012, A2 rev. 1, R1-3);
+- sem cartão aberto, um token por chamada (o de menor perda); com cartão aberto, nenhum. É isso que garante uma pessoa por vez (P8 do UX). (atualizado em 2026-10-30, A2) O servidor também garante: exatamente 1 token por chamada, e ninguém casa com quem tem um cartão a receber ou recebeu um há menos de 10 s (§11.4). (atualizado em 2026-10-30, A1) Com a referência única, "a menor perda" é o maior RSSI no mesmo receptor: um campo TX forjado não ganha mais de um encosto real. Só um sinal de fato mais forte ganha (R21);
 - chamadas sem sobreposição.
 
 **Sinais para a tela** (o UX/UI define textos e visual; premissas P1 a P11 da `ux.md` §11.2 respondidas na ADR 0012 §10):
@@ -606,7 +620,7 @@ sequenceDiagram
   B--)A: anúncio UUID(prefixo|tB)
   Note over A,B: celulares encostados: cada app vê a perda do outro abaixo do limiar por 0,7 s (§11.2)
   A->>API: POST /proximity/touches {tokens:[tB]}
-  API->>R: tB válido, ch ble, dono B ≠ A; SET prox:o:A:B (10 s); prox:o:B:A existe? não
+  API->>R: tB válido, ch ble, dono B ≠ A; SET prox:o:A:B (A2: 1º relato, casa por 5 s); prox:o:B:A na janela? não
   API-->>A: {items: []}
   B->>API: POST /proximity/touches {tokens:[tA]}
   API->>R: SET prox:o:B:A; prox:o:A:B existe? sim (mútuo)
@@ -654,7 +668,7 @@ sequenceDiagram
 - **Expiração**: o pedido expira em 120 s. A expiração é preguiçosa (verificada em cada operação) e um job limpa a cada minuto. O app de A mostra "não confirmado" ao expirar.
 - **Recusa**: cria um cooldown de 1 h de A para B. A vê só "não confirmado" (não diferenciamos recusa de expiração).
 - **Rate limits** (por usuário): emitir token 6/min; resolve 30/min; criar pedido 10/min e 50/dia; aceitar 10/min; 20 falhas de validação de token em 10 min bloqueiam a proximidade por 15 min. Se o Redis cair, a proximidade fica fail-closed. (atualizado em 2026-10-30, ADR 0012)
-  - Entra `touches`: 60/min, até 4 tokens por chamada (o app manda 1), nunca contado como falha (não ser mútuo é normal).
+  - Entra `touches`: 60/min, até 4 tokens por chamada (o app manda 1), nunca contado como falha (não ser mútuo é normal). (atualizado em 2026-10-30, A2) Exatamente 1 token por chamada, e o teto de 10 pessoas novas por hora e 30 por dia por conta, sem 429 (§11.4).
   - O `resolve` fica só para o QR.
   - Passam a contar como falha o pedido `ble` sem par e o token de canal trocado.
   - O resto não muda (tabela na ADR 0012 §6).
@@ -673,16 +687,17 @@ sequenceDiagram
 - **Desfazer conexão** (D8): `DELETE /connections/:handle` → 204; @ que não é conexão, inexistente, excluído ou a própria conta → o mesmo 404. A outra pessoa não é avisada. As URLs de mídia já emitidas valem até vencer (até 6 h, A-19).
 - **Simulação em dev** (D15): `POST /v1/dev/simulate-request` só com `NODE_ENV=development`.
 
-### 11.4 Garantia no servidor: observação mútua (atualizado em 2026-10-30, ADR 0012)
+### 11.4 Garantia no servidor: observação mútua (atualizado em 2026-10-30, ADR 0012, adendos A1 e A2, e revisão 1 do A2)
 
 **Problema:** o RSSI é medido pelo cliente, e qualquer um lê o anúncio.
 - Um scanner passivo a 10 m lê o UUID de um iPhone, cuja potência não dá para baixar.
 - Um cliente modificado mente que está encostado.
 - Antes, o `resolve` e até a resposta do pedido revelavam @, nome e foto de qualquer token válido.
 
-**Regra:** um token BLE só vira pessoa quando **os dois** aparelhos relatam, numa janela de `PROX_TOUCH_WINDOW_S` (10 s), o token um do outro com força de encosto. O aparelho honesto da vítima só relata o atacante se o sinal dele chegar com força de encosto, o que a 10 m não acontece com um celular comum.
+**Regra:** um token BLE só vira pessoa quando **os dois** aparelhos relatam, numa janela de `PROX_TOUCH_WINDOW_S` ~~(10 s)~~ (atualizado em 2026-10-30, A2: 5 s, contados do primeiro relato de cada lado, sem renovar), o token um do outro com força de encosto. O aparelho honesto da vítima só relata o atacante se o sinal dele chegar com força de encosto, o que a 10 m não acontece com um celular comum.
+- (atualizado em 2026-10-30, adendo A1 da ADR 0012) Isso só vale porque a "força de encosto" é julgada **só pelo RSSI que o receptor mede**, com uma referência fixa (§11.2). Quando o app usava o campo TX declarado pelo emissor, um atacante escrevia -100 dBm no anúncio e a vítima calculava "encostado" a 15–30 m.
 
-**`POST /proximity/touches {tokens: [1..4]}`.** Exige conta pessoal, e-mail confirmado, tela aberta (409 `PROXIMITY_SCREEN_CLOSED`) e não estar bloqueado; 60 por minuto. O que o servidor faz:
+**`POST /proximity/touches {tokens: [1..4]}`** (atualizado em 2026-10-30, A2: `{tokens: [1]}`). Exige conta pessoal, e-mail confirmado, tela aberta (409 `PROXIMITY_SCREEN_CLOSED`) e não estar bloqueado; 60 por minuto. O que o servidor faz (A2: o desenho em vigor está logo abaixo, em "Adendo A2"; os passos 2 a 4 a seguir são os da ADR original):
 1. **Filtra os tokens.** Fica só o que estiver válido no `prox:t` (até 30 s), com `ch = 'ble'` e dono diferente de quem chama. O resto é ignorado em silêncio, sem contar como falha.
 2. **Grava e confere, por dono O, num script Lua atômico:**
    - `SET prox:o:{caller}:{O} PX janela`;
@@ -693,6 +708,23 @@ sequenceDiagram
 4. **Responde 200 `{items}`.** Não mútuo, vencido, inexistente, próprio, de criador, de conta excluída ou com bloqueio são indistinguíveis.
 
 **Revelação simétrica:** quem relata primeiro recebe `items: []` e, no relato seguinte, o cartão. Ninguém vê quem não o vê.
+
+**Adendo A2 (atualizado em 2026-10-30, decidido pelo PO; detalhes e script na ADR 0012, Adendo A2).** Como estava, a revelação podia ser derrotada: o atacante recebia o cartão e bloqueava, excluía a conta ou saía antes do relato seguinte da vítima, ou casava depois do último relato dela. Agora:
+- **Janela do primeiro relato:** `prox:o` guarda o horário do primeiro relato (não renova) e só casa nos primeiros `PROX_TOUCH_WINDOW_S` (5 s); o app relata por 8 s desde o primeiro relato de cada token, então quem foi visto sempre relata de novo depois do último casamento possível.
+  - (atualizado em 2026-10-30, A2 rev. 1) A chave tem **prazo deslizante**: cada relato a regrava por 10 s, mantendo o horário do primeiro. Ela só some depois de 10 s sem relato, então só a recria um relato que o app conta como token novo e cobre com mais 8 s. Antes, ela vencia 10 s depois do primeiro relato, mesmo com a vítima relatando, e o relato seguinte abria uma janela que o app não cobria (MÉDIO 1 da revisão final).
+- **Cartão devido:** o casamento (`claimTouchPair`, um script Lua) grava, junto com o par, o cartão de quem chama para o outro (`prox:v:{outro}`, 60 s). O relato seguinte do outro recebe esse cartão **antes de tudo**, mesmo que quem o deixou tenha bloqueado, excluído a conta ou saído. A política decide uma vez, no casamento; o bloqueio continua valendo para o pedido de conexão.
+  - (atualizado em 2026-10-30, A2 rev. 1) "Antes de tudo" inclui o limite de 60/min, a tela fechada e o bloqueio da proximidade: o cartão devido sai antes dessas três recusas.
+  - A entrega é **única e sem confirmação**: se a resposta se perder depois da retirada, o cartão se perde (R23).
+- **Uma pessoa por vez:** ninguém casa com quem tem um cartão a receber ou recebeu um há menos de 10 s (`prox:c`).
+- **Teto:** cada par **novo** soma 1 para as duas contas (`rl:prox-pairs:hour|day`); com qualquer uma no teto (10/h, 30/dia), o par não nasce. Renovar não conta.
+- **Resposta:** sempre 200 `{items}`, no máximo um cartão; teto, ocupado e janela vencida são iguais a não mútuo. O `token` do cartão devido é o relatado, se for do dono do cartão; senão, um token que nunca existiu (o "Conectar" falha, e o pedido nunca vai para outra pessoa).
+- **Sinal de abuso:** um bloqueio entre contas com par vivo (até 60 s depois do casamento) soma para quem bloqueou e para quem foi bloqueado (7 dias); no 3º, um e-mail para a moderação com o @ e o papel. Falha aberta: o bloqueio nunca depende do Valkey.
+  - (atualizado em 2026-10-30, A2 rev. 1) Conta **no máximo uma vez por casamento e por sentido**, com a marca no valor do próprio par (script atômico), então N bloqueios simultâneos, ou bloquear, desbloquear e bloquear de novo, não somam mais. O e-mail fala em "3 bloqueios" (podem envolver a mesma pessoa em encostos diferentes) e orienta conferir a tabela `blocks`.
+- (atualizado em 2026-10-30, A2 rev. 1, decisão do PO, opção (a)) **Bloquear e denunciar pelo cartão:** com o par vivo, `POST /me/blocks {handle}` e a denúncia de conta aceitam o @ do outro, mesmo sem serem conexões e mesmo que um já tenha bloqueado o outro (`AccessPolicyService.canBlockOrReport`). Nenhum dos dois consome o par, então a ordem não importa.
+  - (atualizado em 2026-10-30, R1-10) O cartão traz `pairExpiresInS`, e o app tira os botões quando o par está para vencer, mesmo no cartão devido que chega tarde.
+  - (PO, 2026-10-30, **próximo PR**, R1-PO-1) Denunciar a conta de quem você bloqueou também passa a valer, sem o prazo de 60 s.
+  - Fora do par, tudo continua como antes, sem oráculo.
+  - Para alvo não visível, a rota consulta o Valkey sempre (exista a conta ou não). Com o Valkey fora, responde 503, igual para qualquer @.
 
 **Pedido e aceite:**
 - **pedido `ble`:** `targetToken` válido **ou recente**, `ch = 'ble'`, e o par `prox:m` existe. Sem o par ou com canal trocado → 400 `PROXIMITY_TOKEN_INVALID` (genérico, conta como falha). O token "recente" basta porque o app só conhece o token devolvido no casamento, e o par é a prova forte;
@@ -711,8 +743,11 @@ sequenceDiagram
 
 **Riscos que ficam:**
 - relay ativo com aparelhos encostados nos dois alvos (R12);
+- (atualizado em 2026-10-30, A1) transmissor mais forte que um celular (amplificador, antena direcional), que chega a "encostado" de mais longe (R21): de cerca de 1 m a mais de 10 m, conforme o equipamento (revisão do A1); aceito pelo PO com o A2;
 - alguém a poucos centímetros do celular da vítima com a tela aberta;
-- o prefixo fixo `53555353` revela que alguém por perto está com a tela Conectar aberta, mas não quem (R17).
+- o prefixo fixo `53555353` revela que alguém por perto está com a tela Conectar aberta, mas não quem (R17); (atualizado em 2026-10-30) e o endereço Bluetooth, que não troca com o token, liga os tokens sucessivos do mesmo aparelho enquanto a tela está aberta;
+- (atualizado em 2026-10-30, A2 rev. 1) o tempo de resposta do `touches` distingue o não mútuo dos casos recusados (R22, aberto);
+- (atualizado em 2026-10-30, A2 rev. 1) o cartão devido que se perde na rede depois da retirada, ou porque a pessoa saiu do Pronto antes do fim do prazo (R23).
 
 ### 11.5 QR de reserva (atualizado em 2026-10-30, ADR 0012)
 
@@ -730,43 +765,48 @@ sequenceDiagram
   - é Android ≤ 11 com a localização do sistema desligada;
   - passaram 20 s no Pronto sem encostar, 10 s em `quase` sem confirmar, ou houve 2 "Não deu para confirmar" seguidos.
 
-### 11.6 Calibração (atualizado em 2026-10-30, ADR 0012)
+### 11.6 Calibração (atualizado em 2026-10-30, ADR 0012 e adendo A1)
 
 **Ponto único:** `apps/mobile/src/features/connect/touch-calibration.ts`.
 - **Conteúdo:**
-  - potência do Android e campo TX;
-  - TX assumido do iPhone;
+  - potência do Android ~~e campo TX~~ (A1: o campo TX saiu);
+  - ~~TX assumido do iPhone~~ → a referência única `advertiserTxDbm`, igual para todo emissor (A1);
   - correção por plataforma e por modelo;
   - limiares de entrar, sair e "quase";
   - janela, amostras mínimas e tempo sustentado;
   - cadência de relato e tempo até oferecer o QR.
 - **Sem limiar no nativo:** o nativo recebe a potência e o intervalo por parâmetro.
-- **Tempos do servidor:** ficam no env da API (`PROX_TOUCH_WINDOW_S`, `PROX_TOUCH_PAIR_TTL_S`), com padrão no `packages/shared`.
+- **Tempos do servidor:** ficam no env da API (`PROX_TOUCH_WINDOW_S`, `PROX_TOUCH_PAIR_TTL_S`), com padrão no `packages/shared`. (atualizado em 2026-10-30, A2) `PROX_TOUCH_WINDOW_S` passa a 5 s, contados do primeiro relato; o app precisa de `reportForMs ≥ (PROXIMITY_TOUCH_WINDOW_S + 2) s` (teste no app). O teto (`PROX_TOUCH_PAIRS_PER_HOUR` 10, `PROX_TOUCH_PAIRS_PER_DAY` 30) fica só no env da API e muda sem build do app.
 - **Atualizar:** sem `expo-updates`, a calibração muda só com build novo.
 
 **Spike 4.1-B** (roteiro completo na ADR 0012 §8):
-- **Ferramenta:** uma tela `/dev/proximidade`, só na variante `development`. Mostra ao vivo, por token, RSSI, campo TX, perda, mediana e estado, e escreve CSV no `console` (capturado no Metro). Sem dependência nova e sem nada no servidor.
+- **Ferramenta:** uma tela `/dev/proximidade`, só na variante `development`. Mostra ao vivo, por token, RSSI, ~~campo TX,~~ perda, mediana e estado, e escreve CSV no `console` (capturado no Metro). Sem dependência nova e sem nada no servidor.
 - **Medições:**
   - matriz de aparelhos do `testes.md` §8.1, em todos os pares e nos dois sentidos;
   - três capas e dez posições (de costas com costas até 10 m);
-  - o Android em `ULTRA_LOW` e em `LOW`.
+  - o Android ~~em `ULTRA_LOW` e em `LOW`~~ (A1) em `HIGH` e em `MEDIUM`. Fica o nível cuja mediana de RSSI, no mesmo receptor e a 5, 15 e 30 cm, mais se aproxima da do iPhone emissor; em empate, o mais baixo;
+  - (A1) a linha **"atacante"**: ~~um transmissor fora do app […] a +8 e a +20 dBm, a 1, 3 e 10 m de I1 e de A1, 5 min por posição. Depois, aproximar em passos para medir a maior distância com `encostado` (com antena direcional, se houver), que vai para o R21.~~ (atualizado em 2026-10-30, revisão do A1) um transmissor fora do app anuncia o `bleToken` de uma conta de teste para I1 e A1, com os limiares finais:
+    - **regressão do A1:** a 1 m e +8 dBm, com o campo TX declarado -21, -100 e sem campo, 5 min cada; os estados precisam ser os mesmos nas três;
+    - **resíduo, afastando o transmissor:** +8 dBm omni, +20 dBm omni e +20 dBm com **antena direcional obrigatória** (8 a 14 dBi), em 1, 2, 3, 5, 7, 10 e 15 m, com linha de visada e numa sala comum, até 5 min por passo; para no primeiro passo com 5 min sem `encostado`, e o resíduo é o maior passo com `encostado` ("≥ 15 m" se ainda houver). +30 dBm não é transmitido: estima-se com +10 dB, cerca de 3,2 vezes a distância de +20 dBm direcional;
+    - **endereço (R17):** com o nRF Connect, se o Android troca o endereço a cada `startAdvertising` (10 rotações) e quanto dura o do iPhone (20 min).
 - **Critério de aprovação, por par e por capa:**
   - pelo menos 95% de encostos casados em até 3 s;
   - **nenhum** `encostado` a 30 cm ou mais em 5 min (requisito do UX);
   - `quase` em no máximo 5% das leituras a 1 m;
   - entre iPhones, a incidência de NameDrop por gesto (topo com topo, lado a lado, base com base, costas com costas), que decide o gesto (R20);
-  - mediana até casar ≤ 2 s.
+  - mediana até casar ≤ 2 s;
+  - (A1) na linha "atacante", ~~**nenhum** `encostado` e nenhum relato com o token do atacante a 1 m, 3 m ou 10 m, em todas as combinações e nos dois receptores. Se só der para cumprir isso reprovando a detecção, o PO decide entre apertar o limiar (mais QR) e aceitar a distância medida.~~ (atualizado em 2026-10-30) o campo declarado não muda nada (portão), e as distâncias medidas cabem na ordem de grandeza do R21, ajustada ao limiar final. Se passarem dela, o Tech Lead leva ao PO antes de fechar a Fase 4. O limiar sai do critério de detecção, não do atacante (cada 6 dB a mais de aperto cortam à metade a distância dele).
 - **Saída:**
   - os valores no arquivo de calibração (com data e aparelhos);
   - o relatório em `docs/evidencias/fase-4/`;
   - par reprovado usa o QR (decisão do PO, 2026-10-30).
 
-### 11.7 Contratos (atualizado em 2026-10-30, ADR 0012)
+### 11.7 Contratos (atualizado em 2026-10-30, ADR 0012, adendo A2 e revisão 1 do A2)
 
 **`packages/shared`, primeiro:**
 - `ProximityTokenSchema` → `{bleToken, qrToken, expiresAt, renewInS}`;
-- novos `ProximityTouchRequestSchema` (`strictObject {tokens: 1..4}`) e `ProximityTouchResultSchema` (`{items: NearbyPerson[]}`);
-- novas constantes `PROXIMITY_TOUCH_MAX_TOKENS` (4), `PROXIMITY_TOUCH_WINDOW_S` (10), `PROXIMITY_TOUCH_PAIR_TTL_S` (60) e `PROXIMITY_TOUCH_REPORT_INTERVAL_S` (1);
+- novos `ProximityTouchRequestSchema` (`strictObject {tokens: 1..4}`; A2: `1..1`) e `ProximityTouchResultSchema` (`{items: NearbyPerson[]}`); (atualizado em 2026-10-30, A2 rev. 1, R1-10, decisão do Tech Lead) os itens passam a ser `ProximityTouchItemSchema` = `NearbyPersonSchema` + **`pairExpiresInS`** (inteiro ≥ 0, obrigatório): os segundos que faltam para o par vencer no servidor. (revisto em 2026-10-30, como foi implementado) Os dois caminhos, o casamento na hora e o cartão devido, usam a mesma fórmula, contada do horário do casamento (`at`): `pairExpiresInS = 5 × floor(max(0, at + TTL − agora − 1) / 5000)`, limitado a [0, TTL] (`PAIR_EXPIRES_STEP_S = 5`). O casamento na hora dá 55, e o cartão devido entregue até 4,999 s depois também dá 55, então o valor não revela quem casou primeiro (PROX-37). O app usa `expiresAt = chegada + min(cardTtlMs, pairExpiresInS × 1000)`, sem subtrair a margem de novo, porque o arredondamento para baixo já é a margem; o cartão do casamento na hora continua vencendo aos 55 s. (atualizado em 2026-10-30, BAIXO 6 da revisão final) Essa margem vale só no servidor, no instante do envio, e não cobre a volta do cartão nem a ida do bloqueio: o app recusa o "Bloquear" confirmado quando `agora ≥ expiresAt − 3 s`. O BAIXO 7 (o cartão devido que chega com 0 ou 5 s) fica com o R23, e os endurecimentos opcionais (teto de 55, relógio monotônico) estão na ADR 0012, R1-11. O `NearbyPersonSchema` do `resolve` não muda. **Compatibilidade:** a API sai antes do app, porque um app novo falha na validação da resposta de uma API antiga (sem o campo). Caso PROX-64;
+- novas constantes `PROXIMITY_TOUCH_MAX_TOKENS` (4; A2: **1**), `PROXIMITY_TOUCH_WINDOW_S` (10; A2: **5**), `PROXIMITY_TOUCH_PAIR_TTL_S` (60) e `PROXIMITY_TOUCH_REPORT_INTERVAL_S` (1); (A2) mais `PROXIMITY_TOUCH_REPORT_FOR_S` (8), o prazo do relato no app, que a validação do env usa (`PROX_TOUCH_WINDOW_S + 2 ≤ 8`);
 - `AcceptConnectionRequestSchema` → `{observedToken?}`;
 - `ConnectionMethodSchema` continua `ble | qr` (`ble` = encostando);
 - os helpers de UUID e QR não mudam.
@@ -780,12 +820,29 @@ sequenceDiagram
 
 **`ProximityStore`:**
 - o registro ganha `ch`; `issue` grava os dois tokens;
-- novos `recordTouch(observador, dono, janelaMs) → mútuo`, `markTouchPair(a, b, ttlMs)` e `hasTouchPair(a, b)`, no Valkey com script Lua e no fake em memória sobre o `Clock`;
+- novos `recordTouch(observerId, ownerId, windowMs, atMs) → Promise<boolean>` (mútuo), `markTouchPair(first, second, ttlMs, atMs) → Promise<void>` e `hasTouchPair(first, second)`, no Valkey com script Lua (`TOUCH_SCRIPT`: `SET ... PX` da observação e `EXISTS` da recíproca, numa chamada só) e no fake em memória sobre o `Clock`;
+- `atMs` é o instante do `Clock` da API, gravado como valor de `prox:o` e de `prox:m` (só o horário, em ms). Vem de quem chama porque o `RedisProximityStore` não tem `Clock` e o script Lua não lê o relógio do Redis; o fake em memória recebe o mesmo argumento, para a porta ser igual. O valor não decide nada: a validade é o `PX` e o "mútuo" é só o `EXISTS`;
+  - (atualizado em 2026-10-30, A2) agora decide: o casamento só usa a observação do outro se `atMs − primeiroMs < janela`;
 - limite novo: `touches`.
+- (atualizado em 2026-10-30, A2; assinaturas completas na ADR 0012, Adendo A2):
+  - `recordTouch(observerId, ownerId, ownerTokenHash, atMs, windowMs) → boolean` (o outro está dentro da janela);
+  - `claimTouchPair({callerId, otherId, atMs, pairTtlMs, windowMs, busyMs, perHour, perDay, callerCard}) → 'created' | 'renewed' | 'capped' | 'busy' | 'gone'` (par, teto, cartão devido e ocupado num script só);
+  - `takeOwedCard(recipientId, busyMs) → OwedCard | null` (entrega única);
+  - `markTouchPair` fica só para o `/dev/simulate-request`.
+- (A2) **Env novo:** `PROX_TOUCH_PAIRS_PER_HOUR` (10) e `PROX_TOUCH_PAIRS_PER_DAY` (30), com `PER_DAY ≥ PER_HOUR`.
+- (A2) **Bloqueio:** `BlocksService` chama, depois do commit, `ProximityService.noteBlockAfterTouch` e o novo `ModerationSignalsService` (`reports`), em falha aberta.
+- (atualizado em 2026-10-30, A2 rev. 1; detalhes, scripts e testes na ADR 0012, "Adendo A2, revisão 1"):
+  - `packages/shared`: `PROXIMITY_TOUCH_LIMIT_PER_MIN` (60), usado no limite do `touches` e no teste do orçamento do app;
+  - `recordTouch`: prazo deslizante (`PX 2 × janela` em todo relato, mantendo o `primeiroMs`; sem `KEEPTTL`);
+  - novo `countBlockSignal(blockerId, blockedId, windowMs) → {blocker, blocked} | null`: marca o sentido no valor do par (`KEEPTTL`) e soma os dois contadores, uma vez por casamento e por sentido;
+  - `touches`: o `takeOwedCard` vem antes do bloqueio da proximidade, do limite e da tela aberta;
+  - `ProximityService.hasLiveTouchPair(viewerId, otherId?)` e `AccessPolicyService.canBlockOrReport(viewer, target?, touchPair)`, usados por `POST /me/blocks {handle}` e pela denúncia de conta. Essas duas rotas não ganham campo novo, e não há consulta nova (o `findActiveAccount` já resolve o @ sem filtro de visibilidade);
+  - (atualizado em 2026-10-30) o item do `touches` ganha o `pairExpiresInS` (R1-10, acima em `packages/shared`);
+  - (PO, 2026-10-30, **para o próximo PR**) "denunciar quem você bloqueou" (R1-PO-1): uma consulta nova do `dados` no `RelationsRepository` e uma regra na política.
 
 **Erros:** nenhum código novo.
 
-**Postgres:** **sem migration** e sem SQL novo (o `findNearby` é reaproveitado).
+**Postgres:** **sem migration** e sem SQL novo (o `findNearby` é reaproveitado). (atualizado em 2026-10-30, A2) Continua assim: o cartão de quem chama vem do mesmo `findNearby`, com o id dele na lista.
 
 ## 12. Notificações (ADR 0011)
 
@@ -853,12 +910,38 @@ Prefixo `/v1`. JSON. Erros no formato `{ code, message }`. Todos os schemas fica
 - (atualizado em 2026-10-30, ADR 0012) **Conectar encostando.**
   - **O que muda na Política de Privacidade** (site, fora do repositório; Tech Lead com o PO):
     - **quem vê o quê:** antes da conexão, só quem encosta o celular no seu, com a tela Conectar aberta nos dois, ou quem lê o seu QR code vê seu nome, @ e foto;
-    - **o anúncio Bluetooth:** leva só um código aleatório que muda a cada 20 s, sem nome. O prefixo fixo indica que alguém por perto está com a tela Conectar aberta, mas não quem é. No Android, o anúncio sai com potência baixa;
+    - **o anúncio Bluetooth:** leva só um código aleatório que muda a cada 20 s, sem nome. O prefixo fixo indica que alguém por perto está com a tela Conectar aberta, mas não quem é. ~~No Android, o anúncio sai com potência baixa;~~
+      - (atualizado em 2026-10-30, adendo A1 da ADR 0012; texto a revisar com o PO, decisão A1-2) **O que o anúncio leva agora, nos dois sistemas:** só o UUID de 128 bits (o prefixo fixo e o código aleatório). Sem nome, sem o campo de potência (TX Power) e sem nada que diga o modelo ou o sistema. O Android passa a anunciar com a potência perto da do iPhone, e por isso o anúncio é ouvido de tão longe quanto o do iPhone (vários metros). O que se ouve é só o código e o prefixo;
+      - (atualizado em 2026-10-30, revisão do A1, R17) **o endereço Bluetooth do celular** é aleatório, mas não muda junto com o código: enquanto a tela Conectar está aberta, quem estiver captando por perto consegue saber que os códigos sucessivos vêm do mesmo aparelho (não de quem é);
+      - **exceção à regra de "quem vê o quê"** (R21): quem usar um transmissor mais forte que um celular (amplificador, antena direcional), voltado para alguém com a tela Conectar aberta, pode receber o cartão dessa pessoa sem encostar, ~~dentro de um alcance curto que o spike 4.1-B mede. A pessoa vê o cartão de quem fez isso no mesmo momento e pode bloquear e denunciar;~~ (atualizado em 2026-10-30, revisão do A1 e A2) a cerca de 1 m com um aparelho pequeno, e a vários metros (mais de 10 m com antena direcional) com amplificador; os números medidos no spike 4.1-B substituem esta estimativa. A pessoa recebe o cartão de quem fez isso logo em seguida, mesmo que ele bloqueie, apague a conta ou saia, e pode bloquear e denunciar ~~(se ele a tiver bloqueado, a denúncia pelo app não é possível, mas o bloqueio logo depois do encosto avisa a moderação)~~ (atualizado em 2026-10-30, A2 rev. 1) pelo próprio cartão, até 60 s depois do encosto, mesmo que ele a tenha bloqueado. Cada conta só confirma encostos com 10 pessoas novas por hora e 30 por dia;
     - **o que fica no servidor:** os códigos, como hash, por até 2 minutos, e o registro de que dois celulares se encostaram, por até 60 s, sem localização e sem força do sinal;
+      - (atualizado em 2026-10-30, A2) **o cartão de cada um** (nome, @, foto e se já estão conectados), por até 60 s, só para ser entregue à outra pessoa do encosto. Se a conta for excluída nesse meio-tempo, o cartão ainda pode ser entregue uma vez nesses 60 s e depois some sozinho;
+      - (A2) **contadores de uso do Conectar**, sem dizer com quem: quantas pessoas novas a conta encostou na última hora e no último dia, e, por 7 dias, quantas vezes ela bloqueou ou foi bloqueada logo depois de um encosto. Na terceira vez em 7 dias, a moderação recebe um aviso com o @ da conta (sem o da outra pessoa), sem ação automática;
+    - (atualizado em 2026-10-30, A2 rev. 1) **Orientações para o texto final** (os itens 1 a 7 do `seguranca`; o Tech Lead redige com o PO; substituem, onde divergirem, os dois itens do A2 acima):
+      1. **Cartão guardado:** o cartão de cada um (nome, @, foto e se já estão conectados) fica na memória do servidor (Valkey) por até 60 s, só para ser entregue **uma vez** à outra pessoa do encosto, inclusive se a conta for excluída nesse meio-tempo. Não vai para o banco nem para os logs. Se a entrega se perder na rede, o cartão não é enviado de novo;
+      2. **Tempos:**
+         - os códigos, como hash, por até 2 minutos;
+         - o registro de que um celular viu o outro encostado, até 10 s depois do último relato;
+         - o registro de que os dois se encostaram (o par, que libera o pedido de conexão, o bloqueio e a denúncia pelo cartão), 60 s;
+         - a marca de "acabou de receber um cartão", 10 s;
+      3. **Contadores, em janelas fixas** (cada janela começa no primeiro evento e dura o período inteiro): pessoas novas por hora e por dia, e bloqueios feitos e recebidos logo depois de um encosto, por 7 dias. Só números, sem dizer com quem;
+      4. **Aviso à moderação:** no terceiro bloqueio feito, ou recebido, logo depois de um encosto em 7 dias, a moderação recebe um e-mail com o @ da conta e o papel, sem o @ da outra pessoa e sem ação automática. Cada encosto conta no máximo um bloqueio em cada sentido. **Retenção do e-mail: a definir com o PO** (hoje, a da caixa da moderação, como as denúncias); (atualizado em 2026-10-30, revisão final) continua aberta com o PO;
+      5. **Conta descartável:** o cartão mostra a conta usada no encosto, que pode ter sido criada só para isso. Bloquear e denunciar valem do mesmo jeito;
+      6. **Bloquear e denunciar pelo cartão:** até 60 s depois do encosto, cada um pode bloquear e denunciar o outro pelo cartão, mesmo sem serem conexões e mesmo que o outro já o tenha bloqueado. Depois disso, valem as regras de sempre (só se bloqueia e denuncia quem se vê; a partir do próximo PR, também se denuncia quem você bloqueou, R1-PO-1, aprovada pelo PO em 2026-10-30);
+      7. **Teto e reencosto:** cada conta confirma encostos com no máximo 10 pessoas novas por hora e 30 por dia; encostar de novo na mesma pessoa depois de 60 s conta como pessoa nova, porque o servidor não guarda com quem a conta encostou. Acima do teto, o encosto só não confirma;
+      8. (atualizado em 2026-10-30, revisão final do `seguranca` sobre a A2 rev. 1) **Ajustes ao texto final:**
+         - **conta excluída:** se o outro excluir a conta, o cartão dele ainda chega, mas não há o que bloquear nem denunciar, e a moderação não é avisada;
+         - **"até 60 s"** conta do último casamento no servidor; no app, o prazo pode ser menor (o cartão devido chega mais tarde, e o bloqueio pelo cartão para 3 s antes);
+         - **a frase da R1-PO-1** ("também se denuncia quem você bloqueou", no item 6) **só vai ao site depois que o próximo PR estiver em produção**;
+         - **a retenção do e-mail do sinal** (item 4) continua aberta com o PO;
+         - **exceção ao "logo em seguida"** (na exceção do R21, acima): um cartão devido entregue perto do fim do par aparece por poucos segundos, ou pisca e some (BAIXO 7, R23);
     - **a força do sinal** é usada só no aparelho e nunca sai dele;
     - **Android 11 ou anterior:** o sistema exige a permissão de localização e a localização ligada para usar o Bluetooth, mas o Sussurro não lê nem guarda a localização.
   - **Permissões:** a lista não muda (iOS `NSBluetoothAlwaysUsageDescription`; Android 12+ `BLUETOOTH_SCAN` com `neverForLocation`, `BLUETOOTH_ADVERTISE` e `BLUETOOTH_CONNECT`; Android ≤ 11 `ACCESS_FINE_LOCATION`). Muda o texto de uso ("reconhecer o celular encostado no seu"), no `app.plugin.js` e na explicação antes do pedido (texto final do UX/UI).
+    - (atualizado em 2026-10-30) **Android: entra `android.permission.VIBRATE`.** Vem do manifesto do `expo-haptics` (D-UX24), que o build junta ao do app. É uma permissão normal: o sistema concede na instalação, sem pedido na tela, e ela aparece na lista de permissões da loja. Serve só à vibração do cartão e dos outros dois momentos da `ux.md` §11.8. O iOS não tem permissão para isso.
+    - **Lista do Conectar no Android:** `BLUETOOTH_SCAN` (`neverForLocation`), `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT`, `VIBRATE`; no Android ≤ 11, também `ACCESS_FINE_LOCATION`, `BLUETOOTH` e `BLUETOOTH_ADMIN` (`maxSdkVersion` 30). As permissões que outras bibliotecas do app trazem (câmera, fotos, notificações) seguem as fases delas.
   - **Telemetria e chaves:** nenhuma telemetria de RSSI em produção (decidido pelo PO em 2026-10-30, que também aprovou o texto da Política acima). A limpeza do Sentry já cobre `tokens`, `bleToken` e `qrToken` (chaves com "token").
+    - (atualizado em 2026-10-30) Os trechos acrescentados pela revisão do A1 e pelo A2 (endereço Bluetooth, alcance do R21, cartão guardado por 60 s, contadores e aviso à moderação) e pela revisão 1 do A2 (as orientações 1 a 7, acima) seguem a decisão do PO sobre o R21 e o A2; o Tech Lead leva o texto final ao site. O log `PROXIMITY_TOUCH_CAPPED` não leva ids nem tokens.
 
 ## 16. Riscos técnicos
 
@@ -876,11 +959,14 @@ Prefixo `/v1`. JSON. Erros no formato `{ code, message }`. Todos os schemas fica
 | R10 | Custo e abuso de vídeo | Custo | Limites de duração e tamanho, rate limit de rascunhos (10/h), custo por minuto do MediaConvert monitorado com budget alarm. (atualizado na Fase 5) 90 s e 200 MB (D10) conferidos no rascunho e no arquivo antes de criar o job; 10 rascunhos de reel por hora por conta. |
 | R11 | Redis indisponível | Proximidade e rate limit param | Auth não depende do Redis. Proximidade fail-closed com mensagem amigável. Os demais rate limits ficam fail-open com log. (atualizado na Fase 4) Proximidade: 503 `PROXIMITY_UNAVAILABLE` em até 500 ms (tokens, resolve, pedido e aceite, inclusive os limites dela); login, feed, perfil, caixa de entrada, recusar, cancelar, desfazer e logout seguem. Em desenvolvimento sem Docker, `PROXIMITY_STORE=memory`. |
 | R12 | Relay attack de BLE (alguém retransmite anúncios de longe) | Conexão indevida | Tokens cruzados, TTL curto, aceite explícito vendo nome e avatar. (atualizado em 2026-10-30, ADR 0012) Com o encosto, o relay precisa de aparelhos **encostados nos dois alvos** retransmitindo nos dois sentidos com força de encosto. Os alvos veem o cartão um do outro, mas ainda precisam tocar "Conectar" e aceitar. Risco aceito. |
-| R14 | (atualizado em 2026-10-30, ADR 0012) Variação de RSSI entre modelos, capas e orientação (o padrão "Presence" do Android aceita 20 dB de diferença a 1 m) | Encosto não detectado (falso negativo) ou detectado a ~30 cm | Métrica de perda com TX do anúncio, mediana + 0,7 s sustentado + histerese, correção por plataforma e por modelo, dica "aproxime mais", QR depois de 20 s. Spike 4.1-B como portão: pelo menos 95% de detecção em até 3 s, e nenhum "encostado" a 30 cm ou mais, por par e por capa. Um falso positivo só revela o cartão a quem está a centímetros e também com a tela aberta. |
+| R21 | (2026-10-30, adendo A1 da ADR 0012; **atualizado em 2026-10-30, revisão do A1**) **Transmissor mais forte que um celular.** O receptor mede só o sinal que chega, não a potência de quem transmite. No espaço livre, cada +6 dB dobra a distância em que se mede o mesmo RSSI (+20 dB a multiplicam por 10). ~~Um celular transmite perto de 0 dBm […]; um módulo com amplificador chega a +20 dBm (o teto do Bluetooth LE) […]: de dezenas de centímetros a 1 ou 2 m, voltado para a vítima.~~ **Ordem de grandeza honesta** (conta na ADR 0012, revisão do A1, a partir da fonte [7]): (1) o encosto honesto não dispara "a poucos cm": um celular mede de -65 a -45 dBm a 1 m (mediana -55), e o limiar inicial de -40 dBm é cruzado a ~18 cm (6 a 56 cm); (2) o celular honesto perde de 5 a 10 dB em antena, mão e capa, e o atacante não; (3) +20 dBm é a classe 1 da especificação, não um teto físico: há amplificadores de 1 W (+30 dBm). Resultado, voltado para a vítima: dongle de +8 dBm, ~1 m; +20 dBm com antena omni, ~4 a 7 m no espaço livre (2,5 a 3,7 m em ambiente fechado); +20 dBm com antena direcional, ~13 a 23 m (5 a 8 m); +30 dBm direcional, dezenas de metros (12 a 17 m). **Metros, a medir**; cada dB que o spike apertar no limiar encurta tudo na mesma proporção | Quem está com a tela Encostar aberta, dentro desse alcance, tem @, nome e foto revelados sem encostar (e vê os do atacante) | O campo TX declarado não entra mais na conta (referência única), e o Android anuncia perto da potência do iPhone, o que reduz a vantagem do atacante à potência dele menos a de um celular. **O spike 4.1-B mede** ~~(linha "atacante": nenhum "encostado" a 1, 3 e 10 m com +8 e +20 dBm […])~~ (atualizado em 2026-10-30: afastando o transmissor de 1 a 15 m, com +8 e +20 dBm e antena direcional obrigatória; +30 dBm estimado com +10 dB; as distâncias medidas substituem a estimativa e, se passarem dela, voltam ao PO). **A2 (decidido):** revelação simétrica garantida (o cartão do atacante chega à vítima mesmo que ele bloqueie, exclua a conta ou saia; janela contada do primeiro relato; uma pessoa por vez), teto de 10 pessoas novas por hora e 30 por dia por conta, e o bloqueio logo depois do encosto como sinal para a moderação. (atualizado em 2026-10-30, **A2 rev. 1**) A observação com prazo deslizante e o app com um relato por vez, orçamento e a regra nova de token novo fecham a janela que o atacante ainda conseguia abrir; o cartão devido sai antes de qualquer recusa; a vítima bloqueia e denuncia pelo próprio cartão (60 s), e o sinal conta uma vez por casamento e por sentido. Continuam: tela aberta nos dois, conta pessoal com e-mail confirmado e limites; a conexão exige aceite. UWB fica como futuro. ~~**Aceite pendente do PO** (A1-1)~~ **Aceito pelo PO em 2026-10-30** (A1-1), nestes termos e com o A2 implementado antes do merge; textos T43 a T45 aprovados e a Política ajustada (§15, A1-2). |
+| R14 | (atualizado em 2026-10-30, ADR 0012) Variação de RSSI entre modelos, capas e orientação (o padrão "Presence" do Android aceita 20 dB de diferença a 1 m) | Encosto não detectado (falso negativo) ou detectado a ~30 cm | Métrica de perda ~~com TX do anúncio~~ (A1: com referência única para todo emissor e o Android perto da potência do iPhone), mediana + 0,7 s sustentado + histerese, correção por plataforma e por modelo, dica "aproxime mais", QR depois de 20 s. Spike 4.1-B como portão: pelo menos 95% de detecção em até 3 s, e nenhum "encostado" a 30 cm ou mais, por par e por capa. Um falso positivo só revela o cartão a quem está a centímetros e também com a tela aberta. (atualizado em 2026-10-30, revisão do A1) Pela fonte [7] da ADR 0012, o limiar inicial (-40 dBm) seria cruzado a ~18 cm na mediana e a até ~56 cm com os receptores mais sensíveis: o critério dos 30 cm deve apertar o limiar ou pedir correção por modelo, o que também encurta o alcance do atacante (R21). |
 | R15 | (atualizado em 2026-10-30) Android ≤ 11: sem a localização do sistema ligada, a varredura volta vazia, sem erro | Encosto nunca funciona nesses aparelhos | `getCapabilities` informa `locationServices`; estado próprio na tela, com o QR. O PO decidiu manter o Android ≤ 11 assim (2026-10-30), sem subir o piso. |
 | R16 | (atualizado em 2026-10-30) Android 7+ segura a varredura em silêncio com mais de cerca de 5 inícios em 30 s | Encosto para de funcionar depois de idas e vindas na tela | Uma sessão de varredura contínua por tela; reinício só quando o Bluetooth liga ou desliga, ou ao voltar do background; caso no MAN. |
-| R17 | (atualizado em 2026-10-30) O prefixo fixo do UUID (`53555353`) revela, a quem varre, que alguém por perto está com a tela Conectar aberta (não quem) | Privacidade (uso do app) | O token muda a cada 20 s, o MAC é aleatório e não há nome; o Android anuncia com potência baixa. Registrado na Política. Prefixo rotativo fica fora da v1 (o filtro do Android precisa de um padrão fixo). |
+| R17 | (atualizado em 2026-10-30) O prefixo fixo do UUID (`53555353`) revela, a quem varre, que alguém por perto está com a tela Conectar aberta (não quem) | Privacidade (uso do app) | O token muda a cada 20 s, o MAC é aleatório e não há nome; (atualizado em 2026-10-30, revisão do A1) **mas o endereço Bluetooth não troca junto com o token**: no iOS o endereço privado dura cerca de 15 min, e o app só reinicia o anúncio; no Android, depende de o sistema trocar a cada `startAdvertising` (o spike 4.1-B confere). Enquanto a tela está aberta, um scanner passivo liga os tokens sucessivos ao mesmo aparelho (não a quem é); com `HIGH`, isso vale no Android à mesma distância do iPhone. Mitigação: só com a tela aberta, e registrado na Política; se o Android não trocar o endereço, o `frontend` avalia com o spike se há como forçar a troca a cada rotação. ~~o Android anuncia com potência baixa~~ (A1, 2026-10-30: o Android passa a anunciar perto da potência do iPhone, então o anúncio dele é ouvido de tão longe quanto o do iPhone; sem o campo TX, um scanner não distingue mais os dois sistemas). Registrado na Política. Prefixo rotativo fica fora da v1 (o filtro do Android precisa de um padrão fixo). |
 | R18 | (atualizado em 2026-10-30) Calibração presa ao build (sem `expo-updates`) | Correção de limiar demora uma publicação | Constantes num arquivo só. O PO decidiu não ter OTA por agora (2026-10-30); o tema volta se o campo mostrar necessidade. |
 | R19 | (atualizado em 2026-10-30) O aceite exige a tela Conectar aberta (`prox:u`). Depois de encostar, B pode sair da tela antes de o pedido chegar | Pedido vence sem resposta | O aceite `ble` não depende mais de B continuar vendo o anúncio de A (sem `observedToken`): basta B voltar à tela dentro dos 120 s, inclusive pelo push do pedido (Fase 6), que abre o Conectar. O app mantém a tela acesa no modo Encostar e no "Aguardando". |
 | R20 | (atualizado em 2026-10-30, levantado pelo UX/UI) **NameDrop**: entre dois iPhones desbloqueados, aproximar os aparelhos (a Apple descreve a poucos centímetros; há relato também lado a lado) abre a troca de contatos do sistema por cima do app. Não há API para pausar (fórum da Apple, thread 802004). Não acontece com Android | Confusão; a pessoa pode compartilhar o telefone sem querer (o NameDrop exige escolher "Compartilhar" e cancela ao afastar) | O gesto é decidido no spike 4.1-B (ADR 0012 §9): entre os gestos que cumprem o critério de detecção, o de menor incidência de NameDrop. Se todos dispararem, o mais natural, com a nota T41 só no iPhone. "Pode afastar" só no cartão. O app nunca pede para desligar o recurso do sistema. |
+| R22 | (2026-10-30, BAIXO 4 da revisão final do `seguranca`; registrado na ADR 0012, A2 rev. 1, R1-8) **Tempo de resposta do `touches`.** O não mútuo responde logo depois de gravar a observação, sem banco; a recusa pela política (bloqueio, conta excluída), o teto, o ocupado e o casamento passam pelo `findNearby` e pelo script do casamento | Quem mede o tempo distingue "o outro me relatou na janela, mas não casou" de "não mútuo", o que revela bloqueio, teto ou ocupado (contra o P10) | **Aberto, fora do PR da Fase 4.** Saídas possíveis: rodar sempre a consulta (custo de banco a cada relato) ou responder num tempo fixo. A medição de carga diz se a diferença aparece através da rede. |
+| R23 | (2026-10-30, ADR 0012, A2 rev. 1, R1-7) **Entrega do cartão devido sem confirmação.** A retirada apaga o cartão antes de a resposta chegar | O cartão se perde se a resposta não chegar depois da retirada (rede caindo na volta, ou o Valkey respondendo depois dos 500 ms com o script já rodado), se ela chegar depois de a pessoa sair do Pronto, ou se a pessoa sair do Pronto antes do fim do prazo e não relatar de novo em 60 s. Quem casou viu o outro, e o outro não o vê. (atualizado em 2026-10-30, BAIXO 7 da revisão final) Também: o cartão devido entregue entre 55 e 60 s depois do casamento chega com `pairExpiresInS` = 0 e pisca antes de cair no T20; com 5, aparece por só 5 s | O atacante não provoca nenhum desses casos (não controla a rede nem a tela da vítima). Mitigação proposta para depois do merge (ADR 0012, R1-7): reentrega por 10 s no servidor, e no app tentar de novo nos erros de rede durante o prazo e mostrar o cartão que chega fora do Pronto. Muda a promessa "entrega única" da Política. (BAIXO 7, ADR 0012, R1-11, também para depois do merge) Abaixo de um piso (por exemplo, 10 s), mostrar o cartão por um tempo mínimo, sem ações depois do prazo do par e sem o T20. |
 | R13 | Dependência do Expo Push | Push indisponível | Notificações continuam no app (pull). Push é best-effort. |

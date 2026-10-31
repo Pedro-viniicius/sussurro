@@ -1,6 +1,6 @@
 import type { ReportTarget } from '@sussurro/shared';
 
-import { withQuery } from '../../lib/api/query';
+import { queryString } from '../../lib/api/query';
 import { ROUTES } from '../navigation/routes';
 
 /** Parâmetros da rota `/denunciar` (o alvo vai na query, em pt-BR). */
@@ -10,16 +10,21 @@ export interface ReportRouteParams {
   handle?: string;
 }
 
-/** `/denunciar?alvo=publicacao&id=…`, `alvo=comentario&id=…` ou `alvo=conta&handle=…`. */
-export function reportHref(target: ReportTarget): string {
+/** O alvo da denúncia na query, em pt-BR. */
+function reportQuery(target: ReportTarget): ReportRouteParams {
   switch (target.type) {
     case 'post':
-      return withQuery(ROUTES.report, { alvo: 'publicacao', id: target.id });
+      return { alvo: 'publicacao', id: target.id };
     case 'comment':
-      return withQuery(ROUTES.report, { alvo: 'comentario', id: target.id });
+      return { alvo: 'comentario', id: target.id };
     case 'account':
-      return withQuery(ROUTES.report, { alvo: 'conta', handle: target.handle });
+      return { alvo: 'conta', handle: target.handle };
   }
+}
+
+/** `/denunciar?alvo=publicacao&id=…`, `alvo=comentario&id=…` ou `alvo=conta&handle=…`. */
+export function reportHref(target: ReportTarget): `${typeof ROUTES.report}?${string}` {
+  return `${ROUTES.report}?${queryString({ ...reportQuery(target) })}`;
 }
 
 /** O alvo de volta a partir da query; `null` se faltar algo (link quebrado). */

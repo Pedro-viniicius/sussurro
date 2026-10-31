@@ -101,6 +101,25 @@ export function isConnectionRequestAllowed(
 }
 
 /**
+ * Bloquear e denunciar pelo cartão do encosto (ADR 0012, A2 rev. 1, R1-5; decisão do PO, opção
+ * (a)): entre duas contas pessoais diferentes com **par encostado vivo** (`touchPair`, até 60 s
+ * depois do último casamento). Vale mesmo que um dos dois já tenha bloqueado o outro. Regra pura
+ * sobre o fato já consultado; quem o consulta é o `proximity` (só ele fala com o Valkey).
+ */
+export function isTouchActionAllowed(
+  viewer: AuthContext,
+  target: ProfileTarget,
+  touchPair: boolean,
+): boolean {
+  return (
+    touchPair &&
+    viewer.accountType === 'personal' &&
+    target.accountType === 'personal' &&
+    target.id !== viewer.userId
+  );
+}
+
+/**
  * Único ponto que decide visibilidade (arquitetura.md §5 e §7). Quem não pode ver recebe o mesmo
  * 404 de um recurso inexistente (PERM-13, PERM-14). Coberto por testes de permissão.
  */
@@ -177,6 +196,30 @@ export class AccessPolicyService {
       return 'denied';
     }
     return relation.connected ? 'connected' : 'allowed';
+  }
+
+  /**
+   * (ADR 0012, A2 rev. 1, R1-5) Bloquear (`POST /me/blocks {handle}`) e denunciar a conta pelo @:
+   * quem o leitor vê, como sempre, **ou**, entre contas pessoais, quem tem par encostado vivo com
+   * ele (o cartão do encosto, 60 s). `target`: a conta ativa do @ (`undefined` para @ inexistente,
+   * excluído ou inválido). `touchPair(targetId)`: o fato "o par vive", do `proximity`.
+   *
+   * Sem oráculo: alvo visível decide sem consultar o par (o bloqueio de uma conexão nunca depende do
+   * Valkey); qualquer outro alvo consulta o par **sempre**, mesmo sem conta (com `undefined`), para o
+   * tempo e a falha (503) serem os mesmos para @ existente, inexistente, excluído e inválido. Ninguém
+   * consome o par: bloquear e denunciar, em qualquer ordem e nos dois sentidos, passam enquanto ele
+   * vive.
+   */
+  async canBlockOrReport(
+    viewer: AuthContext,
+    target: ProfileTarget | undefined,
+    touchPair: (targetId: string | undefined) => Promise<boolean>,
+  ): Promise<boolean> {
+    if (target !== undefined && (await this.canViewProfile(viewer, target))) {
+      return true;
+    }
+    const paired = await touchPair(target?.id);
+    return target !== undefined && isTouchActionAllowed(viewer, target, paired);
   }
 
   /** O leitor (pessoal) segue o criador: o botão Seguir/Seguindo do perfil (3.4). */

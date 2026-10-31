@@ -3,6 +3,7 @@ import { ReelTile, type ReelTileStatus, spokenDuration, useActionSheet } from '@
 import { router } from 'expo-router';
 
 import { usePublishing } from '../create/PublishingProvider';
+import type { TabBase } from '../navigation/routes';
 import { reelHref } from '../posts/navigation';
 import { usePost } from '../posts/post-store';
 import { useDeletePost } from '../posts/useDeletePost';
@@ -33,7 +34,7 @@ export interface ReelGridTileProps {
   postId: string;
   width: number;
   /** Aba de origem: o visualizador abre os perfis dentro dela. */
-  base: string;
+  base: TabBase;
 }
 
 /**

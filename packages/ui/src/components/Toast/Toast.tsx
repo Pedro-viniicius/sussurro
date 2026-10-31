@@ -15,16 +15,27 @@ export interface ToastProps {
   message: string;
   variant?: ToastVariant;
   action?: ToastAction;
+  /**
+   * Região viva do Android (padrão). `false` quando o anúncio sai por outro caminho (o
+   * `announceAfterMs` do `ToastProvider`), para não anunciar duas vezes.
+   */
+  live?: boolean;
   testID?: string;
 }
 
 /** Aparência do Toast (ux.md §6.13). A fila e o tempo ficam no `ToastProvider`. */
-export function Toast({ message, variant = 'info', action, testID = 'toast' }: ToastProps) {
+export function Toast({
+  message,
+  variant = 'info',
+  action,
+  live = true,
+  testID = 'toast',
+}: ToastProps) {
   return (
     <View
       testID={testID}
       accessibilityRole="alert"
-      accessibilityLiveRegion="polite"
+      accessibilityLiveRegion={live ? 'polite' : 'none'}
       style={styles.toast}
     >
       {variant === 'success' ? <Icon name="check" size={16} color="white" /> : null}

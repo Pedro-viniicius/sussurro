@@ -37,6 +37,8 @@ Os segredos ficam em `/sussurro/prod/<nome>` (SSM, porte enxuto) ou `sussurro/pr
 | `AWS_REGION` | `sa-east-1` | task (tfvars `region`, D12) |
 | `FEED_WINDOW_HOURS` | 72 | padrão |
 | `PROX_TOKEN_TTL_S`, `PROX_RECENT_TTL_S`, `PROX_SCREEN_TTL_S` | 30, 120, 30 | padrão |
+| `PROX_TOUCH_WINDOW_S`, `PROX_TOUCH_PAIR_TTL_S` | 5, 60 (ADR 0012, A2; `PROX_TOUCH_WINDOW_S` ≤ `PROX_TOKEN_TTL_S`, `PROX_TOUCH_WINDOW_S` + 2 ≤ 8 (o app relata por 8 s) e `PROX_TOUCH_PAIR_TTL_S` + `PROX_TOKEN_TTL_S` ≤ `PROX_RECENT_TTL_S`; regra quebrada, a API não sobe) | padrão |
+| `PROX_TOUCH_PAIRS_PER_HOUR`, `PROX_TOUCH_PAIRS_PER_DAY` | 10, 30 (ADR 0012, A2; teto de pares novos por conta, decisão do PO; o diário ≥ o por hora; acima dele, o encosto só não confirma) | padrão |
 | `CONNECTION_REQUEST_TTL_S`, `CONNECTION_DECLINE_COOLDOWN_S` | 120, 3600 | padrão |
 | `PROXIMITY_STORE` | `redis` (obrigatório em produção) | task |
 | `AWS_ENDPOINT_URL_S3`, `AWS_ENDPOINT_URL_SQS`, `S3_PUBLIC_ENDPOINT_URL` | ausentes (AWS real) | não se aplica |

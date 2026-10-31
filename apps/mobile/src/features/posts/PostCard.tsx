@@ -8,6 +8,7 @@ import { useDeletePost } from './useDeletePost';
 import { useLike } from './useLike';
 import { useSignedInUser } from '../auth/AuthProvider';
 import { useModerationMenu } from '../moderation/useModerationMenu';
+import type { TabBase } from '../navigation/routes';
 
 export function relationOf(post: Post): PostRelation {
   if (post.isOwn) return 'self';
@@ -24,7 +25,7 @@ export function imagesOf(post: Post) {
 export interface PostCardProps {
   postId: string;
   /** Aba de origem (`/pessoal/inicio`…): o detalhe e os perfis abrem dentro dela. */
-  base: string;
+  base: TabBase;
   /** No detalhe os comentários já estão abaixo do post e não há "abrir publicação". */
   inDetail?: boolean;
   /** Depois de apagar o post ou bloquear o autor (no detalhe, volta). */

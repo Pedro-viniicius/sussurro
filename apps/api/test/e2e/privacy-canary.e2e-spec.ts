@@ -9,9 +9,11 @@
 // mensagem de erro pode conter os canários, fora da allowlist revisada.
 //
 // Rota nova sem fixture faz o teste falhar: quem cria a rota decide aqui como ela é chamada.
+// (ADR 0012) O relato do encosto (`POST /proximity/touches`) entra no PERM-10b, com o encosto
+// mútuo de Y com X1 e X2 preparado no setup.
 import { randomBytes } from 'node:crypto';
 
-import { connectionRequests, type UserRow } from '@sussurro/db';
+import { blocks, connectionRequests, eq, reports, type UserRow } from '@sussurro/db';
 import {
   addComment,
   block,
@@ -71,8 +73,17 @@ interface Fixture {
   incomingRequestId: string;
   /** Pedido de conexão pendente Y → canary_req_out. */
   outgoingRequestId: string;
-  /** Token de proximidade de Y (a tela Conectar de Y está aberta durante o teste). */
+  /**
+   * Token de proximidade de Y do QR (`qrToken`; a tela Conectar de Y está aberta durante o teste).
+   */
   yToken: string;
+  /**
+   * (ADR 0012) `bleToken` de Y, o do anúncio. Y já relatou o encosto com X1 e X2: quando eles
+   * relatam este token no `touches`, o encosto é mútuo e eles recebem o cartão de Y.
+   */
+  yBleToken: string;
+  /** (ADR 0012) `bleToken` de X1 e de X2, na ordem, que Y relata no encosto. */
+  callerBleTokens: string[];
   /** Fase 6: os seguidores canários de X3 (ids, para o NOT-02 no push). */
   followerIds: string[];
 }
@@ -262,6 +273,16 @@ function mutationFixtures(): Record<string, Mutation[] | { skip: string }> {
     // quem chama com Y, nunca as relações de Y. Os pedidos de Y e a conexão de Y com canary_conn
     // dão o 404 de inexistente para os outros.
     'POST /v1/proximity/tokens': [{ method: 'post', path: '/v1/proximity/tokens' }],
+    // ADR 0012: o relato do encosto (A2-1: exatamente 1 token). O controle positivo, antes desta
+    // varredura, já casou X1 e X2 com Y (o par X2–Y é o que o pedido `ble` abaixo usa); aqui, depois
+    // dos bloqueios da própria varredura, a resposta não pode trazer canário nem relação de Y.
+    'POST /v1/proximity/touches': [
+      {
+        method: 'post',
+        path: '/v1/proximity/touches',
+        body: () => ({ tokens: [fx.yBleToken] }),
+      },
+    ],
     'POST /v1/proximity/resolve': [
       {
         method: 'post',
@@ -273,7 +294,12 @@ function mutationFixtures(): Record<string, Mutation[] | { skip: string }> {
       {
         method: 'post',
         path: '/v1/connections/requests',
-        body: () => ({ targetToken: fx.yToken, method: 'ble' }),
+        body: () => ({ targetToken: fx.yBleToken, method: 'ble' }),
+      },
+      {
+        method: 'post',
+        path: '/v1/connections/requests',
+        body: () => ({ targetToken: fx.yToken, method: 'qr' }),
       },
     ],
     'POST /v1/connections/requests/:id/accept': [
@@ -394,6 +420,8 @@ beforeAll(async () => {
     incomingRequestId: await pendingRequestRow(canaryRequestIn, y),
     outgoingRequestId: await pendingRequestRow(y, canaryRequestOut),
     yToken: '',
+    yBleToken: '',
+    callerBleTokens: [],
     followerIds: [],
   };
   callers = [
@@ -403,12 +431,29 @@ beforeAll(async () => {
     { name: 'anônimo', headers: {} },
   ];
   yHeaders = await directSession(t.app, y);
-  // A tela Conectar de Y e as de X1 e X2 abertas (o resolve e o pedido exigem).
-  fx.yToken = ProximityTokenSchema.parse(
+  // A tela Conectar de Y e as de X1 e X2 abertas (o resolve, o touches e o pedido exigem).
+  const yTokens = ProximityTokenSchema.parse(
     (await t.http.post('/v1/proximity/tokens').set(yHeaders).expect(201)).body,
-  ).token;
+  );
+  fx.yToken = yTokens.qrToken;
+  fx.yBleToken = yTokens.bleToken;
+  const callerBleTokens: string[] = [];
   for (const caller of callers.slice(0, 2)) {
-    await t.http.post('/v1/proximity/tokens').set(caller.headers).expect(201);
+    const issued = ProximityTokenSchema.parse(
+      (await t.http.post('/v1/proximity/tokens').set(caller.headers).expect(201)).body,
+    );
+    callerBleTokens.push(issued.bleToken);
+  }
+  fx.callerBleTokens = callerBleTokens;
+  // (ADR 0012) Y relata o encosto com X1 e X2 (ainda sem cartão: eles não relataram Y). A2-1: um
+  // token por chamada.
+  for (const token of callerBleTokens) {
+    const yTouch = await t.http
+      .post('/v1/proximity/touches')
+      .set(yHeaders)
+      .send({ tokens: [token] })
+      .expect(200);
+    expect(yTouch.body).toEqual({ items: [] });
   }
 
   // Fase 6. Seguidores canários de X3, pela API (o upsert anônimo de verdade), e notificações de Y
@@ -530,6 +575,84 @@ describe('canário nos POST/PUT/DELETE que devolvem dados (PERM-10b)', () => {
     expect(Object.keys(mutationFixtures()).sort()).toEqual(registered);
   });
 
+  /** As chaves do cartão do `touches` (o do encosto e o devido), em ordem alfabética. */
+  const TOUCH_CARD_KEYS = [
+    'alreadyConnected',
+    'avatarUrl',
+    'handle',
+    'name',
+    'pairExpiresInS',
+    'token',
+  ];
+
+  // Antes da varredura abaixo: nela, X1 e X2 bloqueiam Y (pelo comentário de Y, `POST /me/blocks`),
+  // e daí em diante o touches e o resolve de Y voltam vazios para eles.
+  it('[PERM-10b] [PROX-37] [PROX-49] controle positivo: com o encosto mútuo, X1 e X2 recebem o cartão de Y no touches (e no resolve do QR), e Y recebe o de cada um no relato seguinte (cartão devido), sem canário, só com @, nome, foto, alreadyConnected e (no encosto) pairExpiresInS', async () => {
+    const touchFromY = (token: string) =>
+      t.http
+        .post('/v1/proximity/touches')
+        .set(yHeaders)
+        .send({ tokens: [token] })
+        .expect(200);
+    for (const [index, caller] of callers.slice(0, 2).entries()) {
+      const callerBleToken = fx.callerBleTokens[index]!;
+      if (index > 0) {
+        // (A2-2) Uma pessoa por vez: Y acabou de receber o cartão de X1 e fica ocupada 10 s; e a
+        // observação de X2 que Y gravou no setup já passou da janela (5 s do primeiro relato). Y
+        // relata X2 de novo, como o app faria num encosto novo.
+        t.clock.advance(10 * 1_000);
+        expect((await touchFromY(callerBleToken)).body).toEqual({ items: [] });
+      }
+      const responses = [
+        await t.http
+          .post('/v1/proximity/touches')
+          .set(caller.headers)
+          .send({ tokens: [fx.yBleToken] })
+          .expect(200),
+        await t.http
+          .post('/v1/proximity/resolve')
+          .set(caller.headers)
+          .send({ tokens: [fx.yToken] })
+          .expect(200),
+      ];
+      for (const [kind, response] of responses.entries()) {
+        const items = (response.body as { items: Record<string, unknown>[] }).items;
+        expect(items, `${caller.name} ${String(kind)}`).toHaveLength(1);
+        // O cartão do encosto traz também o prazo do par (A2 rev. 1, R1-10); o do QR, não.
+        expect(Object.keys(items[0]!).sort()).toEqual(
+          kind === 0
+            ? TOUCH_CARD_KEYS
+            : ['alreadyConnected', 'avatarUrl', 'handle', 'name', 'token'],
+        );
+        expect(items[0]).toMatchObject({
+          token: kind === 0 ? fx.yBleToken : fx.yToken,
+          handle: fx.y.handle,
+          name: fx.y.name,
+          // X1 é conexão de Y; X2, não.
+          alreadyConnected: index === 0,
+          ...(kind === 0 ? { pairExpiresInS: 55 } : {}),
+        });
+        expect(leakedPrefixes(response)).toEqual([]);
+      }
+
+      // Revelação simétrica (A2-2): no relato seguinte, Y recebe o cartão de quem casou com ela,
+      // com o token que relatou, e nada das relações dele.
+      const delivered = await touchFromY(callerBleToken);
+      const owed = (delivered.body as { items: Record<string, unknown>[] }).items;
+      expect(owed, `${caller.name} → Y`).toHaveLength(1);
+      expect(Object.keys(owed[0]!).sort()).toEqual(TOUCH_CARD_KEYS);
+      const callerUser = index === 0 ? fx.x1 : fx.x2;
+      expect(owed[0]).toMatchObject({
+        token: callerBleToken,
+        handle: callerUser.handle,
+        name: callerUser.name,
+        alreadyConnected: index === 0,
+        pairExpiresInS: 55,
+      });
+      expect(leakedPrefixes(delivered)).toEqual([]);
+    }
+  });
+
   it('[PERM-10b] login, refresh, seguir, bloquear, denunciar e as demais não vazam os canários', async () => {
     const leaks: string[] = [];
     // Refresh tokens reais (login pela API) para o /auth/refresh.
@@ -565,6 +688,18 @@ describe('canário nos POST/PUT/DELETE que devolvem dados (PERM-10b)', () => {
       }
     }
     expect(leaks).toEqual([]);
+
+    // (A2 rev. 1, R1-5) Bloquear e denunciar pelo @ passaram a aceitar também quem tem par
+    // encostado vivo com quem chama. Os pares aqui são X1–Y e X2–Y (o controle positivo); ninguém da
+    // varredura tem par com canary_conn, que ninguém vê: o @ dela continua sem gravar nada.
+    expect(await t.proximity.hasTouchPair(fx.x1.id, fx.canaryConn.id)).toBe(false);
+    expect(await t.proximity.hasTouchPair(fx.x2.id, fx.canaryConn.id)).toBe(false);
+    expect(
+      await t.database.db.select().from(blocks).where(eq(blocks.blockedId, fx.canaryConn.id)),
+    ).toEqual([]);
+    expect(
+      await t.database.db.select().from(reports).where(eq(reports.targetUserId, fx.canaryConn.id)),
+    ).toEqual([]);
   });
 });
 

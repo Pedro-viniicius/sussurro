@@ -16,9 +16,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Build
 import android.os.ParcelUuid
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import android.view.WindowManager
 import expo.modules.interfaces.permissions.PermissionsResponse
@@ -31,18 +33,22 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.util.concurrent.ConcurrentHashMap
 
-// Módulo `sussurro-proximity` (ADR 0002): anuncia um único UUID de serviço de 128 bits
-// (prefixo "SUSS" + 12 bytes do token efêmero) e varre os UUIDs com o mesmo prefixo. Sem nome do
-// aparelho, sem conexão GATT e só com o app em primeiro plano: em background, para tudo. A
-// conversão token <-> UUID fica no TypeScript (`@sussurro/shared`), testada lá (4.3 CA6).
+// Módulo `sussurro-proximity` (ADR 0002; ADR 0012, "Conectar encostando"): anuncia um único UUID
+// de serviço de 128 bits (prefixo "SUSS" + 12 bytes do bleToken efêmero) e varre os UUIDs com o
+// mesmo prefixo. Sem nome do aparelho, sem conexão GATT e só com o app em primeiro plano: em
+// background, para tudo. A conversão token <-> UUID fica no TypeScript (`@sussurro/shared`), e os
+// limiares do encosto ficam no app (`touch-calibration.ts`): aqui só chegam a potência do anúncio
+// e o intervalo mínimo entre eventos, como parâmetros. ADR 0012, adendo A1: o anúncio nunca leva o
+// campo TX Power, e a varredura não o lê (o evento é só `uuid` e `rssi`): é um número que o emissor
+// escreve e o receptor não tem como conferir.
 
 private const val TAG = "SussurroProximity"
 private const val SIGHTING_EVENT = "onSighting"
 private const val STATE_EVENT = "onStateChange"
 private const val ERROR_EVENT = "onError"
 
-/** Um evento por UUID a cada meio segundo basta para a média do RSSI no JS. */
-private const val SIGHTING_THROTTLE_MS = 500L
+/** Intervalo padrão entre eventos do mesmo UUID, se o JS não mandar outro (ADR 0012 §2). */
+private const val DEFAULT_SIGHTING_INTERVAL_MS = 200L
 
 /** Máscara do `ScanFilter`: só os 4 primeiros bytes (o prefixo) precisam bater. */
 private val PREFIX_MASK: ParcelUuid = ParcelUuid.fromString("ffffffff-0000-0000-0000-000000000000")
@@ -59,10 +65,14 @@ internal class BluetoothPermissionException(cause: Throwable) :
 internal class InvalidServiceUuidException(value: String, cause: Throwable) :
   CodedException("ERR_INVALID_SERVICE_UUID", "UUID de serviço inválido: $value", cause)
 
+internal class InvalidTxPowerException(value: String) :
+  CodedException("ERR_INVALID_TX_POWER", "Potência de anúncio desconhecida: $value", null)
+
 class SussurroProximityModule : Module() {
   @Volatile private var advertiseCallback: AdvertiseCallback? = null
   @Volatile private var scanCallback: ScanCallback? = null
   @Volatile private var scanPrefix: String? = null
+  @Volatile private var sightingIntervalMs: Long = DEFAULT_SIGHTING_INTERVAL_MS
   private var stateReceiver: BroadcastReceiver? = null
   private val lastEmission = ConcurrentHashMap<String, Long>()
 
@@ -99,16 +109,16 @@ class SussurroProximityModule : Module() {
       checkPermissions(true, promise)
     }
 
-    AsyncFunction("startAdvertisingAsync") { serviceUuid: String ->
-      startAdvertising(serviceUuid)
+    AsyncFunction("startAdvertisingAsync") { serviceUuid: String, txPower: String ->
+      startAdvertising(serviceUuid, txPower)
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("stopAdvertisingAsync") {
       stopAdvertising()
     }.runOnQueue(Queues.MAIN)
 
-    AsyncFunction("startScanAsync") { prefix: String ->
-      startScan(prefix)
+    AsyncFunction("startScanAsync") { prefix: String, minIntervalMs: Int ->
+      startScan(prefix, minIntervalMs)
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("stopScanAsync") {
@@ -182,14 +192,60 @@ class SussurroProximityModule : Module() {
       "bluetooth" to bluetooth,
       "permission" to permission,
       "canAskAgain" to canAskAgain,
-      "canAdvertise" to canAdvertise
+      "canAdvertise" to canAdvertise,
+      "locationServices" to locationServices(),
+      // Só para a correção de calibração no próprio aparelho (nunca vai para a API).
+      "deviceModel" to (Build.MODEL ?: "")
     )
+  }
+
+  /**
+   * Android ≤ 11 (API ≤ 30): a varredura BLE só entrega resultados com a localização do sistema
+   * ligada; desligada, volta vazia e sem erro (ADR 0012 §2). Android 12+: `not_required`.
+   */
+  private fun locationServices(): String {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      return "not_required"
+    }
+    val context = context ?: return "on"
+    val enabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+      manager?.isLocationEnabled ?: true
+    } else {
+      legacyLocationEnabled(context)
+    }
+    return if (enabled) "on" else "off"
+  }
+
+  /** Android 7 a 8.1 (API 24 a 27): `LocationManager.isLocationEnabled` ainda não existe. */
+  @Suppress("DEPRECATION")
+  private fun legacyLocationEnabled(context: Context): Boolean {
+    val mode = Settings.Secure.getInt(
+      context.contentResolver,
+      Settings.Secure.LOCATION_MODE,
+      Settings.Secure.LOCATION_MODE_OFF
+    )
+    return mode != Settings.Secure.LOCATION_MODE_OFF
   }
 
   // --- Anúncio ----------------------------------------------------------------------------------
 
+  /**
+   * Potência pedida pelo JS (`touch-calibration.ts`, ADR 0012 adendo A1). O nativo não guarda valor
+   * de calibração: nível desconhecido é erro, e não uma potência escolhida em silêncio.
+   */
+  private fun advertiseTxPower(value: String): Int = when (value) {
+    "ultraLow" -> AdvertiseSettings.ADVERTISE_TX_POWER_ULTRA_LOW
+    "low" -> AdvertiseSettings.ADVERTISE_TX_POWER_LOW
+    "medium" -> AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM
+    "high" -> AdvertiseSettings.ADVERTISE_TX_POWER_HIGH
+    else -> throw InvalidTxPowerException(value)
+  }
+
   @SuppressLint("MissingPermission")
-  private fun startAdvertising(serviceUuid: String) {
+  private fun startAdvertising(serviceUuid: String, txPower: String) {
+    // Antes de mexer no anúncio atual: um nível desconhecido é bug do build e rejeita a promise.
+    val txPowerLevel = advertiseTxPower(txPower)
     val adapter = adapter
     if (adapter == null || !adapter.isEnabled) {
       throw BluetoothUnavailableException()
@@ -206,11 +262,12 @@ class SussurroProximityModule : Module() {
     stopAdvertising()
     val settings = AdvertiseSettings.Builder()
       .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-      .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+      .setTxPowerLevel(txPowerLevel)
       .setConnectable(false)
       .setTimeout(0)
       .build()
-    // Só o UUID de serviço: sem o nome do aparelho e sem o nível de potência.
+    // Só o UUID de serviço (flags 3 + UUID 18 = 21 de 31 bytes). Nunca o nome do aparelho nem o
+    // campo TX Power (ADR 0012, adendo A1): o anúncio fica igual ao do iPhone.
     val data = AdvertiseData.Builder()
       .setIncludeDeviceName(false)
       .setIncludeTxPowerLevel(false)
@@ -253,8 +310,14 @@ class SussurroProximityModule : Module() {
 
   // --- Varredura --------------------------------------------------------------------------------
 
+  /**
+   * Uma sessão contínua por visita à tela (ADR 0012 §2): com a varredura já ligada no mesmo
+   * prefixo, só troca o intervalo, sem parar e reiniciar (o sistema segura em silêncio mais de
+   * cerca de 5 inícios em 30 s). O JS só reinicia quando o Bluetooth liga ou desliga ou ao voltar
+   * do background.
+   */
   @SuppressLint("MissingPermission")
-  private fun startScan(prefix: String) {
+  private fun startScan(prefix: String, minIntervalMs: Int) {
     val adapter = adapter
     if (adapter == null || !adapter.isEnabled) {
       throw BluetoothUnavailableException()
@@ -265,8 +328,13 @@ class SussurroProximityModule : Module() {
     } catch (e: IllegalArgumentException) {
       throw InvalidServiceUuidException(prefix, e)
     }
+    sightingIntervalMs = if (minIntervalMs >= 0) minIntervalMs.toLong() else DEFAULT_SIGHTING_INTERVAL_MS
+    val normalized = prefix.lowercase()
+    if (scanCallback != null && scanPrefix == normalized) {
+      return
+    }
     stopScan()
-    scanPrefix = prefix.lowercase()
+    scanPrefix = normalized
     lastEmission.clear()
     val filter = ScanFilter.Builder().setServiceUuid(prefixUuid, PREFIX_MASK).build()
     val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
@@ -290,14 +358,21 @@ class SussurroProximityModule : Module() {
       scanner.startScan(listOf(filter), settings, callback)
       scanCallback = callback
     } catch (e: SecurityException) {
+      scanPrefix = null
       throw BluetoothPermissionException(e)
     }
   }
 
-  /** Só lê os UUIDs do anúncio: nunca conecta nem guarda o aparelho visto. */
+  /**
+   * Só lê os UUIDs do anúncio: nunca conecta nem guarda o aparelho visto. O RSSI medido aqui vai
+   * para o JS, que estima a perda no próprio aparelho (nada disso vai para a API). O campo TX Power
+   * não é lido, venha ou não no anúncio (ADR 0012, adendo A1).
+   */
   private fun handleResult(result: ScanResult) {
     val prefix = scanPrefix ?: return
-    val uuids = result.scanRecord?.serviceUuids ?: return
+    val record = result.scanRecord ?: return
+    val uuids = record.serviceUuids ?: return
+    val interval = sightingIntervalMs
     val now = SystemClock.elapsedRealtime()
     for (parcel in uuids) {
       val value = parcel.uuid.toString()
@@ -305,7 +380,7 @@ class SussurroProximityModule : Module() {
         continue
       }
       val last = lastEmission[value]
-      if (last != null && now - last < SIGHTING_THROTTLE_MS) {
+      if (last != null && now - last < interval) {
         continue
       }
       lastEmission[value] = now
@@ -378,6 +453,7 @@ class SussurroProximityModule : Module() {
           // O sistema já parou o anúncio e a varredura.
           advertiseCallback = null
           scanCallback = null
+          scanPrefix = null
         }
         sendEvent(STATE_EVENT, mapOf("bluetooth" to value))
       }

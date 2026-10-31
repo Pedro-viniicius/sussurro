@@ -21,7 +21,7 @@ import {
 } from 'react-native';
 
 import { useAuth } from '../auth/AuthProvider';
-import { ROUTES } from '../navigation/routes';
+import { ROUTES, type TabBase } from '../navigation/routes';
 import { fetchProfilePosts } from '../posts/api';
 import { postHref } from '../posts/navigation';
 import { isPublished, usePost, usePostStore, useVisibleIds } from '../posts/post-store';
@@ -52,7 +52,7 @@ const OTHER_EMPTY: Record<ProfileTab, { icon: IconName; title: string }> = {
 
 const COLUMNS = 3;
 
-function PhotoGridTile({ postId, width, base }: { postId: string; width: number; base: string }) {
+function PhotoGridTile({ postId, width, base }: { postId: string; width: number; base: TabBase }) {
   const post = usePost(postId);
   const confirmDelete = useDeletePost();
   if (post === undefined) return null;
@@ -95,7 +95,7 @@ export interface ProfilePostsListProps {
   /** Perfil próprio: estados `processing`/`failed` e posts novos no topo. */
   own: boolean;
   /** Aba de origem (`/pessoal/perfil`, `/pessoal/inicio`…) para abrir o detalhe. */
-  base: string;
+  base: TabBase;
   /** Cabeçalho do perfil (rola junto com a lista). */
   header: ReactElement;
   /** Puxar para atualizar também atualiza o cabeçalho (números). */

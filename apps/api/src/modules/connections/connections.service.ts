@@ -10,6 +10,7 @@ import {
   normalizeHandle,
   type PushJobMessage,
   type SimulatedConnectionRequest,
+  type SimulatedTouch,
 } from '@sussurro/shared';
 
 import { toConnectionRequestView } from './connection-request.view.js';
@@ -55,6 +56,13 @@ function cannotConnectSelf(): DomainError {
   return new DomainError(ErrorCode.CANNOT_CONNECT_SELF, 400, 'Este código é da sua própria conta.');
 }
 
+/** Aceite de pedido `qr` sem o código lido do QR de quem pediu (ADR 0012 §4): o 400 do schema. */
+function observedTokenRequired(): DomainError {
+  return new DomainError(ErrorCode.VALIDATION_ERROR, 400, 'Entrada inválida', [
+    { path: 'observedToken', message: 'Leia o QR code de quem pediu para aceitar.' },
+  ]);
+}
+
 /** Resultado da abertura de um pedido (dentro da transação do par). */
 type OpenOutcome =
   | { kind: 'denied' }
@@ -80,11 +88,12 @@ function asViewer(account: { id: string }): AuthContext {
 }
 
 /**
- * Pedidos de conexão presencial e desfazer conexão (ADR 0003; histórias 4.5, 4.6, 4.9 e 4.11). A
- * prova de presença (tokens cruzados, tela aberta, limites) vem do `ProximityService`; quem pode
- * se conectar com quem (tipo de conta e bloqueio) vem do `AccessPolicyService`. Toda escrita do
- * par pega a trava do par (`lockAccountPair`), a mesma de seguir e bloquear: um pedido concorrente
- * nunca sobrevive a um bloqueio, e A→B ∥ B→A vira uma conexão só (PROX-13).
+ * Pedidos de conexão presencial e desfazer conexão (ADR 0003 e 0012; histórias 4.5, 4.6, 4.9 e
+ * 4.11). A prova de presença (no `ble`, o par encostado; no `qr`, os tokens do QR cruzados; a tela
+ * aberta e os limites) vem do `ProximityService`; quem pode se conectar com quem (tipo de conta e
+ * bloqueio) vem do `AccessPolicyService`. Toda escrita do par pega a trava do par
+ * (`lockAccountPair`), a mesma de seguir e bloquear: um pedido concorrente nunca sobrevive a um
+ * bloqueio, e A→B ∥ B→A vira uma conexão só (PROX-13).
  */
 @Injectable()
 export class ConnectionsService {
@@ -185,9 +194,29 @@ export class ConnectionsService {
   }
 
   /**
-   * `POST /connections/requests` (4.5): A pede conexão com o token de B que observou. Exige a tela
-   * aberta de A e o token **válido** de B (até 30 s). Token inexistente, vencido, de conta excluída,
-   * com bloqueio ou dentro do intervalo de recusa → a mesma mensagem genérica, contada como falha.
+   * Dono do `targetToken` pelo método do pedido (ADR 0012 §4):
+   * - `ble`: o `bleToken` de B, válido **ou recente** (até 120 s: o app só conhece o token devolvido
+   *   no casamento), e o par encostado A–B ainda valendo (a prova forte);
+   * - `qr`: o `qrToken` de B, **válido** (até 30 s), como na Fase 4.
+   * Token do outro canal, sem o par ou inexistente → `null` (a mesma resposta genérica).
+   * O próprio token, no canal certo, devolve o próprio id (`CANNOT_CONNECT_SELF`).
+   */
+  private async targetOf(viewer: AuthContext, input: CreateConnectionRequest) {
+    if (input.method === 'qr') {
+      return this.proximity.ownerOfValidToken(input.targetToken, 'qr');
+    }
+    const ownerId = await this.proximity.ownerOfRecentToken(input.targetToken, 'ble');
+    if (ownerId === null || ownerId === viewer.userId) {
+      return ownerId;
+    }
+    return (await this.proximity.hasTouchPair(viewer.userId, ownerId)) ? ownerId : null;
+  }
+
+  /**
+   * `POST /connections/requests` (4.5; ADR 0012 §4): A pede conexão com o token de B. Exige a tela
+   * aberta de A e o token de B pelo canal do método (`ble`: o par encostado; `qr`: o QR de B, D7).
+   * Token inexistente, vencido, do outro canal, sem o par, de conta excluída, com bloqueio ou dentro
+   * do intervalo de recusa → a mesma mensagem genérica, contada como falha.
    */
   async createRequest(
     viewer: AuthContext,
@@ -198,7 +227,7 @@ export class ConnectionsService {
     await this.proximity.consume(PROXIMITY_LIMITS.requestsPerDay, viewer);
     await this.proximity.assertScreenOpen(viewer);
 
-    const ownerId = await this.proximity.ownerOfValidToken(input.targetToken);
+    const ownerId = await this.targetOf(viewer, input);
     if (ownerId === viewer.userId) {
       throw cannotConnectSelf();
     }
@@ -270,17 +299,30 @@ export class ConnectionsService {
   }
 
   /**
-   * `POST /connections/requests/:id/accept` (4.6): B confirma com o token de A que observou
-   * (válido ou recente, até 120 s; no QR cruzado, o lido do QR de A, D7). Exige a tela aberta de B.
-   * Token ausente → 400 pelo schema; token de outra pessoa ou vencido → a mensagem genérica, e o
-   * pedido continua pendente (PROX-09). Aceitar de novo devolve o mesmo resultado (PROX-11c, 14).
+   * `POST /connections/requests/:id/accept` (4.6; ADR 0012 §4). Exige a tela aberta de B, o pedido
+   * pendente e não vencido e B como destinatário. Pelo método do pedido:
+   * - `ble`: dispensa o `observedToken` (se vier, é ignorado): o pedido só nasce com o par
+   *   encostado, que já prova que B viu o token de A com força de encosto;
+   * - `qr` (D7, QR cruzado): exige o `qrToken` de A lido do QR (válido ou recente, até 120 s). Sem
+   *   ele → 400 `VALIDATION_ERROR`; do outro canal, de outra pessoa ou vencido → a mensagem
+   *   genérica, contada como falha, e o pedido continua pendente (PROX-09).
+   * Aceitar de novo devolve o mesmo resultado (PROX-11c, 14).
    */
-  async accept(viewer: AuthContext, id: string, observedToken: string): Promise<ConnectionRequest> {
+  async accept(
+    viewer: AuthContext,
+    id: string,
+    observedToken: string | undefined,
+  ): Promise<ConnectionRequest> {
     await this.proximity.assertNotLocked(viewer);
     await this.proximity.consume(PROXIMITY_LIMITS.accepts, viewer);
     const { request, other } = await this.findForParty(viewer, id);
     if (request.toId !== viewer.userId) {
       throw requestNotFound();
+    }
+    // Só depois de saber que quem chama é o destinatário: um terceiro recebe o 404 e não descobre
+    // o método do pedido.
+    if (request.method === 'qr' && observedToken === undefined) {
+      throw observedTokenRequired();
     }
     if (request.status === 'accepted') {
       return this.view(request, viewer.userId, other, this.clock.now());
@@ -294,7 +336,11 @@ export class ConnectionsService {
       await this.expire(request, now);
       throw requestExpired();
     }
-    if ((await this.proximity.ownerOfRecentToken(observedToken)) !== request.fromId) {
+    if (
+      request.method === 'qr' &&
+      (observedToken === undefined ||
+        (await this.proximity.ownerOfRecentToken(observedToken, 'qr')) !== request.fromId)
+    ) {
       await this.proximity.recordFailure(viewer);
       throw proximityTokenInvalid();
     }
@@ -439,15 +485,10 @@ export class ConnectionsService {
   }
 
   /**
-   * `POST /dev/simulate-request` (4.11, D15; a rota só existe com `NODE_ENV=development`): uma
-   * persona do seed pede conexão para a conta logada, como se estivesse ao lado. Devolve também um
-   * token válido da persona, que o app de desenvolvimento usa como `observedToken` no aceite.
+   * Persona do seed para as rotas de simulação (`@lucasf` por padrão, ou `@tomas`): conta pessoal
+   * ativa e diferente de quem chama.
    */
-  async simulateIncoming(
-    viewer: AuthContext,
-    from: string | undefined,
-    method: ConnectionMethod | undefined,
-  ): Promise<SimulatedConnectionRequest> {
+  private async simulationPersona(viewer: AuthContext, from: string | undefined) {
     const handle = normalizeHandle((from ?? SIMULATION_PERSONAS[0]).trim().replace(/^@/, ''));
     if (
       !isValidHandleFormat(handle) ||
@@ -471,10 +512,26 @@ export class ConnectionsService {
     if (persona.id === viewer.userId) {
       throw cannotConnectSelf();
     }
-    const observedToken = await this.proximity.issueForSimulation(persona.id);
+    return { handle, persona };
+  }
+
+  /**
+   * `POST /dev/simulate-request` (4.11, D15; a rota só existe com `NODE_ENV=development`): uma
+   * persona do seed pede conexão para a conta logada, como se estivesse ao lado. (ADR 0012) No
+   * método `ble`, grava também o par encostado da persona com a conta. Devolve o `qrToken` válido
+   * da persona, que o app de desenvolvimento usa como `observedToken` no aceite de um pedido `qr`.
+   */
+  async simulateIncoming(
+    viewer: AuthContext,
+    from: string | undefined,
+    method: ConnectionMethod | undefined,
+  ): Promise<SimulatedConnectionRequest> {
+    const { handle, persona } = await this.simulationPersona(viewer, from);
+    const { qrToken } = await this.proximity.issueForSimulation(persona.id);
     const now = this.clock.now();
     const viewerTarget: ProfileTarget = { id: viewer.userId, accountType: viewer.accountType };
-    const outcome = await this.openRequest(persona, viewerTarget, method ?? 'ble', now);
+    const chosen = method ?? 'ble';
+    const outcome = await this.openRequest(persona, viewerTarget, chosen, now);
     if (outcome.kind === 'connected') {
       throw alreadyConnected();
     }
@@ -485,11 +542,30 @@ export class ConnectionsService {
         `@${handle} não pode pedir conexão para esta conta agora (bloqueio ou recusa na última hora).`,
       );
     }
+    if (chosen === 'ble') {
+      // Um pedido `ble` de verdade só nasce com o par encostado: a conta também pode tocar em
+      // "Conectar" com a persona (a corrida vira conexão na hora).
+      await this.proximity.simulateTouchPair(persona.id, viewer.userId);
+    }
     // O mesmo push de um pedido de verdade (6.6), para testar a notificação no aparelho em dev.
     await this.afterOpen(outcome);
     return {
       request: await this.view(outcome.request, viewer.userId, persona, now),
-      observedToken,
+      observedToken: qrToken,
     };
+  }
+
+  /**
+   * `POST /dev/simulate-touch` (ADR 0012 §7; a rota só existe com `NODE_ENV=development`, PROX-30):
+   * uma persona do seed "encosta" na conta logada. Grava a observação da persona (janela de 5 s
+   * desde agora; A2) e devolve o `bleToken` dela; o app relata esse token em
+   * `POST /proximity/touches` e recebe o cartão pelo caminho real (política, bloqueio, teto,
+   * ocupado e par incluídos), com um aparelho só.
+   */
+  async simulateTouch(viewer: AuthContext, from: string | undefined): Promise<SimulatedTouch> {
+    const { persona } = await this.simulationPersona(viewer, from);
+    const { bleToken } = await this.proximity.issueForSimulation(persona.id);
+    await this.proximity.simulateTouchFrom(persona.id, viewer.userId);
+    return { bleToken };
   }
 }

@@ -7,6 +7,8 @@
   - as capacidades (`locationServices` e modelo);
   - o aparelho que não anuncia, que vai direto para o QR.
 
+  Depois, o adendo A1 da ADR 0012 (2026-10-30) tirou o campo TX Power do anúncio e do evento da varredura (`{uuid, rssi}`) e mudou a potência inicial do Android para `HIGH`.
+
   O módulo próprio, o UUID de 128 bits e o esquema sem GATT continuam.
 
 ## Contexto

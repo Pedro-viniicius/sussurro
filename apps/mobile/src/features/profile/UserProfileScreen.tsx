@@ -18,7 +18,7 @@ import { messageForError } from '../../lib/error-messages';
 import { useAuth, useSignedInUser } from '../auth/AuthProvider';
 import { DISCONNECT_ACTION, useRemoveConnection } from '../connect/useRemoveConnection';
 import { useModerationMenu } from '../moderation/useModerationMenu';
-import { profileFor } from '../navigation/routes';
+import { profileFor, type TabBase } from '../navigation/routes';
 import { fetchProfile } from '../posts/api';
 import { useTabBase } from '../posts/navigation';
 import { useFollowing, useFollowStore } from '../relations/follow-store';
@@ -44,7 +44,7 @@ function LoadedProfile({
   onRefresh,
 }: {
   profile: PublicProfile;
-  base: string;
+  base: TabBase;
   onRefresh: () => Promise<unknown>;
 }) {
   const user = useSignedInUser();

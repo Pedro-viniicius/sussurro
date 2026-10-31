@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
-import { issueProximityToken } from './api';
+import { issueProximityTokens } from './api';
 import type { ApiClient } from '../../lib/api/client';
 
 /**
@@ -57,19 +57,27 @@ export function usePolling(task: () => Promise<void>, intervalMs: number, active
   }, [active, intervalMs]);
 }
 
+/** Os dois tokens da emissão em vigor (ADR 0012 §1). */
+export interface OwnTokens {
+  /** Só vai no anúncio Bluetooth (UUID de serviço). */
+  bleToken: string;
+  /** Só aparece no QR (`sussurro://c/{qrToken}`). */
+  qrToken: string;
+}
+
 /**
- * Meu token de proximidade enquanto a tela Conectar está aberta (ADR 0003): pede um agora e renova
- * a cada `renewInS` (20 s), sem esperar vencer. O token anterior continua valendo até o novo chegar,
- * então o anúncio e o QR nunca ficam vazios (4.2 CA3). Um erro para a renovação e vai para
- * `onError` (a tela decide o estado); `refresh` pede um token fora do ciclo (ex.: depois de um 409
- * de "tela fechada").
+ * Meus tokens de proximidade enquanto a tela Conectar está aberta (ADR 0003 e 0012): pede agora e
+ * renova a cada `renewInS` (20 s), sem esperar vencer. Os tokens anteriores continuam valendo até
+ * os novos chegarem, então o anúncio e o QR nunca ficam vazios (4.2 CA3). Um erro para a renovação
+ * e vai para `onError` (a tela decide o estado); `refresh` pede tokens fora do ciclo (ex.: depois
+ * de um 409 de "tela fechada").
  */
 export function useProximityToken(
   api: ApiClient,
   active: boolean,
   onError: (error: unknown) => void,
-): { token: string | null; refresh: () => Promise<void> } {
-  const [token, setToken] = useState<string | null>(null);
+): { tokens: OwnTokens | null; refresh: () => Promise<void> } {
+  const [tokens, setTokens] = useState<OwnTokens | null>(null);
   const onErrorRef = useRef(onError);
   useEffect(() => {
     onErrorRef.current = onError;
@@ -81,9 +89,9 @@ export function useProximityToken(
     let timer: ReturnType<typeof setTimeout> | undefined;
     const run = async () => {
       try {
-        const result = await issueProximityToken(api);
+        const result = await issueProximityTokens(api);
         if (cancelled) return;
-        setToken(result.token);
+        setTokens({ bleToken: result.bleToken, qrToken: result.qrToken });
         timer = setTimeout(() => {
           void run();
         }, result.renewInS * 1000);
@@ -99,9 +107,9 @@ export function useProximityToken(
   }, [active, api]);
 
   const refresh = useCallback(async () => {
-    const result = await issueProximityToken(api);
-    setToken(result.token);
+    const result = await issueProximityTokens(api);
+    setTokens({ bleToken: result.bleToken, qrToken: result.qrToken });
   }, [api]);
 
-  return { token, refresh };
+  return { tokens, refresh };
 }

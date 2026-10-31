@@ -158,7 +158,8 @@ const motion = {
   base: 200,
   slow: 300,
   heart: 300,
-  radarCycle: 2400,
+  /** Um ciclo da demonstração do TouchHint (ux.md §11.7): 2 ciclos e para. */
+  touchCycle: 2400,
   toastVisible: 4000,
   toastVisibleWithAction: 6000,
   /** Easing padrão: Easing.bezier(0.2, 0, 0, 1). */

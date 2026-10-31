@@ -12,7 +12,12 @@ import {
 import { FeedPageSchema } from './feed.ts';
 import { NotificationsPageSchema, UnreadNotificationsSchema } from './notifications.ts';
 import { CommentsPageSchema, PostSchema, ProfilePostsPageSchema } from './posts.ts';
-import { ProximityResolveResultSchema, ProximityTokenSchema } from './proximity.ts';
+import {
+  ProximityResolveResultSchema,
+  ProximityTokenSchema,
+  ProximityTouchResultSchema,
+  SimulatedTouchSchema,
+} from './proximity.ts';
 import {
   BlocksPageSchema,
   ConnectionsPageSchema,
@@ -209,18 +214,26 @@ describe('[PERM-11] conexão presencial (Fase 4)', () => {
     status: 'enum:pending|accepted|not_confirmed|declined|expired|cancelled',
   };
 
-  it('token: só o token, a validade e quando renovar (o servidor guarda só o hash)', () => {
+  it('token (ADR 0012): os dois tokens, um por canal, a validade e quando renovar (o servidor guarda só o hash)', () => {
     expect(shapeOf(ProximityTokenSchema)).toEqual({
+      bleToken: 'string',
       expiresAt: 'string',
+      qrToken: 'string',
       renewInS: 'number',
-      token: 'string',
     });
   });
 
-  it('resolve: @, nome, avatar, o token e alreadyConnected; sem id, sem lista de relações', () => {
-    expect(shapeOf(ProximityResolveResultSchema)).toEqual({
-      items: [{ ...PARTY, alreadyConnected: 'boolean', token: 'string' }],
+  it('resolve (só QR) e touches: @, nome, avatar, o token e alreadyConnected; sem id, sem lista de relações, sem dado de sinal', () => {
+    const CARD = { ...PARTY, alreadyConnected: 'boolean', token: 'string' };
+    expect(shapeOf(ProximityResolveResultSchema)).toEqual({ items: [CARD] });
+    // [PROX-64] (ADR 0012, A2 rev. 1) O cartão do encosto diz quanto falta para o par vencer.
+    expect(shapeOf(ProximityTouchResultSchema)).toEqual({
+      items: [{ ...CARD, pairExpiresInS: 'number' }],
     });
+  });
+
+  it('simulate-touch (só dev): só o bleToken da persona', () => {
+    expect(shapeOf(SimulatedTouchSchema)).toEqual({ bleToken: 'string' });
   });
 
   it('pedido: só a outra pessoa do pedido (sem id de conta) e o estado visto por quem chama', () => {
