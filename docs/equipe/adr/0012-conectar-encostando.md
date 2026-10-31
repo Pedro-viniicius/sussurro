@@ -10,7 +10,9 @@
 - **Adendo A1 (2026-10-30, no fim do arquivo):** a detecção deixa de usar o campo TX Power declarado pelo emissor (veto ALTO do `seguranca`). Substitui, em §2, o `txRef` por emissor, as constantes do campo TX e a potência inicial do Android; em §8, as rodadas de potência e as conferências do campo; e acrescenta a linha "atacante" ao spike. Os trechos substituídos estão marcados com "→ A1".
   - **Revisão do A1 (2026-10-30, re-revisão do `seguranca`, MÉDIO 1 e BAIXO):** o R21 passa a ter a ordem de grandeza honesta (metros, a medir), sem a ideia de "teto" nos +20 dBm; a linha "atacante" do spike passa a medir afastando o transmissor, com antena direcional obrigatória; o endereço Bluetooth que não troca com o token entra no R17. Trechos marcados com "(revisto em 2026-10-30)".
 - **Adendo A2 (2026-10-30, decidido pelo PO):** teto de pessoas novas por conta (10 por hora, 30 por dia) e revelação simétrica garantida (o cartão de quem casou fica guardado para o outro lado por até 60 s, mesmo com bloqueio, exclusão ou logout depois). Muda §2 (relato), §3 (janela, casamento, revelação), §6, §7 e as Decisões do PO. Trechos marcados com "→ A2". O PO aceitou o R21 com o A2 implementado antes do merge (A1-1).
-  - **Revisão 1 do A2 (2026-10-30, revisão final do `seguranca`, MÉDIOS 1 e 2 e BAIXOS 3 a 5; decisão do PO pela opção (a) no MÉDIO 2):** a observação passa a ter prazo deslizante; o app faz um relato por vez, com orçamento de relatos por minuto e uma regra nova de "token novo"; o cartão devido sai antes de qualquer recusa; bloquear e denunciar passam a funcionar pelo cartão enquanto o par vale; o sinal de abuso conta uma vez por casamento e por sentido. Seção "Adendo A2, revisão 1", antes das Fontes; trechos marcados com "→ A2 rev. 1". (revisto em 2026-10-30) Na implementação, o item do `touches` ganhou o `pairExpiresInS` (R1-10, decisão do Tech Lead); o PO aprovou o T46 e, para o próximo PR, "denunciar quem você bloqueou" (R1-PO-1).
+  - **Revisão 1 do A2 (2026-10-30, revisão final do `seguranca`, MÉDIOS 1 e 2 e BAIXOS 3 a 5; decisão do PO pela opção (a) no MÉDIO 2):** a observação passa a ter prazo deslizante; o app faz um relato por vez, com orçamento de relatos por minuto e uma regra nova de "token novo"; o cartão devido sai antes de qualquer recusa; bloquear e denunciar passam a funcionar pelo cartão enquanto o par vale; o sinal de abuso conta uma vez por casamento e por sentido. Seção "Adendo A2, revisão 1", antes das Fontes; trechos marcados com "→ A2 rev. 1". (revisto em 2026-10-30) Na implementação, o item do `touches` ganhou o `pairExpiresInS` (R1-10, decisão do Tech Lead); o PO aprovou o T46 e, para o próximo PR, "denunciar quem você bloqueou" (R1-PO-1). (revisto em 2026-10-31) A R1-PO-1 foi implementada no PR `feat/denunciar-bloqueado`: a denúncia de conta passa ao `canReportAccount`, e o bloqueio fica no `canBlockOrReport` (A3-8, item 6).
+- **Adendo A3 (2026-10-31, depois do merge do PR #2; para o PR `feat/denunciar-bloqueado`):** fecha os resíduos da revisão final do `seguranca`. O `touches` passa a fazer o mesmo caminho para todo token válido (R22); o servidor entrega o cartão devido de novo por até 10 s, e o app tenta de novo nas falhas de rede, renova os tokens sem parar a tela e mostra o cartão que chega fora do Pronto (R23); o cartão atrasado aparece sem ações, até a pessoa fechar (BAIXO 7); o `pairExpiresInS` fica limitado a 55. Seção "Adendo A3", antes das Fontes; trechos marcados com "→ A3". Muda a Política (decisão do PO, A3-PO-1).
+  - **Depois da implementação (revisto em 2026-10-31; A3-8):** a revisão do `seguranca` sobre o A3 no servidor saiu sem veto, com três BAIXOs corrigidos no mesmo PR (decisão do Tech Lead). O `touches` passa a ler as duas contas pelo `findTouchPair`, e a política decide pelo `touchRevealParties` (BAIXO 1). Na reentrega, o rótulo só aceita o hash guardado (BAIXO 2). O texto da Política muda de novo (BAIXO 3). O orçamento do app chega a 56 inícios em 60 s com uma rede que alterna, e o Tech Lead aceitou. Ficam registrados dois riscos do `dados` (`arquitetura.md` §16, R24 e R25). (revisto em 2026-10-31, reconferência do `dados`) O R24 vale para o `findNearby` e o filtro de bloqueio (`hideBlockedFor`), não para o encosto; o R25 inclui o `searchCreators`.
 
 ## Contexto
 
@@ -123,7 +125,7 @@ A detecção roda no app, em TypeScript puro e testável (`touch-detector.ts`). 
 | `nearMaxLossDb` | 52 | faixa `quase` |
 | `holdMs` | 700 | tempo sustentado até `encostado` |
 | `reportEveryMs` / `reportForMs` | 1000 / 8000 | relato ao servidor |
-| `confirmWarnAfterMs` | 4000 | a tela avisa "Não deu para confirmar" (o relato continua até `reportForMs`) |
+| `confirmWarnAfterMs` | 4000 (→ A3: **7000**, A3-3 item 8) | a tela avisa "Não deu para confirmar" (o relato continua até `reportForMs`) |
 | `noTouchFallbackMs` | 20000 | 20 s no Pronto sem `encostado`: QR em destaque |
 | `nearFallbackMs` | 10000 | 10 s em `quase` sem confirmar: QR em destaque |
 | `failuresBeforeQr` | 2 | dois "Não deu para confirmar" seguidos: QR em destaque |
@@ -241,7 +243,7 @@ O app oferece o QR, pelo seletor, sempre, e como saída principal quando:
 |---|---|---|
 | Tokens | 6/min | 6/min (cada emissão traz os dois) |
 | `resolve` | 30/min | 30/min, só QR |
-| `touches` | — | 60/min, até 4 tokens por chamada (o app manda 1) (→ A2: exatamente 1); nunca conta como falha (→ A2 rev. 1: o cartão devido sai antes do limite; o app fica em até 39 relatos em qualquer janela de 60 s) |
+| `touches` | — | 60/min, até 4 tokens por chamada (o app manda 1) (→ A2: exatamente 1); nunca conta como falha (→ A2 rev. 1: o cartão devido sai antes do limite; o app fica em até 39 relatos em qualquer janela de 60 s) (→ A3: a reentrega do cartão conta no limite; com a repetição depois de falha, o app fica em até 52) (revisto em 2026-10-31: 52 é por admissão; com uma rede que alterna, até 56, medido, sempre abaixo dos 60; A3-8) |
 | → A2: pessoas novas (pares criados) | — | 10/h e 30/dia por conta, nos dois lados do par; acima disso o encosto só não confirma (`items: []`, sem 429, sem falha) |
 | Pedidos | 10/min e 50/dia | igual |
 | Aceites | 10/min | igual |
@@ -360,7 +362,7 @@ Os novos limites ficam no `ProximityStore`, falham fechados e rodam sem Valkey e
 |---|---|---|
 | P1 | Nome, @ e foto só depois de o servidor confirmar a observação mútua | **Confirmada** (§3). A revelação é simétrica, mas não simultânea: quem relata primeiro recebe o cartão no relato seguinte, cerca de 1 s depois. |
 | P2 | Dois limiares no cliente, "aproximando" e "encostado"; o "encostado" nunca a 30 cm, o "aproximando" nunca a mais de 1 m | **Confirmada, com ressalva.** São o `quase` (`nearMaxLossDb`) e o `encostado` (`enterMaxLossDb` + `holdMs`, cerca de 1 s). Os 30 cm viraram critério do spike (§8), e o 1 m do `quase` virou meta (no máximo 5% das leituras). "Nunca" vale para os pares medidos; num aparelho fora da matriz é meta, não garantia, porque a variação entre modelos chega a 20 dB [7]. O que vale sempre: ninguém é revelado sem os dois lados afirmarem o encosto. O "aproximando" também diz à pessoa que há alguém com a tela Conectar aberta a cerca de 1 m (não quem), o que é coerente com o prefixo do anúncio (R17). Na tela, nada muda. |
-| P3 | O servidor confirma o outro lado em até 4 s | **Corrigida.** O normal é 1 a 3 s, e os 4 s ficam como o tempo do aviso (`confirmWarnAfterMs`). Mas o app **continua relatando até 8 s** depois do primeiro `encostado`, mesmo afastado. Sem isso, quem detectou primeiro poderia nunca receber o cartão, enquanto o outro recebe. **Muda na tela:** depois do "Não deu para confirmar" (estado 9), um casamento que chegar até 8 s depois do encosto ainda abre o cartão (transição 9 → 11). |
+| P3 | O servidor confirma o outro lado em até 4 s | **Corrigida.** O normal é 1 a 3 s, e os 4 s ficam como o tempo do aviso (`confirmWarnAfterMs`). Mas o app **continua relatando até 8 s** depois do primeiro `encostado`, mesmo afastado. Sem isso, quem detectou primeiro poderia nunca receber o cartão, enquanto o outro recebe. **Muda na tela:** depois do "Não deu para confirmar" (estado 9), um casamento que chegar até 8 s depois do encosto ainda abre o cartão (transição 9 → 11). (→ A3-3, item 8: o aviso passa para 7 s, depois do último casamento possível.) |
 | P4 | O cartão vale 60 s depois de encostar, mesmo afastados | **Confirmada, com dois ajustes.** Os 60 s contam do casamento no servidor, e o app usa 55 s (`cardTtlMarginMs`). E os 60 s são o prazo para **pedir**: o aceite segue a validade do pedido (120 s a partir do pedido), sem depender do par. Na tela, o estado 17 (o cartão venceu) acontece aos 55 s. |
 | P5 | Se os dois tocam em "Conectar", a conexão sai na hora | **Confirmada:** é a corrida A→B ∥ B→A, já tratada. Precisa que o segundo toque aconteça dentro dos 60 s do par; depois disso, o cartão já virou "Aceitar" pelo polling, e o aceite não depende do par. |
 | P6 | Quem não anuncia vai para o QR; o "Procurar mesmo assim" deixa de existir | **Confirmada** (§5). |
@@ -625,7 +627,7 @@ O receptor mede só o que chega, não a potência de quem transmite. Quem transm
   - ~~aceitar que um transmissor amplificado […] revele o cartão sem encosto, dentro do alcance que o spike medir; recomendação: aceitar, com a linha "atacante" como portão do spike.~~
   - O que foi aceito, em linguagem simples: quem usar um transmissor mais forte que um celular, voltado para alguém com a tela Encostar aberta, pode ver o cartão dessa pessoa sem encostar, a cerca de 1 m com um aparelho pequeno e a vários metros (mais de 10 m com antena direcional) com amplificador. A pessoa vê o cartão de quem fez isso logo em seguida, mesmo que ele bloqueie, apague a conta ou saia; cada conta só casa com 10 pessoas novas por hora e 30 por dia; e o bloqueio logo depois do encosto avisa a moderação.
   - (revisto em 2026-10-30, A2 rev. 1) **O que o PO aceitou passa a valer no código**, com a revisão 1:
-    - a pessoa vê o cartão de quem fez isso logo em seguida, mesmo que ele bloqueie, apague a conta ou saia, e o atacante não consegue mais escapar escolhendo a hora de casar (MÉDIO 1). Exceções que não dependem do atacante: a resposta com o cartão se perder na rede, ou a pessoa sair da tela Encostar antes de cerca de 8 s (R23); (revisto em 2026-10-30) e o cartão devido entregue com o par quase vencido, que aparece por poucos segundos ou pisca e some (BAIXO 7, R1-11);
+    - a pessoa vê o cartão de quem fez isso logo em seguida, mesmo que ele bloqueie, apague a conta ou saia, e o atacante não consegue mais escapar escolhendo a hora de casar (MÉDIO 1). Exceções que não dependem do atacante: a resposta com o cartão se perder na rede, ou a pessoa sair da tela Encostar antes de cerca de 8 s (R23); (revisto em 2026-10-30) e o cartão devido entregue com o par quase vencido, que aparece por poucos segundos ou pisca e some (BAIXO 7, R1-11); (revisto em 2026-10-31, A3) as exceções diminuem: a resposta perdida passa a ser entregue de novo por até 10 s, sair da tela por causa do aviso "Não deu para confirmar" deixa de perder o cartão, e o cartão atrasado não pisca mais (aparece sem ações, até a pessoa fechar). O que sobra está na A3-7 e cabe no que foi aceito aqui;
     - ela pode **bloquear e denunciar** essa pessoa pelo próprio cartão, até 60 s depois do encosto, mesmo sem serem conexões e mesmo que ele a tenha bloqueado (decisão do PO de 2026-10-30, opção (a));
     - ~~o bloqueio logo depois do encosto avisa a moderação~~ **três bloqueios** logo depois de encostos, em 7 dias (feitos ou recebidos pela mesma conta), avisam a moderação; cada encosto conta no máximo uma vez em cada sentido, então uma pessoa sozinha não dispara o aviso contra outra num encosto só.
   - O spike mede as distâncias; se passarem da ordem de grandeza do R21, voltam ao PO antes de fechar a Fase 4.
@@ -706,18 +708,18 @@ Como o `TOUCH_SCRIPT`, o script usa várias chaves sem hash tag e supõe Valkey 
 **3. O `touches`, passo a passo** (substitui os passos 2 a 4 do §3; `tokens` tem 1 token, `t`):
 1. As mesmas condições de antes: bloqueio da proximidade, limite de 60/min e tela aberta.
 2. **Primeiro, o cartão devido.** `takeOwedCard(quemChama)` (um script: `GET` de `prox:v:{quemChama}`, `DEL` e `SET` de `prox:c:{quemChama}` com o tempo de ocupado). Se havia um, ele é a resposta, e o relato para aqui (sem observação e sem casamento). O `token` do cartão segue esta regra de rótulo:
-   - o hash de `t` é o guardado no cartão, ou `t` é (válido ou recente, `findRecent`) do dono do cartão → `t`;
+   - o hash de `t` é o guardado no cartão, ou `t` é (válido ou recente, `findRecent`) do dono do cartão → `t`; (→ A3-8, BAIXO 2, revisto em 2026-10-31: isso vale para a primeira entrega; na reentrega, só o hash guardado, sem o `findRecent`)
    - qualquer outro caso (`t` revogado no logout ou na exclusão, vencido, inexistente, ou de **outra** pessoa) → um token novo de 12 bytes que nunca foi emitido (`generateProximityToken()`, não gravado). O cartão aparece, e o "Conectar" dá o 400 genérico. Isso impede que o botão de um cartão mande o pedido para outra pessoa com quem a conta tenha par.
 3. `newestByOwner` como hoje: o dono O de `t`, se `t` for um `bleToken` válido de outra conta.
 4. `recordTouch(quemChama, O, hash(t), agora, janela)` grava ou atualiza a observação e devolve se a do outro está **dentro da janela** (`agora − primeiroMs < janela`).
-5. Se está, a política, com uma consulta só: `findNearby(quemChama, [O, quemChama], hideBlockedFor(quemChama))`. A linha de quem chama vem junto (o filtro de bloqueio não a afeta) e vira o cartão dele para o outro; não é SQL novo. Sem a linha de O (bloqueio, exclusão, criador) ou sem a de quem chama, não casa.
+5. Se está, a política, com uma consulta só: `findNearby(quemChama, [O, quemChama], hideBlockedFor(quemChama))`. A linha de quem chama vem junto (o filtro de bloqueio não a afeta) e vira o cartão dele para o outro; não é SQL novo. Sem a linha de O (bloqueio, exclusão, criador) ou sem a de quem chama, não casa. (→ A3-1: a consulta e o casamento rodam em todo relato com token válido; → A3-8, BAIXO 1, revisto em 2026-10-31: a consulta passa a ser o `findTouchPair`, com as duas linhas sempre, e a decisão, o `touchRevealParties` da política)
 6. `claimTouchPair`. Em `'created'` ou `'renewed'`, o cartão de O (lido agora do banco, com o token `t`) é a resposta. Em `'capped'`, o log sem ids. Em `'busy'` e `'gone'`, nada.
 7. Responde 200 `{items}`, com no máximo um cartão. A forma é a do `NearbyPerson`: o cartão devido é indistinguível do normal, e `'capped'`, `'busy'` e `'gone'` são indistinguíveis de não mútuo.
 
 **4. O que se grava, e a LGPD.**
 - `prox:v` guarda o **cartão** (@, nome, chave da foto, `alreadyConnected` do momento do casamento), não só o id. Com só o id, a entrega precisaria ler o banco ignorando o bloqueio e a exclusão, o que abriria uma exceção na `AccessPolicyService` e leria dados de conta excluída. Com o cartão, a decisão fica toda no casamento.
-- **Prazo:** até 60 s (o TTL do par), entrega única, só no Valkey. Não vai para o Postgres nem para os logs; o token não aparece em claro (só o hash, PROX-01). `prox:c` guarda só "1", por 10 s.
-- **Conta excluída:** a conta some de tudo na hora, mas um cartão que ela já deixou num casamento ainda pode ser entregue uma vez, nos 60 s seguintes, à pessoa com quem ela casou, e some sozinho. O precedente é o A-19 (URLs de mídia já emitidas valem até vencer). A Política diz isso (`arquitetura.md` §15). A foto é assinada na entrega; se o objeto já tiver sido apagado, a imagem só não carrega.
+- **Prazo:** até 60 s (o TTL do par), entrega única (→ A3-2: depois da primeira entrega, reentregue à mesma pessoa por até 10 s), só no Valkey. Não vai para o Postgres nem para os logs; o token não aparece em claro (só o hash, PROX-01). `prox:c` guarda só "1", por 10 s.
+- **Conta excluída:** a conta some de tudo na hora, mas um cartão que ela já deixou num casamento ainda pode ser entregue uma vez, nos 60 s seguintes, à pessoa com quem ela casou, e some sozinho. (→ A3-2 e A3-8, BAIXO 3, revisto em 2026-10-31: e de novo, por até 10 s depois da primeira entrega, a cada relato dessa pessoa, também com a conta já excluída ou com o bloqueio já gravado) O precedente é o A-19 (URLs de mídia já emitidas valem até vencer). A Política diz isso (`arquitetura.md` §15). A foto é assinada na entrega; se o objeto já tiver sido apagado, a imagem só não carrega.
 - `alreadyConnected` é o do casamento. Se quem deixou o cartão bloquear depois, a conexão já foi desfeita; o cartão pode mostrar "Conectados" por alguns segundos, e qualquer ação dá o erro genérico.
 
 **5. Os casos.**
@@ -742,7 +744,7 @@ Como o `TOUCH_SCRIPT`, o script usa várias chaves sem hash tag e supõe Valkey 
 - `recordTouch(observerId, ownerId, ownerTokenHash, atMs, windowMs) → Promise<boolean>`: o `TOUCH_SCRIPT` passa a ler a própria observação (`GET`), gravar `"{primeiroMs}:{hash}"` com `PX 2×janela` se não existe ~~ou com `KEEPTTL` se existe~~ (→ A2 rev. 1: e também se existe, mantendo o `primeiroMs`; script na R1-1), e devolver 1 se a do outro existe e `atMs − primeiroMs < janela`. Valor em formato antigo ou ilegível = não existe (fecha, como o `decodeRecord`).
 - → A2 rev. 1: `countBlockSignal(blockerId, blockedId, windowMs)`, novo (R1-6).
 - `claimTouchPair({callerId, otherId, atMs, pairTtlMs, windowMs, busyMs, perHour, perDay, callerCard}) → Promise<'created' | 'renewed' | 'capped' | 'busy' | 'gone'>`: o script acima. No fake, os contadores precisam de uma leitura sem incremento antes do `INCR`.
-- `takeOwedCard(recipientId, busyMs) → Promise<OwedCard | null>` (`{subjectId, atMs, tokenHash, handle, name, avatarKey, connected}`): o script de entrega única. Valor ilegível = não existe, mas é apagado.
+- `takeOwedCard(recipientId, busyMs) → Promise<OwedCard | null>` (`{subjectId, atMs, tokenHash, handle, name, avatarKey, connected}`): o script de entrega única. Valor ilegível = não existe, mas é apagado. (→ A3-2: reentrega por até 10 s, com `redelivered` no resultado; o valor ilegível deixa de ser apagado e vence em até 10 s.)
 - `markTouchPair` continua, só para o `/dev/simulate-request` no `ble`. `hasTouchPair` não muda. `forgetTouchState(userId)` é novo e só serve às rotas de desenvolvimento (item 7).
 - `TestProximityStore` ganha os overrides dos métodos novos, para o `failing` derrubar cada um (PROX-35). O `entries()` do fake inclui `prox:v` e `prox:c` (PROX-43).
 - `RedisProximityStore`: só `eval` nos três scripts; o `ProximityRedis` não muda.
@@ -823,7 +825,7 @@ Só o prazo do relato: em `apps/mobile/src/features/connect/useTouch.ts`, o rela
 ## Adendo A2, revisão 1 (2026-10-30): prazo deslizante, um relato por vez, bloquear e denunciar pelo cartão
 
 - Status: especificado pelo Arquiteto em 2026-10-30, a pedido do Tech Lead, a partir da revisão final do `seguranca` sobre o A2 implementado (branch `feat/f4-encostar`, sem commit; sem veto, com MÉDIOS 1 e 2 e BAIXOS 3 a 5). A R1-5 segue a **decisão do PO de 2026-10-30 pela opção (a)** do MÉDIO 2. Implementa-se **antes do merge**, porque o A1-1 aceitou o R21 com o A2 funcionando.
-- (revisto em 2026-10-30) **Revisão final do `seguranca`: aprovada com ressalvas, sem veto** (R1-11). O BAIXO 6 foi corrigido antes do merge. Ficam para depois do merge o BAIXO 7 (com o R23), o BAIXO 4 (R22) e três endurecimentos opcionais.
+- (revisto em 2026-10-30) **Revisão final do `seguranca`: aprovada com ressalvas, sem veto** (R1-11). O BAIXO 6 foi corrigido antes do merge. Ficam para depois do merge o BAIXO 7 (com o R23), o BAIXO 4 (R22) e três endurecimentos opcionais. (revisto em 2026-10-31) Tratados no Adendo A3.
 - Substitui os trechos do A2 marcados com "→ A2 rev. 1". O resto do A2 continua valendo.
 - **Sem migration, sem SQL novo, sem dependência nova, sem código de erro novo e sem campo novo nos contratos.** Entra uma constante no `packages/shared`. O `dados` não entra (só entraria com a decisão R1-PO-1, se o PO a aprovar).
   - (revisto em 2026-10-30) Entra um campo novo: `pairExpiresInS` no item do `touches` (R1-10, decisão do Tech Lead). O PO aprovou a R1-PO-1 para o **próximo PR**, e é lá que o `dados` entra.
@@ -928,7 +930,7 @@ Em `apps/mobile/src/features/connect/useTouch.ts` e `touch-calibration.ts`:
      - sem prazo aberto, nada é relatado;
      - o encosto recusado não abre a sessão da tela, não muda a fase e não conta como atividade, então o QR em destaque aparece aos 20 s sem encosto admitido (P9);
      - o portão reabre sozinho quando os inícios antigos saem dos 60 s.
-   - **A conta:** cada admissão acontece com no máximo 30 inícios nos 60 s anteriores (31 com ela). Depois dela, o prazo vai até a resposta + 8 s, ou seja, no máximo 8 relatos (um por segundo, sem sobrepor). Logo, nunca há mais de 39 inícios em qualquer janela de 60 s. Sobram 21 para a diferença entre a janela deslizante do app e a janela fixa do servidor e para a latência. O relato que só vira novo na resposta acontece com latência alta, quando o app faz menos de 15 relatos por minuto.
+   - **A conta:** cada admissão acontece com no máximo 30 inícios nos 60 s anteriores (31 com ela). Depois dela, o prazo vai até a resposta + 8 s, ou seja, no máximo 8 relatos (um por segundo, sem sobrepor). Logo, nunca há mais de 39 inícios em qualquer janela de 60 s. Sobram 21 para a diferença entre a janela deslizante do app e a janela fixa do servidor e para a latência. O relato que só vira novo na resposta acontece com latência alta, quando o app faz menos de 15 relatos por minuto. (→ A3-3 item 7: 52 por admissão com falhas de rede; → A3-8, revisto em 2026-10-31: 56 com uma rede que alterna, porque cada 200 depois de uma sequência de falhas pode estender o prazo de novo, e a folga cai para 4)
 6. **Escolha do token (P8):** sem cartão, o token encostado de menor perda, se ele não for novo ou se passar pelo portão; senão, o último token aceito. Afastados, o último relatado, como hoje.
 7. **Erros:** como hoje (o 409 renova os tokens e segue; os outros param a tela). Com o orçamento, o app não recebe mais 429 dos próprios relatos.
 8. **Simulação em desenvolvimento** (`simulate`): passa pelo mesmo portão e pelo mesmo ritmo.
@@ -965,7 +967,8 @@ Não mudam: o bloqueio por `{commentId}`, as denúncias de post e de comentário
 - `proximity/proximity.service.ts`: `hasLiveTouchPair(viewerId: string, otherId: string | undefined): Promise<boolean>` = `this.guarded(() => this.store.hasTouchPair(viewerId, otherId ?? viewerId))`. Sem conta, consulta uma chave que nunca existe (o próprio id nos dois lados), para o tempo e a falha não revelarem se a conta existe. (revisto em 2026-10-30, revisão final) O tempo igual vale só para a parte do Valkey: a consulta da relação ao banco continua só para @ existente, uma diferença que já existia, a mesma do `GET /users/:handle` (R1-11). Fail-closed: Valkey fora ou lento → 503 `PROXIMITY_UNAVAILABLE`.
 - `blocks/blocks.service.ts`, `resolveTarget`, ramo do @: `findActiveAccount` → o próprio @ → 400 (como hoje) → `canBlockOrReport` → o id, ou `undefined` (204 sem gravar, como hoje). O comentário da classe passa a dizer "…ou com quem encostou há até 60 s".
 - `reports/reports.service.ts`, `resolveTarget`, caso `account`: `findActiveAccount` + `canBlockOrReport`; sem permissão ou sem conta → `profileNotFound()` (o mesmo 404 de hoje). O `ReportsModule` passa a importar o `ProximityModule` e o `PoliciesModule` (sem ciclo: nenhum dos dois importa `reports`).
-- **Consulta:** nenhuma nova. O `UsersService.findActiveAccount` (`UsersRepository.findActiveByHandle`) já resolve @ → id sem filtro de visibilidade. O `dados` não entra.
+  - (revisto em 2026-10-31, R1-PO-1 implementada no PR `feat/denunciar-bloqueado`) A denúncia de conta passa a usar o `AccessPolicyService.canReportAccount`, que inclui esta regra e acrescenta "quem denuncia bloqueou o alvo" (A3-8, item 6). O bloqueio continua no `canBlockOrReport`.
+- **Consulta:** nenhuma nova. O `UsersService.findActiveAccount` (`UsersRepository.findActiveByHandle`) já resolve @ → id sem filtro de visibilidade. O `dados` não entra. (revisto em 2026-10-31: a R1-PO-1 trouxe o `RelationsRepository.hasBlocked`, do `dados`)
 
 **Fora do par vivo: como hoje, sem oráculo.**
 - @ inexistente, conta excluída, @ inválido e perfil que não se vê, sem par: bloqueio → 204 sem gravar; denúncia → o 404 de inexistente.
@@ -979,7 +982,7 @@ Não mudam: o bloqueio por `{commentId}`, as denúncias de post e de comentário
 
 Depois dos 60 s, volta a regra de sempre. O BAIXO 3 se resolve sem consumir o par (R1-6). O pedido `ble` depois de um bloqueio continua recusado pela política (400 genérico).
 
-**Prazo da denúncia:** ela precisa ser **enviada** até 60 s depois do casamento (o app tira o cartão aos 55 s). A tela precisa caber nisso (R1-9). Para tirar essa pressa, ver a decisão R1-PO-1.
+**Prazo da denúncia:** ela precisa ser **enviada** até 60 s depois do casamento (o app tira o cartão aos 55 s). A tela precisa caber nisso (R1-9). Para tirar essa pressa, ver a decisão R1-PO-1. (revisto em 2026-10-31) Com a R1-PO-1 implementada, quem bloqueou o outro denuncia sem prazo; a pressa fica só para quem denuncia sem bloquear.
 
 #### R1-6. O sinal conta uma vez por casamento e por sentido (BAIXO 3)
 
@@ -1042,14 +1045,14 @@ A entrega é **única e sem confirmação**. Os casos (substituem a linha do A2-
 
 | Caso | Resultado |
 |---|---|
-| A rede de V cai **antes** de o relato chegar, ou o servidor responde 503 **antes** da retirada | o cartão continua guardado até 60 s depois do casamento e sai no próximo relato de V que chegar ao servidor. Como o app para a tela no erro, esse relato só vem no próximo encosto |
+| A rede de V cai **antes** de o relato chegar, ou o servidor responde 503 **antes** da retirada | o cartão continua guardado até 60 s depois do casamento e sai no próximo relato de V que chegar ao servidor. Como o app para a tela no erro, esse relato só vem no próximo encosto (→ A3-3: o app não para mais na hora; repete o relato por até 10 s) |
 | A resposta a V se perde **depois** da retirada (a rede cai na volta, ou o Valkey responde depois dos 500 ms com o script já rodado, o que vira 503) | o cartão **se perde**: M viu V, e V não vê M |
 | A resposta com o cartão chega depois de V sair do Pronto (trocou para o QR, por exemplo) | o app descarta o cartão, que já foi retirado: perde-se do mesmo jeito |
 | V sai do Pronto (QR, outra aba, segundo plano, erro) antes do fim do prazo, e M casa nesse intervalo | o cartão de M espera 60 s e só sai se V relatar de novo nesse tempo |
 
 Nenhum desses casos é provocável pelo atacante: ele não controla a rede nem a tela de V. Ficam como resíduo, o R23 da `arquitetura.md` §16. (revisto em 2026-10-30) O BAIXO 7 da revisão final, o cartão devido que chega com o par quase vencido (R1-11), entra no mesmo resíduo e é tratado junto, depois do merge.
 
-**Mitigação proposta, fora deste PR** (decisão do Tech Lead):
+**Mitigação proposta, fora deste PR** (decisão do Tech Lead): (revisto em 2026-10-31) **→ A3-2 a A3-4**, com ajustes: prazo de 4 s no relato, repetição do mesmo token por até 10 s, renovação dos tokens sem parar a tela, reentrega contada no limite, aviso aos 7 s e cartão atrasado sem ações.
 - **servidor:** o `takeOwedCard` não apaga o cartão. Marca-o como entregue e reduz o prazo para `min(PTTL, busyMs)` (10 s); cada relato de V nesses 10 s recebe o mesmo cartão;
 - **app:** falta de rede ou 503 durante o prazo não param a tela na hora: o relato tenta de novo no ritmo e no orçamento, e a tela só para se o prazo acabar com erro. O cartão com o mesmo @ de um cartão mostrado há menos de 10 s é ignorado (é a reentrega). O cartão que chega depois de sair do Pronto, com a tela montada, é mostrado.
 - **Custo:** um script e o fake, uns 4 testes no servidor, o motor do app e a Política ("entrega única" vira "entregue de novo por até 10 s, se a resposta se perder").
@@ -1058,7 +1061,7 @@ Nenhum desses casos é provocável pelo atacante: ele não controla a rede nem a
 
 #### R1-8. BAIXO 4: só o registro
 
-O não mútuo responde logo depois da observação, sem banco. A recusa pela política, o `capped`, o `busy` e o casamento passam pelo `findNearby` e pelo script do casamento. Quem mede o tempo distingue "o outro lado me relatou na janela, mas não casou" de "não mútuo", o que revela um bloqueio, um teto ou um ocupado (contra o P10). **Aberto, fora deste PR**, como R22: as saídas possíveis são rodar sempre a consulta (custo de banco a cada relato) ou responder num tempo fixo; a medição de carga diz se a diferença aparece na rede.
+O não mútuo responde logo depois da observação, sem banco. A recusa pela política, o `capped`, o `busy` e o casamento passam pelo `findNearby` e pelo script do casamento. Quem mede o tempo distingue "o outro lado me relatou na janela, mas não casou" de "não mútuo", o que revela um bloqueio, um teto ou um ocupado (contra o P10). **Aberto, fora deste PR**, como R22: as saídas possíveis são rodar sempre a consulta (custo de banco a cada relato) ou responder num tempo fixo; a medição de carga diz se a diferença aparece na rede. (revisto em 2026-10-31) **→ A3-1:** todo token válido faz o mesmo caminho (a consulta e o script do casamento sempre), testado pela sequência de chamadas.
 
 #### R1-9. Para o `ux-ui` (a tela, antes do `frontend`)
 
@@ -1104,9 +1107,9 @@ O que a arquitetura exige; os textos e o visual são do `ux-ui`:
 **BAIXO 7: aberto, para depois do merge, junto com o R23.**
 - Um cartão devido entregue entre 55 e 60 s depois do casamento chega com `pairExpiresInS` = 0: pisca e cai no T20 ("encostem de novo"). Com 5, aparece por só 5 s.
 - Entra nas exceções do "logo em seguida" do A1-1 e no R23.
-- **Mitigação proposta:** abaixo de um piso (por exemplo, 10 s), mostrar o cartão por um tempo mínimo, sem ações depois do prazo do par e sem o T20.
+- **Mitigação proposta:** abaixo de um piso (por exemplo, 10 s), mostrar o cartão por um tempo mínimo, sem ações depois do prazo do par e sem o T20. (revisto em 2026-10-31) **→ A3-4:** abaixo de 10 s, o cartão aparece sem ações desde a chegada e fica até a pessoa fechar, sem o T20.
 
-**Endurecimentos opcionais: registrados, não feitos agora.**
+**Endurecimentos opcionais: registrados, não feitos agora.** (revisto em 2026-10-31) **→ A3-5:** o teto de 55 entra; o relógio monotônico e o tempo igual para @ ficam registrados.
 - Limitar o `pairExpiresInS` a `TTL − STEP` (55). O 60 só aparece com relógio atrasado entre instâncias da API e, quando aparece, denuncia que o cartão é devido.
 - O `connectClock` usa `Date.now()`, que não é monotônico: um ajuste no relógio do aparelho mexe nos prazos do app.
 - O "tempo igual para @ existente e inexistente" da R1-5 vale **só para a parte do Valkey**. A consulta da relação ao banco continua só para @ existente. A diferença já existia e é a mesma do `GET /users/:handle`.
@@ -1183,12 +1186,376 @@ O maior ID em uso é o **PROX-57**. Novos: **PROX-58 a PROX-63**. (revisto em 20
 ### Decisões do PO
 
 - (2026-10-30) **R1-PO-1: aprovada pelo PO, para o próximo PR** (não entra no PR da Fase 4). Vale o desenho abaixo: a consulta do `dados`, a regra na política e o teste.
+  - (revisto em 2026-10-31) **Implementada** no PR `feat/denunciar-bloqueado`: `RelationsRepository.hasBlocked` e `AccessPolicyService.canReportAccount`, com o caso PROX-65. A ordem e o porquê estão no A3-8, item 6.
 - (2026-10-30) **T46 aprovado pelo PO:** o aviso do prazo no formulário de denúncia aberto pelo cartão (o `ux-ui` registra o texto no `ux.md` §11.14).
 - **R1-PO-1 (recomendada; não bloqueia o merge): "denunciar quem você bloqueou".**
   - **Hoje**, com ou sem esta revisão, a denúncia exige ver o perfil ou, agora, o par vivo. Quem bloqueia primeiro não denuncia depois: isso já vale para qualquer perfil. No cartão, significa que a denúncia tem de ser enviada até 60 s depois do encosto.
   - **Opção:** aceitar a denúncia de conta quando quem denuncia bloqueou o alvo (linha em `blocks` com `blocker_id` = quem denuncia). Não é oráculo, porque a linha só existe se o bloqueio foi gravado, o que exige ver o perfil ou o par.
   - **Custo:** uma consulta do `dados` no `RelationsRepository` (`select exists(select 1 from blocks where blocker_id = $1 and blocked_id = $2)`), uma regra na política e um teste.
   - **Recomendação:** sim, depois do merge. Tira a pressa da denúncia pelo cartão e ajuda em qualquer bloqueio. É do PO porque muda o X.1 ("só se denuncia o que se vê").
+
+## Adendo A3 (2026-10-31): tempo igual no `touches`, reentrega do cartão e cartão atrasado
+
+- Status: especificado pelo Arquiteto em 2026-10-31, a pedido do Tech Lead, para o PR `feat/denunciar-bloqueado` (o mesmo da R1-PO-1), depois do merge do PR #2. Fecha o que a R1-11 deixou para depois do merge: o BAIXO 4 (R22), o R23 com o BAIXO 7 e os três endurecimentos opcionais.
+- Substitui a "Mitigação proposta" da R1-7, a R1-8 e as propostas da R1-11 para o BAIXO 7 e os endurecimentos. Trechos marcados com "→ A3". O resto da ADR continua valendo.
+- **Sem migration, SQL novo, dependência nova, código de erro novo ou mudança de contrato.** No `packages/shared`, só comentários. O `dados` só confere o plano do `findNearby`, que passa a rodar em mais relatos (A3-1).
+  - (revisto em 2026-10-31) Entrou uma consulta nova, só de leitura e sem índice novo: `ProximityRepository.findTouchPair`, do `dados`, no lugar do `findNearby` no `touches` (A3-8, BAIXO 1). No mesmo PR, a R1-PO-1 trouxe o `RelationsRepository.hasBlocked`. Continua sem migration, dependência, código de erro ou contrato novo.
+- **Muda uma promessa da Política** (A3-6). O texto novo só vai ao site depois do deploy, com a aprovação do PO.
+
+### Contexto
+
+**R22 (BAIXO 4).** Com um token válido de outra conta, o `touches` tem caminhos de tempo diferente:
+
+| Caminho | Idas depois do `findValid`, hoje | O que o tempo revela |
+|---|---|---|
+| B. não mútuo | a observação | — |
+| C. mútuo, recusado pela política (bloqueio em qualquer sentido, conta excluída) | a observação e o Postgres | "quem está aqui me relatou, e há bloqueio entre nós" |
+| D. mútuo, sem casar (`capped`, `busy`, `gone`) | a observação, o Postgres e o script do casamento | o teto ou o ocupado do outro |
+| E. casamento | as de D, e o cartão | nada a mais (o cartão já diz) |
+
+O C é o que pesa: contra o P10, diz a quem bloqueou, ou foi bloqueado, que essa pessoa está ali com a tela aberta. A diferença é de cerca de 1 a 2 ms, contra dezenas de ms de ruído da rede móvel, e a janela é de 5 s; por isso é BAIXO. Mas a saída é barata.
+
+**R23.** A R1-7 listou quatro casos em que o cartão devido se perde. Ao desenhar a mitigação, apareceram três fatos do app:
+- **o `ApiClient` não tem prazo.** Uma conexão que trava (troca de Wi-Fi para dados, por exemplo) prende o relato em voo até o sistema desistir. Como o portão do relato é do processo inteiro (R1-3), nada mais é relatado enquanto isso;
+- **a renovação dos tokens para a tela no primeiro erro** (`hooks.ts`, a cada 20 s). Uma queda de 3 s pega a renovação cerca de 1 vez em 7, para a tela e corta qualquer nova tentativa do relato;
+- **o aviso "Não deu para confirmar" sai aos 4 s**, antes do fim da janela do servidor (5 s desde o primeiro relato). Quem sai da tela logo depois do aviso pode perder o cartão de um casamento feito no fim da janela. O atacante do R21 não controla a saída da vítima, mas controla a hora do casamento.
+
+**BAIXO 7.** O cartão devido que chega 55 a 60 s depois do casamento vem com `pairExpiresInS` 0: pisca e cai no T20. Com 5, os botões somem em 5 s (o Bloquear, em 2). Isso acontece quando a pessoa ficou quase um minuto sem relatar: saiu da tela, voltou e encostou de novo, às vezes em outra pessoa. Nesse caso, o rótulo costuma ser o token nunca emitido (A2-2), e o "Conectar" dá o 400 genérico, que ainda conta como falha de token (PROX-20).
+
+### Decisão
+
+#### A3-1. R22: todo token válido faz o mesmo caminho (servidor, `backend`)
+
+**Regra:** com um token válido, do canal `ble` e de outra conta, o `touches` faz sempre as mesmas idas, na mesma ordem: a observação (`recordTouch`), a política (~~`findNearby`~~ revisto em 2026-10-31: `findTouchPair` e `touchRevealParties`, A3-8) e o script do casamento (`claimTouchPair`). O resultado de cada passo só decide a resposta no fim.
+
+`proximity.service.ts`, `touches`:
+- saem os dois retornos antecipados: `if (!inWindow)` e `if (owner === undefined || caller === undefined)`;
+- ~~o `findNearby` roda sempre, uma vez;~~ (revisto em 2026-10-31, BAIXO 1, A3-8) o `findTouchPair` roda sempre, uma vez, e a política decide pelo `touchRevealParties`;
+- o `claimTouchPair` roda sempre, uma vez, com `callerCard` = o cartão de quem chama quando as duas linhas voltaram (revisto em 2026-10-31: quando o `touchRevealParties` devolve as duas contas), ou `null` quando a política recusou;
+- o booleano do `recordTouch` deixa de decidir: o script do casamento já confere a janela (passo 1). O booleano fica na porta, para os testes do store;
+- a resposta não muda: o cartão em `created` e `renewed`; `{items: []}` no resto.
+
+`proximity.store.ts`:
+- `ClaimTouchPairInput.callerCard: TouchCard | null`;
+- `TouchClaim` ganha `'refused'`, também no `TOUCH_CLAIMS` do adaptador;
+- `CLAIM_TOUCH_SCRIPT`: logo depois do passo 1 (`gone`), `if ARGV[8] == '' then return 'refused' end`. O adaptador manda `''` para `null`. Em `refused`, o script não lê nem grava par, contadores, cartão devido ou ocupado;
+- o fake faz o mesmo, na mesma ordem.
+
+**Depois do A3-1**, os quatro caminhos chamam, nesta ordem: `takeOwedCard`, `lockRemainingMs`, `hit`, `isScreenOpen`, `findValid`, `recordTouch`, ~~`findNearby`~~ `findTouchPair` (revisto em 2026-10-31) e `claimTouchPair`. Só o resultado do script muda: `gone` (B), `refused` (C), `capped` ou `busy` (D), `created` ou `renewed` (E, que ainda assina a foto).
+
+**O que sobra:**
+- microssegundos dentro do Valkey (o script faz mais comandos em D e E) e do Postgres ~~(0, 1 ou 2 linhas)~~. Ficam abaixo do ruído da rede; (revisto em 2026-10-31, BAIXO 1) com o `findNearby`, o bloqueio no `WHERE` dava 1 linha em vez de 2, cerca de 0,1 ms, e a consulta passou a rodar mesmo sem o outro lado relatar. Com o `findTouchPair`, são sempre 2 linhas e a mesma forma de plano; sobra +1 buffer hit por busca que encontra a linha (A3-8);
+- o caminho A (token inexistente, vencido, revogado, do QR ou próprio) para no `findValid`. Depende só do token, não da relação entre as duas pessoas: não revela bloqueio, teto nem ocupado;
+- de quebra: com o Postgres fora, hoje só o relato na janela dá 500. Agora todos dão, e a falha também deixa de distinguir os caminhos.
+
+**Custo:** uma leitura indexada (users pela chave, com o `exists` de `connections` e o filtro de `blocks`) em todo relato com token válido de outra conta, e uma ida a mais ao Valkey no não mútuo. (revisto em 2026-10-31) Com o `findTouchPair`: as duas linhas de `users` pela chave e três buscas por índice, uma em `connections` e uma em cada sentido de `blocks`; p50 de cerca de 0,36 ms no PGlite (A3-8).
+- O app honesto faz de 2 a 9 relatos por encosto, e no máximo 39 por minuto com transmissor hostil (R1-3). (revisto em 2026-10-31: até 52 por admissão com falhas de rede, e 56 com uma rede que alterna; A3-8) O transmissor sem conta gira UUIDs que param no `findValid`, sem banco.
+- Com 100 pessoas encostando no mesmo minuto (2% dos ~5 mil ativos por dia da premissa, `PROJETO.md` §3), são uns 15 relatos por segundo, cada um com uma leitura de menos de 1 ms. A premissa de pico é ~50 req/s. Cabe no `db.t4g.small`.
+- O `dados` confere o plano da consulta. ~~O SQL não muda.~~ (revisto em 2026-10-31) O SQL muda: consulta nova, o `findTouchPair` (A3-8, BAIXO 1).
+
+**Teste, sem medir a rede:** pela sequência de chamadas. (revisto em 2026-10-31) Na sequência, o `findTouchPair` entra no lugar do `findNearby`. Para B, C (bloqueio em cada sentido; conta excluída), D (`capped`, `busy`) e E, a lista de operações do store e de consultas do repositório é a mesma, com o `findNearby` e o `claimTouchPair` uma vez cada. B, C e D dão o mesmo corpo (PROX-46). A mutação que devolve qualquer um dos retornos antecipados derruba o teste.
+
+#### A3-2. R23: reentrega por 10 s (servidor, `backend`)
+
+**Regra:** a primeira entrega não apaga o cartão. Marca-o como entregue e encurta o prazo para `min(o que falta, busyMs)` (10 s). Cada relato da mesma pessoa nesses 10 s recebe o mesmo cartão. O ocupado é gravado só na primeira entrega.
+
+`TAKE_OWED_CARD_SCRIPT` (substitui o atual; as chaves e o argumento não mudam):
+
+```lua
+-- KEYS[1] = prox:v:{uid}, KEYS[2] = prox:c:{uid}
+-- ARGV[1] = tempo de ocupado (ms), que é também o da reentrega
+local card = redis.call('GET', KEYS[1])
+if not card then return false end
+if string.sub(card, 1, 1) == '!' then return card end
+local keep = tonumber(ARGV[1])
+local ttl = redis.call('PTTL', KEYS[1])
+if ttl > 0 and ttl < keep then keep = ttl end
+redis.call('SET', KEYS[1], '!' .. card, 'PX', keep)
+redis.call('SET', KEYS[2], '1', 'PX', ARGV[1])
+return card
+```
+
+- A marca `!` nunca aparece no hash (`base64url`). O valor é `"{hash}|{json}"` antes da primeira entrega e `"!{hash}|{json}"` depois.
+- Porta: `takeOwedCard(recipientId, busyMs) → Promise<(OwedCard & {redelivered: boolean}) | null>`. O adaptador e o fake tiram o `!` e marcam `redelivered`.
+- Valor ilegível: `null`, como hoje, mas sem o `DEL`; vence em até 10 s.
+- Fake (`MemoryProximityStore.takeOwedCard`): o mesmo, com o prazo `min(expiresAt, agora + busyMs)`.
+
+No `touches`:
+- a primeira entrega segue a R1-4: não consome o limite, não exige a tela aberta e sai mesmo com a proximidade bloqueada;
+- **a reentrega conta no limite de 60/min:** depois do `takeOwedCard`, se `redelivered`, `consume(touches)`; acima do limite, 429. O 429 não perde nada: a reentrega não mexe em chave nenhuma, e o cartão segue até o fim dos 10 s. Sem isso, um cliente modificado faria chamadas sem limite por 10 s a cada casamento. O app honesto nunca chega ao limite (A3-3, item 7);
+- o rótulo e o `pairExpiresInS` são recalculados em cada entrega, ~~pela mesma regra e~~ pela mesma fórmula. (revisto em 2026-10-31, BAIXO 2, A3-8) O rótulo segue a regra do A2-2 só na primeira entrega. Na reentrega, ele é `t` só se `hash(t)` for o guardado no casamento; senão, é o token nunca emitido, sem o `findRecent`.
+
+**O que não muda:** o ocupado dura 10 s desde a primeira entrega, como hoje. O `prox:v` reentregável já conta como ocupado no casamento (passo 2) e vence junto com o `prox:c` ou antes (os dois saem do mesmo script). O cartão continua só para a pessoa do encosto, dentro dos 60 s do par: nada novo é revelado.
+
+#### A3-3. R23: o app tenta de novo e mostra o cartão que chega (`frontend`)
+
+Constantes em `touch-calibration.ts` (contrato do app com o servidor, não calibração do spike):
+
+| Constante | Valor | Para que serve |
+|---|---|---|
+| `reportTimeoutMs` | 4000 (nova) | prazo de cada relato |
+| `reportRetryEveryMs` | 2000 (nova) | ritmo da repetição depois de uma falha |
+| `cardRedeliveryMs` | `2 × PROXIMITY_TOUCH_WINDOW_S × 1000` = 10 000 (nova) | a reentrega do servidor (o ocupado, `2 × janela`): quanto dura a repetição e quanto tempo o mesmo @ é ignorado |
+| `lateCardBelowMs` | 10 000 (nova) | o cartão atrasado (A3-4) |
+| `confirmWarnAfterMs` | ~~4000~~ **7000** | o aviso "Não deu para confirmar" (item 8) |
+
+1. **Prazo no relato.** `ApiClient.request` ganha `timeoutMs` opcional: um `AbortController`, o `signal` no `FetchLike`, e o fim do prazo vira `NetworkError`. Só o `reportTouch` usa (`reportTimeoutMs`); as outras chamadas não mudam. O `Promise.race` sozinho não serve: deixa a conexão aberta por trás.
+2. **Falha repetível:** `NetworkError` (inclusive o prazo), 503 e outros 5xx. O 429, o 403 e o 400 param a tela na hora, como hoje. O 409 continua renovando a tela; se a renovação falhar por rede ou 503, conta como falha repetível.
+3. **Sequência de falhas.** Na primeira falha repetível, `failingSince` = o início desse relato.
+   - A tela não para. O relator repete **o mesmo token** do relato que falhou, sem a escolha do P8 e sem o portão do orçamento (é cobertura), um relato por vez e com `reportRetryEveryMs` entre os inícios.
+   - Ele segue enquanto `agora < max(reportUntil, failingSince + cardRedeliveryMs)`.
+   - Qualquer 200, com ou sem cartão, encerra a sequência (`failingSince = null`); no relato seguinte, voltam a escolha do P8 e o portão. O 200 sem cartão de token novo estende o prazo, como sempre (R1-3).
+   - Se o relator parar com a sequência aberta, a tela para com o último erro (estados 18 e 19), como hoje.
+   - **Por que 10 s desde o início do primeiro relato que falhou:** se ele retirou o cartão, foi na chegada, depois do início, e a reentrega dura 10 s desde a retirada. Qualquer repetição que chegue antes recebe o cartão.
+4. **Renovação dos tokens** (`hooks.ts`): falha repetível não para a tela na hora. Tenta de novo a cada 3 s, até 3 vezes, e só então para. As três cabem nos 10 s entre a renovação (aos 20 s) e o fim da validade (aos 30 s), e o total fica em até 6 emissões por minuto, o limite do servidor.
+5. **Reentrega no app.** O cartão com o mesmo @ do último cartão mostrado há menos de `cardRedeliveryMs` é ignorado. O estado fica no módulo, junto do `touchReportGate`, porque outra instância do motor pode ter mostrado o cartão. A resposta ignorada é **neutra**: não abre cartão, não conta como aceita, não estende o prazo e não para o relator; só encerra a sequência de falhas.
+   - Quando acontece: a pessoa fecha o cartão e encosta de novo em menos de 10 s. Hoje ela vê "Não deu para confirmar" (ocupado), e continua vendo.
+   - Um casamento novo com a mesma pessoa só sai depois do ocupado (10 s). Se o cartão dele chegar no limite e for ignorado, a pessoa viu esse mesmo cartão segundos antes: a garantia não sofre.
+6. **Cartão que chega fora do Pronto.** A resposta com cartão de um relato em voo vai para a tela sempre que o motor não foi desmontado, mesmo depois de sair do Pronto (QR code, Bluetooth desligado, outro período do Pronto). A tela mostra o cartão, menos com a tela parada (18 a 20). Como mostrar é do `ux-ui` (abaixo).
+7. **Orçamento (R1-3).** A sequência acrescenta no máximo 5 inícios (10 s, a cada 2 s), e o 200 que a encerra pode estender o prazo uma vez (mais 8). Pior caso por admissão: `30 + 1 + 8 + 5 + 8 = 52` inícios em 60 s, abaixo dos 60 do servidor (antes, 39). Relatos que falham por falta de rede nem chegam ao servidor. Se uma rede que falha sem parar ainda levar a um 429, ele é verdadeiro e para a tela, como hoje.
+   - (revisto em 2026-10-31, medição do `frontend`; decisão do Tech Lead pela opção "a", aceitar) A conta acima é **por admissão, sem alternância**: o pior caso medido é **51**, porque a sequência acrescenta no máximo 4 inícios (o dos 10 s já não sai). Com uma rede que **alterna** (respostas e falhas intercaladas), o 200 que encerra uma sequência de falhas depois de ≥ 5 s sem aceite é token novo e estende o prazo de novo. Cada um desses 200 faz isso, e as extensões formam uma cadeia numa admissão só: **56 inícios em 60 s** (com os 30 de antes da admissão), acima dos 52 e abaixo dos 60 do servidor, sem 429. Restringir a extensão arriscaria o R1-2. O teste do app garante menos de 60 e nenhum 429 (PROX-68). Detalhes no A3-8, item 1.
+8. **O aviso "Não deu para confirmar" passa para 7 s** (era 4 s). Regra, com teste: `confirmWarnAfterMs ≥ (PROXIMITY_TOUCH_WINDOW_S + 2 × PROXIMITY_TOUCH_REPORT_INTERVAL_S) × 1000`.
+   - Assim o aviso só sai depois do último casamento possível e de mais um relato. Quem sai da tela por causa do aviso já recebeu o cartão de quem casou no fim da janela (com a latência normal).
+   - O custo: o "Encostou!" dura 3 s a mais quando não confirma, e o QR em destaque por dois avisos seguidos (P9) chega 6 s depois. O relato continua até o prazo, como hoje. Muda a P3 (`ux.md` §11.2): vai ao `ux-ui`.
+
+#### A3-4. BAIXO 7: o cartão atrasado aparece sem ações e não pisca (`frontend`, depois do `ux-ui`)
+
+O `TouchCard` do app ganha três dados, calculados pelo motor na chegada:
+- `actionsUntil = chegada + min(cardTtlMs, pairExpiresInS × 1000)`: o `expiresAt` de hoje (o nome fica a critério do `frontend`);
+- `late = pairExpiresInS × 1000 < lateCardBelowMs`: na prática, 0 ou 5;
+- `canConnect = person.token === o token do relato que trouxe o cartão`. Falso só no cartão devido com o token nunca emitido (regra do rótulo, A2-2): o pedido daria o 400 genérico e contaria como falha de token.
+
+Na tela:
+- **Cartão atrasado (`late`):** sem Conectar, Bloquear e Denunciar desde a chegada. Fica até a pessoa fechar ou sair da aba: **sem prazo, sem vencer e sem o T20**. Com um pedido pendente dessa pessoa (estado 14), Aceitar e Recusar seguem o prazo do pedido, que não depende do par.
+  - Sem ações desde o início porque, com 5 s, os botões sumiriam embaixo do dedo (o Bloquear, em 2 s); com 0, nem apareceriam.
+  - Sem prazo porque o que importa é ver quem a viu, e, sem ações, não há limite de tempo essencial (WCAG 2.2.1, `ux.md` §11.8).
+- **Cartão sem Conectar (`!canConnect`, não atrasado):** sem o botão Conectar. Bloquear e Denunciar até o `actionsUntil` (o Bloquear com a margem de 3 s da R1-11). Vence como o 11.
+- O resto, como hoje.
+
+#### A3-5. Os três endurecimentos da R1-11
+
+| Endurecimento | Decisão | Motivo |
+|---|---|---|
+| `pairExpiresInS` limitado a `TTL − STEP` (55) | **entra neste PR** (`backend`) | Uma linha: `min(max(0, TTL − STEP), …)` no `pairExpiresInS`. Tira o único valor que denunciava o cartão devido (60, quando a instância que entrega está com o relógio atrasado em relação à que casou; PROX-37). O app já corta em 55 s: nada muda na tela |
+| Relógio monotônico no `connectClock` | **fica registrado** | O `performance.now()` do React Native usa o `std::chrono::steady_clock` [20], que, nas duas plataformas, tende a não contar o sono profundo do aparelho [21] (a conferir em aparelho). Trocaria um problema raro (o relógio do aparelho pular) por um pior: depois de travar a tela com o cartão aberto, o prazo do cartão e a margem do Bloquear (BAIXO 6) passariam do par no servidor. Um relógio monotônico que conta o sono (`SystemClock.elapsedRealtime` no Android, `mach_continuous_time` no iOS) pede código nativo e build novo. Com o `Date.now()`, um pulo para trás faz o relator esperar e o "Encostou!" ficar até o relógio alcançar; um pulo para frente encerra os prazos cedo e pode fazer a pessoa não receber o cartão (R23). O atacante não provoca nenhum dos dois |
+| Tempo igual para @ existente e inexistente (R1-5) | **fica registrado** | A existência de um @ ativo já aparece pelo tempo do `GET /users/:handle`, e a de um @ em uso, pelo 409 `HANDLE_TAKEN` do cadastro. Igualar só o bloqueio e a denúncia não muda o que um atacante descobre. Se um dia o @ ativo virar segredo, a correção é em todas as rotas de perfil, juntas |
+
+#### A3-6. Política de Privacidade
+
+O texto novo está na `arquitetura.md` §15 (orientações 1, 2 e 8). Em resumo:
+- "entregue **uma vez**… Se a entrega se perder na rede, o cartão não é enviado de novo" passa a ~~"depois da primeira entrega, fica guardado por mais até 10 s e é entregue de novo, só a essa pessoa, se a resposta se perder na rede"~~ (revisto em 2026-10-31, BAIXO 3 do `seguranca`, A3-8) "Depois da primeira entrega, o cartão fica guardado por mais até 10 segundos e pode ser entregue de novo, só a essa pessoa, a cada novo relato dela nesse tempo (para o caso de a resposta se perder na rede). Depois disso, some." O texto anterior não descrevia o servidor. Ele reentrega a cada relato da pessoa nesses 10 s, tenha a resposta se perdido ou não, e também quando o dono do cartão já bloqueou ou excluiu a conta;
+- entra o tempo novo: "o cartão já entregue, até 10 s";
+- as exceções ao "logo em seguida" mudam (A3-7), e o cartão atrasado passa a aparecer sem os botões, até a pessoa fechar.
+
+**A publicar só depois do deploy do A3, com a aprovação do PO** (A3-PO-1).
+
+#### A3-7. O que fica do R23
+
+- a rede da pessoa fica fora por mais de uns 10 s logo depois do casamento (a reentrega acaba);
+- a pessoa sai da tela Encostar, ou da aba, antes do fim do prazo (uns 8 s), por outro motivo que não o aviso, e o casamento acontece nesse intervalo. O cartão espera 60 s; se ela voltar e relatar perto do fim, ele vem atrasado (A3-4);
+- o cartão chega com a tela parada (18 a 20): é descartado;
+- o cartão atrasado não deixa bloquear nem denunciar pelo cartão (o par venceu);
+- o relógio do aparelho pula para frente durante o prazo (A3-5);
+- (revisto em 2026-10-31, implementação revista pelo `ux-ui`, `ux.md` §11.17, caso 4) o cartão que chegou e espera por baixo de outra tela, sem ter sido visto, e a pessoa sai da aba antes de vê-lo. Isso acontece com a leitura do QR em andamento, nos estados 13, 15 e 16 ou com a folha de pedido de outra pessoa aberta. É o mesmo caso de "sair da tela";
+- (revisto em 2026-10-31, A3-8) um 429 numa rede que alterna, se cair justo na reentrega de um cartão cuja primeira resposta se perdeu. A primeira entrega nunca recebe 429 (R1-4).
+
+Nenhum depende do atacante: ele não controla a rede nem a tela da vítima, e o aviso aos 7 s tira dele a vantagem de casar no fim da janela. Todos cabem nas exceções que o PO aceitou em A1-1.
+
+#### A3-8. Depois da implementação: revisão do `seguranca`, medições e R1-PO-1 (revisto em 2026-10-31)
+
+A revisão do `seguranca` sobre o A3 no servidor saiu **sem veto**, com três BAIXOs, que o Tech Lead decidiu corrigir neste PR. Esta seção registra também a medição do orçamento feita pelo `frontend`, dois riscos levantados pelo `dados` e a R1-PO-1, implementada no mesmo PR.
+
+**1. Orçamento com uma rede que alterna (A3-3, item 7). Decisão do Tech Lead: aceitar (opção "a").**
+- **Por admissão, sem alternância:** o pior caso medido é 51, dentro dos 52 do item 7. A sequência de falhas acrescenta no máximo 4 inícios, porque o dos 10 s já não sai.
+- **Com uma rede que alterna** (respostas e falhas intercaladas), cada 200 que encerra uma sequência de falhas depois de ≥ 5 s sem aceite é token novo (R1-2). Esse 200 estende o prazo de novo sem passar pelo portão, porque é cobertura (R1-3, item 5). As extensões formam uma cadeia numa admissão só:
+  - **56 inícios em 60 s**, contando os 30 de antes da admissão;
+  - depois deles, uns 49 por minuto;
+  - acima dos 52 do item 7 e abaixo dos 60 do servidor, sem 429.
+- **Por que aceitar:** o app não sabe se o relato que falhou chegou ao servidor e abriu uma janela. Limitar a extensão (uma vez por admissão, ou só pelo portão) deixaria essa janela sem os 8 s de relatos, e o R1-2 voltaria a falhar (o MÉDIO 1 da revisão final).
+- **Teste:** o do app garante menos de 60 inícios em qualquer janela de 60 s e nenhum 429 (PROX-68).
+- **O que fica:**
+  - a folga para a diferença entre a janela deslizante do app e a fixa do servidor, e para a latência, cai de 21 (com 39) para 4 (com 56);
+  - se ainda sair um 429, ele para a tela, como hoje (A3-3, item 2);
+  - a primeira entrega do cartão devido nunca recebe 429 (R1-4). Se o 429 cair justo na reentrega de um cartão cuja primeira resposta se perdeu, esse cartão se perde (A3-7);
+  - isso exige uma rede alternando e latência variável no mesmo minuto. O atacante não controla nenhuma das duas.
+
+**2. BAIXO 1 (resíduo do R22): o número de linhas da política.**
+- **O problema:** o `findNearby` filtrava o bloqueio no `WHERE` e devolvia 1 linha com bloqueio e 2 sem. A diferença era de cerca de 0,1 ms, medida no PGlite. Depois do A3-1, essa consulta rodava em todo relato com token válido, mesmo sem o outro lado relatar. A diferença passou a não depender do encosto mútuo.
+- **A correção (`dados` e `backend`):** o `touches` lê as duas contas com `ProximityRepository.findTouchPair(viewerId, ownerId)`.
+  - O `WHERE` filtra só pelos dois ids. Voltam as duas linhas sempre que as duas contas existem, com bloqueio, conta excluída ou criador.
+  - `personal`, `active`, `connected` e `blocked` vêm como colunas. `connected` e `blocked` são do par: o mesmo valor nas duas linhas.
+  - Os dois são InitPlans (`loops=1`). As duas buscas do bloqueio são somadas, sem `or`, porque o `or` pararia na primeira encontrada.
+  - Medido pelo `dados`: 1 forma de plano e 2 linhas nos 12 casos medidos, com p50 entre 0,3597 e 0,3637 ms. Resta +1 buffer hit por busca que encontra a linha. Ele é inerente ao índice ~~e não teve efeito medível no tempo~~. (revisto em 2026-10-31, reconferência do `dados`) Custa de 1 a 5 µs no PGlite, menos que a diferença entre duas contas sem relação, e o plano não muda com estatística velha. A exceção é `blocks` pequena, com ~12 µs (`arquitetura.md` §16, R22 e R24).
+- **A decisão passa para a política:** `AccessPolicyService.touchRevealParties(viewer, ownerId, rows)` devolve `{owner, caller}` ou `null`.
+  - Devolve as duas contas quando o dono e quem chama são pessoais e ativos, não há bloqueio no par e os ids são diferentes.
+  - Não faz consulta própria, para o caminho ter as mesmas idas em todo caso.
+  - O `callerCard` sai da linha de quem chama. A linha recusada, com @, nome e foto, não sai da política.
+- O `resolve` (QR) continua no `findNearby` com o `hideBlockedFor`. Lá a consulta já é a resposta, e não há caminho a igualar.
+- **Limite de módulo:** o `blocked` do encosto é calculado no SQL do `findTouchPair`, e não no `RelationsRepository` (`notBlockedWith`, `relationship`). Isso é uma exceção registrada à `arquitetura.md` §5, como já era o `connected` do `findNearby`.
+  - **Por quê:** só uma consulta com a relação nas duas linhas iguala o plano, e o `RelationsRepository` não devolve linhas de conta.
+  - **O que continua igual:** a regra fica só na política.
+  - **O cuidado:** quem mudar o significado de `blocks` muda os dois lugares. Os e2e de bloqueio em cada sentido (PROX-46, PROX-66) pegam a divergência.
+
+**3. BAIXO 2: a reentrega ampliava o oráculo do rótulo.**
+- **O problema:** na primeira entrega, o rótulo é `t` quando o hash é o guardado ou quando o `findRecent` diz que `t` é do dono (A2-2). Repetido em cada reentrega (até 60 relatos por minuto, por 10 s), o `findRecent` deixava quem chama testar qualquer token de até 120 s e descobrir quais eram do dono do cartão.
+- **A correção:** na reentrega, o rótulo é `t` só se `hash(t)` for o guardado no casamento. Senão, é o token nunca emitido, sem chamar o `findRecent`. A primeira entrega não muda: um teste por cartão, como no A2.
+- **O custo:** o cartão reentregue chega sem Conectar (estado 22, com Bloquear e Denunciar até o prazo) quando o token relatado não é o guardado no casamento. Isso acontece quando o dono girou o token antes da primeira entrega (que saiu pelo `findRecent` e cuja resposta se perdeu) ou entre ela e a reentrega. O caso é raro, e a revelação não sofre: o cartão chega.
+
+**4. BAIXO 3: o texto da Política (A3-6; `arquitetura.md` §15, orientação 1).**
+- O texto "entregue de novo… se a resposta se perder" não descrevia o servidor. Ele reentrega a cada relato da pessoa nesses 10 s, tenha a resposta se perdido ou não. Reentrega também quando o dono do cartão já bloqueou ou excluiu a conta.
+- Texto novo, do `seguranca`: "Depois da primeira entrega, o cartão fica guardado por mais até 10 segundos e pode ser entregue de novo, só a essa pessoa, a cada novo relato dela nesse tempo (para o caso de a resposta se perder na rede). Depois disso, some."
+- A publicar só depois do deploy, com a aprovação do PO (A3-PO-1).
+
+**5. Riscos registrados pelo `dados`, sem ação agora** (`arquitetura.md` §16, R24 e R25):
+- **Estatística velha em `blocks` (R24):** ~~deixa o plano proporcional aos bloqueios de quem chama.~~ (revisto em 2026-10-31, reconferência do `dados`) Afeta o filtro de bloqueio com a coluna de fora (`hideBlockedFor`, `not exists (... or ...)`), medido no `findNearby` (QR): o plano lê todos os bloqueios de quem chama. O pior caso forçado deu 2,1 ms em média (p50 de 2,6 a 2,8 ms na reconferência). No `resolve`, o bloqueio já tira o cartão da resposta. **O `findTouchPair` (encosto) não muda de plano**, com ou sem estatística: 1 forma em 7 casos e 3 estados, inclusive no plano genérico. A exceção é `blocks` pequena (até ~3 páginas, ~300 bloqueios no app inteiro): Seq Scan, e o encosto com bloqueio no começo da tabela sai ~12 µs mais rápido (R22). Decisão do Tech Lead: sem mudança de código; a troca dos dois `exists` do `blocked` por dois `count(*)` fica registrada. O auto-analyze corrige sozinho. Se `blocks` chegar a milhões de linhas, vigiar o `last_autoanalyze`.
+- **Coluna sem tabela ~~no `exists` de `connections`~~ em subconsulta na lista do `select` (R25):** o Drizzle escreve `"id"` sem o nome da tabela. Hoje ele se liga ao `users.id` de fora só porque ~~`connections` não tem `id`~~ (revisto em 2026-10-31, reconferência do `dados`) nem `connections` nem `follows` têm `id`. São dois lugares: o `connected` do `findNearby` e o `followedByMe` do `FollowsRepository.searchCreators`. Se uma das tabelas ganhar um `id`, o campo vira sempre falso, sem erro. Os e2e cobrem: PROX-05 (QR) e BUS-10 (busca). O `findTouchPair` não tem o problema.
+
+**6. R1-PO-1, implementada neste PR.**
+- **Onde fica:**
+  - `POST /reports` com `type: 'account'` usa o `AccessPolicyService.canReportAccount(viewer, target, touchPair)`;
+  - o `POST /me/blocks {handle}` continua no `canBlockOrReport`;
+  - post e comentário não mudam.
+- **Ordem, sem oráculo:**
+  1. perfil visível → pode, sem consultar o par;
+  2. alvo existente que quem denuncia bloqueou (`RelationsRepository.hasBlocked`, só nesse sentido) → pode, sem o Valkey;
+  3. senão, o par encostado, consultado sempre, também sem conta (R1-5).
+- **Sem oráculo:**
+  - o `hasBlocked` roda para todo alvo existente que o leitor não vê, sem atalho pelo `blocked` da relação já lida. O atalho deixaria mais lento só o caso "o alvo bloqueou quem denuncia";
+  - com o Valkey fora, só a denúncia de quem a pessoa bloqueou dá 202. Isso não revela nada: o `GET /me/blocks` já mostra essas contas a ela.
+- **Na tela** (`ux.md` §11.14):
+  - o estado Bloqueado do cartão deixa de vencer, porque o ‹Denunciar› dele não depende mais do par;
+  - o nome e a foto ficam até "Voltar". Esse ponto do `seguranca` está com o PO (`ux.md` §11.16, item 4).
+
+### Diagrama: a resposta com o cartão se perde
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant V as App de V
+  participant API as API
+  participant R as Valkey
+  Note over R: M casou: prox:v:V guarda o cartão de M (até 60 s)
+  V->>API: POST /proximity/touches {tokens:[tM]}
+  API->>R: TAKE, 1ª entrega: marca "!", prazo = min(o que falta, 10 s), prox:c:V por 10 s
+  API--xV: a resposta se perde (rede na volta, prazo de 4 s, ou 503 com o script já rodado)
+  Note over V: falha repetível: a tela não para e repete tM em 2 s, por até 10 s desde o início do relato que falhou
+  V->>API: POST /proximity/touches {tokens:[tM]}
+  API->>R: TAKE, reentrega: o mesmo cartão, sem mexer em prazo nem em ocupado
+  API->>R: conta no limite de 60/min (só a reentrega)
+  API-->>V: {items:[cartão de M]} (rótulo e pairExpiresInS recalculados)
+  Note over V: mostra o cartão, e o mesmo @ é ignorado por 10 s
+```
+
+### Interações conferidas
+
+| Regra | Efeito do A3 |
+|---|---|
+| Uma pessoa por vez (P8, `prox:c`) | O cartão reentregável conta como ocupado no casamento, e o `prox:c` só nasce na primeira entrega: a pessoa fica ocupada os mesmos 10 s de hoje. No app, a repetição usa o mesmo token, e nada é relatado com cartão na tela |
+| Teto de pessoas novas | A reentrega e o `refused` não leem nem gravam contadores. Com o script do casamento em todo relato, o `gone` e o `refused` saem antes deles. Par recusado pela política continua sem tocar os contadores (PROX-46) |
+| Sinal de 3 bloqueios | Nada muda: nem a reentrega nem o `refused` tocam o par |
+| PROX-37 | Os caminhos recusados ficam iguais também no tempo (A3-1). A reentrega usa a fórmula do `pairExpiresInS`: a de 5 s depois mostra 50, como o cartão devido que chega tarde hoje (o atraso da rede já diz isso). O teto de 55 tira o 60. (revisto em 2026-10-31, A3-8) Com o `findTouchPair`, também o número de linhas e o plano ficam iguais (BAIXO 1). Na reentrega, o `token` é o relatado só com o hash guardado; senão, é o token nunca emitido, a mesma forma do A2-2 (BAIXO 2) |
+| Invariante da R1-2 | A repetição só acrescenta relatos. Relato que falha não conta como aceito, nem o cartão ignorado por ser reentrega. O 200 que encerra a sequência decide "token novo" como sempre, e só estende. (revisto em 2026-10-31) Numa rede que alterna, ele estende de novo a cada sequência, e é isso que mantém o invariante (A3-8, item 1) |
+| R1-4 | Vale para a primeira entrega. A reentrega passa só pelo limite de 60/min |
+| Regra do rótulo | ~~Recalculada em cada entrega; a repetição usa o mesmo token, então o rótulo não muda.~~ (revisto em 2026-10-31, BAIXO 2, A3-8) Na primeira entrega, como no A2-2: o hash guardado ou o `findRecent`. Na reentrega, só o hash guardado, sem o `findRecent`, para as reentregas não servirem de oráculo de quais tokens são do dono. O rótulo pode mudar entre as duas mesmo com o mesmo token: se a primeira saiu pelo `findRecent` e a resposta se perdeu, a reentrega chega com o token nunca emitido. O app tira o Conectar quando o rótulo não é o token relatado (estado 22) |
+| Orçamento (R1-3) | Pior caso de 39 para 52 inícios em 60 s, abaixo dos 60 do servidor. (revisto em 2026-10-31, A3-8, item 1) 51 medidos por admissão; com uma rede que alterna, 56, aceito pelo Tech Lead; a folga cai de 21 para 4 |
+| Margem do Bloquear (BAIXO 6) | Continua nos 3 s. O cartão atrasado nem mostra o Bloquear |
+
+### Alternativas descartadas (A3)
+
+| Opção | Por que não |
+|---|---|
+| R22: piso de tempo (responder sem cartão só depois de, por exemplo, 300 ms) | Vaza na cauda: quando o banco demora mais que o piso, a resposta lenta é justamente a do caminho com banco. Soma latência a todo relato e pede relógio de verdade no teste |
+| R22: rodar só a consulta, sem o script nos recusados | Fecha o bloqueio, mas o teto e o ocupado ficam a uma ida ao Valkey do não mútuo |
+| R22: juntar a observação e o casamento num script só | Uma ida a menos e sem a corrida do `gone`, mas reescreve os dois scripts, o fake e os testes de atomicidade; o ganho não paga agora |
+| R22: idas "de enfeite" (consultas falsas) | Frágil: cada mudança futura precisa manter o equilíbrio na mão. A sequência igual por construção se testa |
+| R23: confirmação do app (ack) antes de apagar o cartão | Pede contrato novo, e a confirmação também se perde. A reentrega por 10 s resolve sem contrato |
+| R23: reentrega pelos 60 s | A pessoa ficaria ocupada até 60 s depois de ver o cartão |
+| R23: reentrega fora do limite | Um cliente modificado faria chamadas sem limite por 10 s a cada casamento |
+| R23: continuar relatando depois de sair do Pronto, até o fim do prazo | Fecharia o "sair antes de 8 s", mas mistura cartão, câmera e pedido na mesma tela e mexe no P8. O aviso aos 7 s cobre o caso que o atacante explora. Fica registrado |
+| BAIXO 7: estender o par na entrega atrasada (tempo para bloquear e denunciar) | Muda a promessa dos 60 s e dá mais tempo também a quem casou. O caso é raro e não provocável. Fica registrado |
+| BAIXO 7: piso de exibição com fechamento automático | Fecharia sozinho um cartão sem ações, sem motivo de segurança; ficar até fechar é mais simples e mais acessível |
+
+### Para o `ux-ui` (`ux.md` §11, antes do `frontend` na tela)
+
+1. **Cartão atrasado (A3-4):** um estado novo no §11.4. Nome, @ e foto; um texto que diga que o tempo para conectar acabou e como seguir (encostar de novo ou o QR). Ele pode vir de um encosto anterior, enquanto a pessoa encosta em outra: o texto não pode dizer "você acabou de encostar". Só "Fechar". Sem contagem, sem vencer, sem T20. Tela acesa, vibração e anúncio: a critério (sugestão: como o 12, sem tela acesa). Com pedido pendente da pessoa, o 14, com Aceitar e Recusar.
+2. **Cartão sem Conectar (A3-4):** o 11 sem o botão Conectar, com Bloquear e Denunciar. Texto curto opcional ("para conectar, encostem de novo").
+3. **Cartão que chega fora do Pronto (A3-3, item 6):** no QR code (com o meu código ou com a câmera aberta) e nos estados de Bluetooth (2 a 5 e 4b). O cartão aparece sem toque a mais. O `ux-ui` define a transição (por exemplo, o seletor volta a Encostar e a câmera fecha) e para onde o "Fechar" e o "Cancelar" voltam. Com a tela parada (18 a 20), não aparece.
+4. **O aviso aos 7 s (A3-3, item 8):** muda a P3 e o estado 9 do §11.4. Se o `ux-ui` vir problema no "Encostou!" mais longo, leva ao Tech Lead: sem o aviso aos 7 s, a saída logo depois do aviso volta a perder o cartão de um casamento no fim da janela.
+5. **Erros:** a tela parada por falta de rede (18) ou indisponível (19) pode aparecer até uns 10 s depois da queda, porque o app tenta de novo antes. Sem texto novo.
+6. **Opcional:** o 17 (cartão que venceu) pode seguir a ideia do atrasado (fica sem ações, até fechar) em vez de voltar ao Pronto com o T20. A arquitetura não exige.
+
+Os textos novos (T47 em diante) vão ao PO (A3-PO-2).
+
+### Implementação, em ordem
+
+1. **`backend`** (A3-1, A3-2 e o teto do A3-5), com testes unitários:
+   - `apps/api/src/modules/proximity/proximity.store.ts`: `callerCard` nulo e `refused` no `CLAIM_TOUCH_SCRIPT`, no adaptador e no fake; o `TAKE_OWED_CARD_SCRIPT` novo e o `redelivered` na porta, no adaptador e no fake; comentários (`proximityKeys.owed`, porta);
+   - `apps/api/src/modules/proximity/proximity.service.ts`: o `touches` sem os retornos antecipados, o `consume` na reentrega, o teto de 55 no `pairExpiresInS` e os comentários;
+   - `proximity.store.spec.ts` e `proximity.service.spec.ts`;
+   - `packages/shared/src/proximity.ts`: só comentários ("entregue uma vez" e o teto de 55).
+2. **`ux-ui`**, em paralelo (pastas disjuntas): `docs/equipe/ux.md` §11 (os itens acima).
+3. **`frontend`:**
+   - primeiro o motor, que não depende do `ux-ui`: `apps/mobile/src/lib/api/client.ts` (e `client.test.ts`), `features/connect/api.ts`, `touch-calibration.ts`, `useTouch.ts`, `errors.ts` e `hooks.ts`, com `useTouch.test.tsx`, `hooks.test.tsx` e `helpers.test.ts`;
+   - depois a tela, com o `ux.md` pronto: `useConnectSession.ts`, `TouchCard.tsx`, `ConnectScreen.tsx` e `copy.ts`, com `connect*.test.tsx` e `TouchCard.test.tsx`.
+4. **`testes`:**
+   - `apps/api/src/testing/test-proximity.store.ts`: um registro `calls` (as operações, na ordem) para o teste de sequência. O `claims` passa a receber `gone` e `refused` em todo relato não mútuo ou recusado; o `testes` escolhe entre filtrar os dois no registro (os asserts de hoje continuam) e atualizar os asserts;
+   - e2e: `proximity-touch.e2e-spec.ts`, `proximity.e2e-spec.ts` e `real-services.e2e-spec.ts` (só no CI);
+   - `docs/equipe/testes.md` (casos abaixo); mutação; veredito.
+5. **`dados`:** confere o plano do `findNearby`. Sem SQL novo. (revisto em 2026-10-31) Depois da revisão do `seguranca`: o `ProximityRepository.findTouchPair` novo e o plano dele (A3-8, BAIXO 1), mais o `RelationsRepository.hasBlocked` da R1-PO-1. O registro `calls` do item 4 passa a anotar o `findTouchPair`, e não o `findNearby`.
+6. **`seguranca`:** revisa o diff inteiro.
+7. **Tech Lead:** README e, depois do deploy e com o PO, a Política.
+
+**Compatibilidade: a ordem de publicação não importa.** A API nova com o app de hoje: a reentrega quase nunca chega (o app de hoje para a tela no erro); se a pessoa fechar o cartão e encostar de novo em menos de 10 s, vê o mesmo cartão outra vez. O app novo com a API de hoje: a repetição recebe `[]` ou o cartão ainda não retirado. Recomendação: a API primeiro, como sempre.
+
+### Casos de teste (sugestão para o `testes.md`; o `testes` numera)
+
+O maior ID em uso é o PROX-64. A R1-PO-1, no mesmo PR, também pode pegar números.
+
+**Novos:**
+
+| Caso | O que verifica | Tipo |
+|---|---|---|
+| **`touches`: o mesmo caminho para todo token válido (R22)** | Para não mútuo, recusado pela política (bloqueio de V para M, de M para V, conta excluída depois do relato do outro), `capped`, `busy` e casamento: as operações do store, na ordem, são `takeOwedCard`, `lockRemainingMs`, `hit`, `isScreenOpen`, `findValid`, `recordTouch`, `findNearby` e `claimTouchPair`, com o `findNearby` e o `claimTouchPair` uma vez cada (revisto em 2026-10-31, A3-8: `findTouchPair` no lugar do `findNearby`, com 2 linhas em todos os caminhos); os recusados dão o mesmo corpo do não mútuo (PROX-46); `claimTouchPair` com `callerCard` nulo → `refused`, sem ler nem gravar par, contadores, cartão devido ou ocupado; token inexistente, do QR ou próprio para no `findValid`. Mutação: devolver o `if (!inWindow) return` ou o `if (owner === undefined …) return` derruba o caso | U/E |
+| **Reentrega do cartão devido (R23)** | A 1ª retirada devolve o cartão, grava `"!{hash}\|{json}"` com prazo `min(o que falta, 10 s)` e o ocupado por 10 s; a retirada em menos de 10 s devolve o mesmo cartão (mesmo rótulo; `pairExpiresInS` pelo horário do casamento), sem mudar prazo nem ocupado; aos 10 s, nada; cartão com menos de 10 s de vida não ganha prazo; a 1ª entrega não conta no limite, e a reentrega conta (com o limite estourado, 429, e o cartão segue até os 10 s); resposta perdida depois do script → a retirada seguinte entrega; ilegível → `null`, sem apagar | U/E/I |
+| **App: falha de rede no relato (R23)** | `NetworkError`, prazo de 4 s e 503 durante o prazo não param a tela; o mesmo token é repetido a cada 2 s, sem o portão e sem a escolha do P8; a repetição vai até 10 s depois do início do 1º relato que falhou; qualquer 200 encerra a sequência; terminou com erro → estado 18 ou 19 com o último erro; 429, 403 e 400 param na hora; o 409 cuja renovação falha por rede conta como falha repetível; a renovação dos tokens com erro de rede ou 503 tenta 3 vezes, a cada 3 s, antes de parar; pior caso de 52 inícios em 60 s (revisto em 2026-10-31: 51 por admissão; com uma rede que alterna, menos de 60 e nenhum 429; A3-8) | U (app) |
+| **App: reentrega e cartão fora do Pronto (R23)** | Cartão com o @ do último cartão mostrado há menos de 10 s (também por outra instância do motor) → ignorado, sem contar como aceito, sem estender o prazo e sem parar o relator; aos 10 s, mostrado; o cartão que chega depois de sair do Pronto (QR, Bluetooth desligado), com a aba montada, aparece; com a tela parada ou desmontada, não | U (app) |
+| **App: cartão atrasado, cartão sem Conectar e aviso aos 7 s (BAIXO 7)** | `pairExpiresInS` 0 ou 5 → sem Conectar, Bloquear e Denunciar desde a chegada, sem vencer e sem o T20, até "Fechar"; com pedido pendente da pessoa, Aceitar e Recusar seguem o prazo do pedido; com 10 → ações por 10 s (Bloquear até os 7 s) e o 17 de sempre; `token` diferente do relatado → sem Conectar, com Bloquear e Denunciar até o prazo, e nenhum pedido sai com esse token; `confirmWarnAfterMs` ≥ `(janela + 2 × intervalo) × 1000` (7 s) | U (app) |
+
+**Atualizados:**
+- **PROX-35:** com o `claimTouchPair` fora, também o relato não mútuo dá 503 (A3-1).
+- **PROX-43:** `prox:v` = `"{hash}|{json}"` antes da primeira entrega e `"!{hash}|{json}"` depois, por até 10 s.
+- **PROX-46:** o par recusado pela política chega ao script do casamento e volta `refused`, sem tocar os contadores.
+- **PROX-49:** "o relato depois desse → `[]` (entrega única)" passa a "os relatos até 10 s depois da 1ª entrega recebem o mesmo cartão (contando no limite); depois, `[]`".
+- **PROX-54:** "cada lado vê o outro exatamente uma vez" passa a "cada lado recebe o cartão do outro na mesma chamada ou na seguinte; um relato a mais em 10 s recebe a reentrega".
+- **PROX-56:** o `TAKE_OWED_CARD_SCRIPT` novo e o `refused` do `CLAIM_TOUCH_SCRIPT` contra o Valkey real.
+- **PROX-57 e PROX-59:** o aviso aos 7 s; o pior caso do orçamento com falhas (52). (revisto em 2026-10-31: e a rede que alterna, com menos de 60 e sem 429)
+- (revisto em 2026-10-31, A3-8) **PROX-37:** na reentrega, o `token` é o relatado só com o hash guardado; senão, é um token nunca emitido, sem o `findRecent` (BAIXO 2).
+- (revisto em 2026-10-31) O `testes` numerou os casos novos: PROX-65 (R1-PO-1) e PROX-66 a PROX-70 (A3, na ordem da tabela acima).
+- **PROX-60:** a 1ª entrega fora do limite, a reentrega dentro.
+- **PROX-64:** nunca acima de 55, mesmo com o horário do casamento no futuro (relógio de outra instância).
+
+### Para o PO
+
+- **A3-PO-1. Texto da Política (A3-6).** Muda uma promessa: "entregue uma vez" passa a ~~"entregue de novo por até 10 s, só a essa pessoa, se a resposta se perder"~~ (revisto em 2026-10-31, BAIXO 3) "pode ser entregue de novo, só a essa pessoa, a cada novo relato dela nos 10 s seguintes". As exceções ao "logo em seguida" também mudam. **Recomendação: aprovar, e publicar só depois do deploy.**
+  - (revisto em 2026-10-31) Vai junto a frase da R1-PO-1: "também se denuncia a conta de quem você bloqueou, sem prazo" (`arquitetura.md` §15, orientação 6). Também só depois do deploy e com a aprovação do PO.
+    - (revisto em 2026-10-31, BAIXO da segunda revisão do `seguranca`; decisão do Tech Lead) A frase depende do "Denunciar" na tela "Contas bloqueadas", que está com o PO (`ux.md` §11.16, item 2; recomendação do `ux-ui`: sim), porque hoje o app só oferece essa denúncia no estado Bloqueado do Conectar:
+      - **se o PO aprovar, e ele estiver no ar:** a frase fica como está, valendo também fora do Conectar. A publicar só depois do deploy e com a aprovação do PO (A3-PO-1);
+      - **senão:** "Depois de bloquear alguém pelo cartão do Conectar, você pode denunciar essa conta sem prazo." A publicar só depois do deploy e com a aprovação do PO (A3-PO-1).
+- **A3-PO-2. Textos novos do app.** O `ux-ui` propõe os do cartão atrasado e do cartão sem Conectar; o PO aprova, como o T46. **Recomendação: aprovar o que o `ux-ui` propuser dentro do A3-4.**
+- **Para ciência, sem decisão nova:** o que fica do R23 (A3-7) é menos do que o PO aceitou em A1-1. O cartão atrasado agora fica na tela, mas continua sem bloquear e denunciar pelo cartão. O aviso "Não deu para confirmar" passa de 4 s para 7 s (o `ux-ui` confirma).
+
+### Consequências (A3)
+
+- **R22 mitigado** por construção, com uma leitura indexada a mais por relato.
+- **R23 menor:** a resposta perdida e o 503 tardio deixam de perder o cartão, e sair da tela por causa do aviso também; sobram os casos da A3-7.
+- **O Conectar aguenta quedas curtas de rede** (até uns 10 s) sem parar a tela. A parada por falta de rede pode vir até 10 s depois.
+- **O "Encostou!" dura 3 s a mais** quando não confirma.
+- **O mesmo ocupado de hoje** (10 s), o mesmo teto e o mesmo sinal.
+- **A Política muda** (A3-PO-1).
+- Dois endurecimentos ficam registrados (A3-5).
+- (revisto em 2026-10-31, A3-8) **Uma consulta nova, sem migration:** `findTouchPair`, com a decisão do encosto no `touchRevealParties` da política. O `blocked` do encosto fica no SQL dela, e não no `RelationsRepository` (exceção registrada na `arquitetura.md` §5).
+- (revisto em 2026-10-31, A3-8) **O orçamento do app chega a 56 inícios em 60 s** com uma rede que alterna, abaixo dos 60 do servidor; a folga cai para 4.
+- (revisto em 2026-10-31, A3-8) **A reentrega não consulta mais o `findRecent`:** raramente, chega sem Conectar (estado 22).
 
 ## Fontes (consultadas em 2026-10-30)
 
@@ -1211,5 +1578,7 @@ O maior ID em uso é o **PROX-57**. Novos: **PROX-58 a PROX-63**. (revisto em 20
 17. (adendo A1) Bluetooth Core Specification 5.0 ou posterior, Vol 6, Part A, §3, "Transmitter Characteristics": classe de potência 1 do LE, até +20 dBm. Citada sem consulta à rede nesta revisão; a conferir no spike. (revisto em 2026-10-30) É a classe da especificação para um aparelho conforme, **não um limite físico**: um amplificador externo passa disso.
 18. (revisão do A1) Perda no espaço livre (fórmula de Friis): `FSPL(dB) = 20·log10(d em m) + 20·log10(f em Hz) − 147,55`; a 2,44 GHz e 1 m, cerca de 40 dB, e 20 dB a mais por década de distância. Fórmula padrão, sem consulta à rede nesta revisão.
 19. (revisão do A1) Expoente de perda em ambiente fechado, tipicamente de 2,5 a 3,5 (modelo log-distância; 3 usado na tabela do R21). Valor de literatura de propagação, sem consulta à rede nesta revisão; o spike mede no ambiente real.
+20. (adendo A3, consultada em 2026-10-31) React Native, commit 114d31f: o `performance.now()` volta a usar o `std::chrono::steady_clock` no iOS e no Android (antes, `system_clock`): https://github.com/facebook/react-native/commit/114d31feeeb47f5a57419e5088c3cbe9340f757a
+21. (adendo A3, consultada em 2026-10-31) Notas de versão do `react-native-ntp-sync`: o `CACurrentMediaTime()` (baseado em `mach_absolute_time()`) não avança no sono profundo; o `mach_continuous_time()` avança, como o `SystemClock.elapsedRealtime()` do Android: https://github.com/ruanitto/react-native-ntp-sync/releases . Que o `steady_clock` do iOS e do Android também não conte o sono é inferência, a conferir em aparelho.
 
 Sem fonte pública e a medir no spike: a potência real do anúncio do iPhone (por isso ~~`iosAdvertiserTxDbm`~~ → A1: `advertiserTxDbm` é provisório) ~~e se o campo TX Power do Android reflete o nível pedido em todos os chips (por isso `trustAdvertisedTx`)~~ → A1: e qual nível do Android (`HIGH` ou `MEDIUM`) fica mais perto dele. (revisto em 2026-10-30) Também: a distância real do atacante (linha "atacante"), quanto dura o endereço Bluetooth do iPhone (cerca de 15 min, segundo o `seguranca`) e se o Android troca o endereço a cada `startAdvertising`.

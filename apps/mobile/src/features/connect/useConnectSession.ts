@@ -5,12 +5,17 @@ import {
   parseProximityQr,
   ProximityTokenValueSchema,
 } from '@sussurro/shared';
-import { useToast } from '@sussurro/ui';
+import { type ShowToastOptions, useToast } from '@sussurro/ui';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Linking, Platform } from 'react-native';
 
-import { announce, announceAfterFocus, announceAfterFocusMs } from './a11y';
+import {
+  announce,
+  announceAfterFocus,
+  announceAfterFocusMs,
+  useAnnounceAfterFocusUnlessHeld,
+} from './a11y';
 import {
   acceptConnectionRequest,
   cancelConnectionRequest,
@@ -68,14 +73,30 @@ export type ConnectView =
  * - `cardClosed`: Cancelar, Voltar ou Recusar no cartão, o cartão vencido ou o pedido do cartão que
  *   acabou;
  * - `restart`: "Conectar outra pessoa", "Tentar de novo", "Voltar" e "Cancelar pedido";
- * - `bluetooth`: "Continuar" da explicação, a volta dos Ajustes e o Bluetooth ligado.
+ * - `bluetooth`: "Continuar" da explicação, a volta dos Ajustes e o Bluetooth ligado;
+ * - `system`: o Bluetooth desligado ou o erro do rádio com a tela no Pronto. O Pronto sai inteiro da
+ *   tela, com a introdução e o seletor, e o foco vai ao título do EmptyState (ou à faixa T30); só
+ *   leva aos estados 3, 4 e 5, nunca ao Pronto (ux.md §11.17, C1).
  *
- * Na abertura da aba (`open`) e pelo seletor (`selector`), o foco fica onde está (WCAG 3.2.2). A
+ * Só na abertura da aba (`open`) e pelo seletor (`selector`) o foco fica onde está (WCAG 3.2.2). A
  * volta do background nem passa por aqui: o estado não muda.
  */
-export type ReadyReason = 'open' | 'selector' | 'cardClosed' | 'restart' | 'bluetooth';
+export type ReadyReason = 'open' | 'selector' | 'cardClosed' | 'restart' | 'bluetooth' | 'system';
 
 const FOCUS_READY_TITLE: ReadonlySet<ReadyReason> = new Set(['cardClosed', 'restart', 'bluetooth']);
+
+/**
+ * O foco no título do EmptyState de Bluetooth e na faixa T30, quando é isso que aparece (ux.md
+ * §11.8 e §11.17): a saída do cartão e dos estados 13, 15 e 16 por um botão, o "Continuar" da
+ * explicação recusado e a volta dos Ajustes sem resolver (o botão que tinha o foco sumiu; S2) e o
+ * Pronto que sai da tela sozinho (C1).
+ */
+const FOCUS_START_STATE: ReadonlySet<ReadyReason> = new Set([
+  'cardClosed',
+  'restart',
+  'bluetooth',
+  'system',
+]);
 
 interface SessionState {
   mode: ConnectMode;
@@ -87,32 +108,76 @@ interface SessionState {
   unsupported: boolean;
   /** O motivo da última ida ao Pronto; `run` muda a cada motivo novo (o foco pode ir de novo). */
   ready: { reason: ReadyReason; run: number };
+  /**
+   * A varredura desta visita está ligada (P7): liga no Pronto e continua do cartão em diante e na
+   * volta ao início pelo Verificando, sem reiniciar. Desliga no QR, nos estados de Bluetooth, com a
+   * tela parada e quando o rádio cai com o cartão na tela (aí recomeça no próximo Pronto). O cartão
+   * que chega fora do Pronto (QR, Bluetooth) não liga a varredura: no iOS, ela pediria a permissão
+   * sem a explicação.
+   */
+  scan: boolean;
 }
 
 type Action =
   | { type: 'mode'; mode: ConnectMode }
   /** `reason`: a troca leva ao Pronto (direto ou pelo Verificando); sem ele, o motivo não muda. */
   | { type: 'view'; view: ConnectView; reason?: ReadyReason | undefined }
-  | { type: 'unsupported' }
+  | { type: 'unsupported'; reason?: ReadyReason | undefined }
   | { type: 'halt'; reason: HaltReason }
   | { type: 'resume' }
-  | { type: 'busy'; value: string | null };
+  | { type: 'busy'; value: string | null }
+  /** O cartão aparece, também fora do Pronto: o seletor volta a "Encostar" por baixo (§11.15). */
+  | { type: 'card'; card: TouchCard }
+  /**
+   * De volta ao início (ux.md §11.15, "Saída do cartão"): no Encostar, pelo Verificando, que confere
+   * de novo o Bluetooth (o Pronto ou o estado de Bluetooth que valer); sem suporte, o QR com a faixa
+   * T30. No QR (`mode: 'qr'`), o meu código.
+   */
+  | { type: 'start'; mode: ConnectMode; reason: ReadyReason }
+  /**
+   * O Bluetooth desligou ou o rádio falhou do cartão em diante: a tela não muda (§11.15). A
+   * varredura recomeça no próximo Pronto; `unsupported` vale na saída.
+   */
+  | { type: 'radioLost'; unsupported: boolean };
 
 const CHECKING: ConnectView = { kind: 'checking' };
 const READY: ConnectView = { kind: 'ready' };
 const UNSUPPORTED: ConnectView = { kind: 'btUnsupported' };
 
-/** Estados em que a varredura segue ligada: uma sessão contínua por visita à aba (P7). */
-const SCANNING_VIEWS: ReadonlySet<ConnectView['kind']> = new Set([
-  'ready',
+/** Do cartão em diante (11 a 16, 21, 22 e o Bloqueado) e no Verificando da volta ao início. */
+const RADIO_QUIET_VIEWS: ReadonlySet<ConnectView['kind']> = new Set([
+  'checking',
   'card',
   'waiting',
   'notConfirmed',
   'connected',
 ]);
 
+/** Saída do cartão: o início do Encostar, com o foco no título do estado que aparecer. */
+const EXIT_CARD: Action = { type: 'start', mode: 'touch', reason: 'cardClosed' };
+
 function withReadyReason(state: SessionState, reason: ReadyReason | undefined) {
   return reason === undefined ? state.ready : { reason, run: state.ready.run + 1 };
+}
+
+/** A varredura depois de trocar a tela: liga no Pronto, desliga nos estados de Bluetooth. */
+function scanWith(scan: boolean, view: ConnectView): boolean {
+  switch (view.kind) {
+    case 'ready':
+      return true;
+    case 'btExplain':
+    case 'btDenied':
+    case 'btOff':
+    case 'btLocationOff':
+    case 'btUnsupported':
+      return false;
+    case 'checking':
+    case 'card':
+    case 'waiting':
+    case 'notConfirmed':
+    case 'connected':
+      return scan;
+  }
 }
 
 function reducer(state: SessionState, action: Action): SessionState {
@@ -123,19 +188,136 @@ function reducer(state: SessionState, action: Action): SessionState {
         mode: action.mode,
         view: action.mode === 'touch' && state.unsupported ? UNSUPPORTED : CHECKING,
         ready: withReadyReason(state, 'selector'),
+        scan: false,
       };
     case 'view':
-      return { ...state, view: action.view, ready: withReadyReason(state, action.reason) };
+      return {
+        ...state,
+        view: action.view,
+        ready: withReadyReason(state, action.reason),
+        scan: scanWith(state.scan, action.view),
+      };
     case 'unsupported':
       // P6: a aba abre direto no QR, com a faixa T30.
-      return { ...state, unsupported: true, mode: 'qr', view: CHECKING };
+      return {
+        ...state,
+        unsupported: true,
+        mode: 'qr',
+        view: CHECKING,
+        ready: withReadyReason(state, action.reason),
+        scan: false,
+      };
     case 'halt':
-      return { ...state, halt: action.reason, view: CHECKING, busy: null };
+      return { ...state, halt: action.reason, view: CHECKING, busy: null, scan: false };
     case 'resume':
       // "Tentar de novo" (estados 18 a 20) some da tela: o foco vai ao título do Pronto.
-      return { ...state, halt: null, view: CHECKING, ready: withReadyReason(state, 'restart') };
+      return {
+        ...state,
+        halt: null,
+        view: CHECKING,
+        ready: withReadyReason(state, 'restart'),
+        scan: false,
+      };
     case 'busy':
       return { ...state, busy: action.value };
+    case 'card':
+      return {
+        ...state,
+        mode: 'touch',
+        view: {
+          kind: 'card',
+          card: action.card,
+          alreadyConnected: action.card.person.alreadyConnected,
+        },
+      };
+    case 'start': {
+      const ready = withReadyReason(state, action.reason);
+      if (action.mode === 'qr' || state.unsupported) {
+        return { ...state, mode: 'qr', view: CHECKING, ready, scan: false };
+      }
+      return { ...state, mode: 'touch', view: CHECKING, ready };
+    }
+    case 'radioLost':
+      return { ...state, scan: false, unsupported: state.unsupported || action.unsupported };
+  }
+}
+
+/**
+ * Qual cartão a tela mostra (ux.md §11.15, "Qual cartão aparece"), na ordem: o Bloqueado, o 14 (há
+ * pedido `ble` pendente da pessoa), o 12 (`alreadyConnected`), o 21 (atrasado), o 22 (sem Conectar)
+ * e o 11. O 21 e o 22 saem dos dados do motor (A3-4), e o cartão já na tela não muda de variante
+ * com o tempo.
+ */
+export type CardVariant =
+  'blocked' | 'incoming' | 'alreadyConnected' | 'late' | 'noConnect' | 'touched';
+
+export function cardVariantOf(
+  view: { card: TouchCard; alreadyConnected: boolean },
+  options: { blocked: boolean; request: boolean },
+): CardVariant {
+  if (options.blocked) return 'blocked';
+  if (options.request) return 'incoming';
+  if (view.alreadyConnected) return 'alreadyConnected';
+  if (view.card.late) return 'late';
+  if (!view.card.canConnect) return 'noConnect';
+  return 'touched';
+}
+
+/** Os cartões com prazo, que mantêm a tela acesa (ux.md §11.4): o 11, o 22 e o 14. */
+const CARD_WITH_DEADLINE: ReadonlySet<CardVariant> = new Set(['touched', 'noConnect', 'incoming']);
+
+/** O A3, o A4, o A7 (T47) e o A8 (T48), depois do foco no nome (ux.md §11.8). */
+function cardAnnouncementOf(variant: CardVariant, person: NearbyPerson): string | null {
+  switch (variant) {
+    case 'touched':
+      return COPY.announceTouched(person.name);
+    case 'alreadyConnected':
+      return COPY.announceTouchedConnected(person.name);
+    case 'late':
+      return COPY.lateCardText(firstName(person.name));
+    case 'noConnect':
+      return COPY.noConnectCardText(firstName(person.name));
+    case 'incoming':
+    case 'blocked':
+      // O 14 tem o A5 (o pedido); o Bloqueado, o `blockedMessage` (M4).
+      return null;
+  }
+}
+
+/**
+ * O que fazer com o cartão que o motor entregou (ux.md §11.15, "Cartão que chega fora do Pronto"):
+ * - `discard`: a tela parada (18 a 20, A3-7), ou a mesma pessoa do 13, do 15, do 16 ou do cartão
+ *   na tela (ela já está na tela, com o nome);
+ * - `wait`: o 13, o 15 e o 16 de outra pessoa, outro cartão na tela, ou uma leitura do QR em
+ *   andamento: o cartão espera (um só, o mais novo) e aparece na próxima ida ao início;
+ * - `show`: o Verificando, o Pronto, os estados de Bluetooth e o QR (com o meu código ou com a
+ *   câmera aberta, que fecha).
+ */
+export type CardPlacement = 'show' | 'wait' | 'discard';
+
+export function placeCard(
+  card: TouchCard,
+  at: { halted: boolean; view: ConnectView; reading: boolean },
+): CardPlacement {
+  if (at.halted) return 'discard';
+  const { handle } = card.person;
+  const { view } = at;
+  switch (view.kind) {
+    case 'waiting':
+    case 'notConfirmed':
+      return view.request.other.handle === handle ? 'discard' : 'wait';
+    case 'connected':
+      return view.other.handle === handle ? 'discard' : 'wait';
+    case 'card':
+      return view.card.person.handle === handle ? 'discard' : 'wait';
+    case 'checking':
+    case 'ready':
+    case 'btExplain':
+    case 'btDenied':
+    case 'btOff':
+    case 'btLocationOff':
+    case 'btUnsupported':
+      return at.reading ? 'wait' : 'show';
   }
 }
 
@@ -153,11 +335,14 @@ interface CardModeration {
   form: 'closed' | 'open' | 'closing';
   /** Muda a cada abertura: o formulário começa vazio (o texto de antes não volta, M12). */
   formRun: number;
-  /** O T46 no formulário: aberto pelo 11, pelo 14 ou pelo Bloqueado, nunca pelo 12. */
+  /**
+   * O T46 no formulário: aberto pelo 11, pelo 14 ou pelo 22. Nunca pelo 12, que não tem prazo, nem
+   * pelo Bloqueado: quem bloqueou denuncia sem prazo (R1-PO-1, `canReportAccount` no servidor).
+   */
   formNote: boolean;
   /** "Bloquear" confirmado e em andamento (M3). */
   blocking: boolean;
-  /** 204 no 11 ou no 14: o cartão é o Bloqueado (M4). */
+  /** 204 no 11, no 14 ou no 22: o cartão é o Bloqueado (M4), que não vence (R1-PO-1). */
   blocked: boolean;
   /** O 14 passou do prazo do cartão (ou o par acabou, 404): a linha some e o pedido fica (M10, M14). */
   lineGone: boolean;
@@ -209,6 +394,8 @@ export interface ScannerState {
   purpose: ScannerPurpose;
   error: string | null;
   busy: boolean;
+  /** A câmera está saindo porque o cartão chegou (ux.md §11.15): no iOS, até o `onDismiss`. */
+  closing?: boolean;
 }
 
 /** O que as capacidades do Bluetooth permitem agora (ux.md §11.4, estados 2 a 5). */
@@ -280,6 +467,7 @@ export function useConnectSession({
     busy: null,
     unsupported: false,
     ready: { reason: 'open', run: 0 },
+    scan: false,
   }));
   /** Pedidos simulados em dev (por QR): o `qrToken` da persona para o aceite. */
   const [simulated, setSimulated] = useState<ReadonlyMap<string, string>>(() => new Map());
@@ -287,6 +475,16 @@ export function useConnectSession({
   const [sheetBusy, setSheetBusy] = useState(false);
   const [scanner, setScanner] = useState<ScannerState | null>(null);
   const [deviceModel, setDeviceModel] = useState('');
+  /**
+   * O cartão que espera para aparecer (ux.md §11.15): um só, o mais novo. Aparece na próxima ida ao
+   * início, ou é descartado se a tela parar ou for a mesma pessoa do 13, do 15 ou do 16.
+   */
+  const [pendingCard, setPendingCard] = useState<TouchCard | null>(null);
+  /** Leituras do QR em andamento (o código lido, conferido ou com o pedido saindo). */
+  const [qrReading, setQrReading] = useState(false);
+  const qrReadingRef = useRef(0);
+  /** O cartão cujo foco, anúncio e vibração já saíram (a pessoa o viu). */
+  const cuedCardRef = useRef<string | null>(null);
   const block = useBlockAccount();
   /**
    * Bloquear e denunciar pelo cartão (§11.14). O `ref` é a fonte da verdade (as decisões no mesmo
@@ -310,10 +508,79 @@ export function useConnectSession({
   const active = live && state.halt === null;
   const viewRef = useRef(state.view);
   const busyRef = useRef(state.busy);
+  const haltRef = useRef(state.halt);
+  const scannerRef = useRef(scanner);
+  const pendingCardRef = useRef(pendingCard);
   useEffect(() => {
     viewRef.current = state.view;
     busyRef.current = state.busy;
+    haltRef.current = state.halt;
+    scannerRef.current = scanner;
+    pendingCardRef.current = pendingCard;
   });
+
+  /**
+   * Os Toasts da saída do cartão (o T20, o "expirou", o M5, o M7, o M10…), guardados até a tela de
+   * início aparecer (ux.md §11.17, C2). O anúncio deles (`announceAfterMs`) conta de quando o Toast
+   * aparece, e o foco no título, de quando a tela de início aparece, que vem depois do
+   * `getCapabilities` do Verificando: com a chamada nativa lenta, o Toast mostrado no toque seria
+   * anunciado antes do foco, e o foco o cortaria.
+   */
+  const exitToastsRef = useRef<ShowToastOptions[]>([]);
+
+  /**
+   * A saída do cartão (ux.md §11.15): o início do Encostar, pelo Verificando, com o foco no título
+   * do estado que aparecer e os Toasts depois dele, em fila. O cartão que esperava aparece direto do
+   * Verificando, sem a chamada nativa (caso 6): aí o Toast sai já, como antes, para o leitor de tela
+   * ler o nome do cartão novo, o Toast e o anúncio do cartão, nessa ordem.
+   */
+  const exitCard = useCallback(
+    (toasts: readonly ShowToastOptions[] = []) => {
+      dispatch(EXIT_CARD);
+      const held = toasts.map((options) => ({
+        ...options,
+        announceAfterMs: announceAfterFocusMs(),
+      }));
+      const waiting = pendingCardRef.current;
+      const cardNext =
+        waiting !== null &&
+        placeCard(waiting, {
+          halted: haltRef.current !== null,
+          view: CHECKING,
+          reading: qrReadingRef.current > 0,
+        }) === 'show';
+      if (cardNext) {
+        for (const options of held) toast.show(options);
+      } else {
+        exitToastsRef.current.push(...held);
+      }
+    },
+    [toast],
+  );
+
+  // A tela de início já está desenhada: o Pronto, o EmptyState de Bluetooth, o QR (sem suporte, na
+  // hora: o QR não passa pela conferência), o cartão que esperava ou a tela parada. Os Toasts da
+  // saída saem agora, e o anúncio deles, depois do foco. `ready.run` muda a cada saída (o QR já
+  // estava "desenhado" antes dela).
+  const startDrawn = state.halt !== null || state.mode === 'qr' || state.view.kind !== 'checking';
+  const startRun = state.ready.run;
+  useEffect(() => {
+    if (!startDrawn || exitToastsRef.current.length === 0) return;
+    const held = exitToastsRef.current;
+    exitToastsRef.current = [];
+    for (const options of held) toast.show(options);
+  }, [startDrawn, startRun, toast]);
+
+  // Saiu da aba antes de a tela de início aparecer: os Toasts guardados saem mesmo assim, sem a
+  // espera do foco (outra tela está à vista).
+  const flushExitToasts = useCallback(() => {
+    const held = exitToastsRef.current;
+    exitToastsRef.current = [];
+    for (const { message, variant } of held) {
+      toast.show(variant === undefined ? { message } : { message, variant });
+    }
+  }, [toast]);
+  useEffect(() => flushExitToasts, [flushExitToasts]);
 
   /** Erro que para a tela (429, Redis fora, sem rede, e-mail): `true` se parou. */
   const halt = useCallback((error: unknown): boolean => {
@@ -349,8 +616,9 @@ export function useConnectSession({
   const incoming = useIncoming(api, active, (entry, expired) => {
     const first = firstName(entry.request.other.name);
     const message = expired ? COPY.expired(first) : COPY.gone(first);
-    // O cartão que tinha virado este pedido fecha junto (o prazo do pedido acabou). O foco vai ao
-    // título do Pronto, e o Toast anuncia depois do foco (ux.md §11.8).
+    // O cartão que tinha virado este pedido fecha junto (o prazo do pedido acabou), também o que
+    // veio do 21 ou do 22 (§11.15). O foco vai ao título do início, e o Toast aparece com ele e
+    // anuncia depois do foco (ux.md §11.8 e §11.17, C2).
     const view = viewRef.current;
     if (view.kind === 'card' && view.card.person.handle === entry.request.other.handle) {
       const cardId = cardIdOf(view.card);
@@ -359,8 +627,7 @@ export function useConnectSession({
         patchModeration(cardId, { heldGone: { message, request: entry.request } });
         return;
       }
-      dispatch({ type: 'view', view: READY, reason: 'cardClosed' });
-      toast.show({ message, announceAfterMs: announceAfterFocusMs() });
+      exitCard([{ message }]);
     } else {
       toast.show({ message });
     }
@@ -371,6 +638,7 @@ export function useConnectSession({
   /** O estado de bloquear e denunciar do cartão na tela (`null` sem cartão). */
   const cardModeration = cardId !== null && moderation.cardId === cardId ? moderation : null;
   const cardHeld = cardModeration !== null && isHeld(cardModeration);
+  const cardBlocked = cardModeration?.blocked === true;
   /** O `Alert` ou o formulário por cima do cartão: o foco e o vencimento esperam (M15, M16). */
   const cardCovered =
     cardModeration !== null && (cardModeration.alertOpen || cardModeration.form !== 'closed');
@@ -393,6 +661,17 @@ export function useConnectSession({
   useEffect(() => {
     cardIncomingRef.current = liveCardIncoming;
   });
+  const cardVariant =
+    cardView === null
+      ? null
+      : cardVariantOf(cardView, { blocked: cardBlocked, request: cardRequest !== null });
+  // A folha espera o formulário de denúncia fechar (dois `Modal` um sobre o outro, não).
+  const showSheet = head !== null && scanner === null && cardRequest === null && !formOpen;
+  /**
+   * O foco, o anúncio e a vibração do cartão esperam (ux.md §11.15): a folha do pedido de outra
+   * pessoa por cima, a câmera saindo no iOS (até o `onDismiss`) ou o app em segundo plano.
+   */
+  const cardCueHeld = !live || showSheet || scanner?.closing === true;
 
   // Pedido recebido (folha ou cartão): vibração leve e o anúncio A5 (D-UX24, ux.md §11.8). O foco
   // vai ao título do pedido; o A5 sai depois dele, em fila. Com o `Alert`, o formulário ou o
@@ -414,9 +693,10 @@ export function useConnectSession({
     (caps: ProximityCapabilities, options: { afterRequest?: boolean } = {}) => {
       setDeviceModel(caps.deviceModel);
       const next = capabilityView(caps, options);
-      // "Continuar" da explicação some da tela: o foco vai ao título do Pronto.
+      // "Continuar" da explicação some da tela: o foco vai ao título do estado que aparecer (o
+      // Pronto, o EmptyState ou a faixa T30).
       const reason = options.afterRequest === true ? 'bluetooth' : undefined;
-      if (next === 'unsupported') dispatch({ type: 'unsupported' });
+      if (next === 'unsupported') dispatch({ type: 'unsupported', reason });
       else if (next === 'ready') dispatch({ type: 'view', view: READY, reason });
       else dispatch({ type: 'view', view: { kind: next }, reason });
     },
@@ -425,6 +705,7 @@ export function useConnectSession({
 
   // Verificando (1): a permissão, o Bluetooth e os próprios tokens. Sem pedir nada ao sistema: com
   // a permissão já dada, a tela fica pronta sozinha (D-UX21, P7); sem ela, primeiro a explicação.
+  // É também por aqui que a saída do cartão volta ao início (§11.15).
   const checking = active && state.mode === 'touch' && state.view.kind === 'checking';
   useEffect(() => {
     if (!checking || !tokensReady) return undefined;
@@ -442,12 +723,20 @@ export function useConnectSession({
     };
   }, [applyCapabilities, checking, radio, tokensReady]);
 
-  /** Falha do rádio no Encostar: o estado de Bluetooth certo (ou o QR, se não dá para encostar). */
+  /**
+   * Falha do rádio no Encostar. No Pronto, o estado de Bluetooth certo (ou o QR, se não dá para
+   * encostar). Do cartão em diante, a tela não muda: nada ali depende do Bluetooth, e o estado de
+   * Bluetooth aparece na saída do cartão (ux.md §11.15).
+   */
   const failRadio = useCallback((error: unknown) => {
-    if (!SCANNING_VIEWS.has(viewRef.current.kind)) return;
+    const { kind } = viewRef.current;
     const next = radioFailure(error);
-    if (next === 'unsupported') dispatch({ type: 'unsupported' });
-    else dispatch({ type: 'view', view: { kind: next } });
+    if (kind === 'ready') {
+      if (next === 'unsupported') dispatch({ type: 'unsupported', reason: 'system' });
+      else dispatch({ type: 'view', view: { kind: next }, reason: 'system' });
+    } else if (RADIO_QUIET_VIEWS.has(kind)) {
+      dispatch({ type: 'radioLost', unsupported: next === 'unsupported' });
+    }
   }, []);
 
   /** "Continuar" na explicação: agora sim o pedido do sistema. */
@@ -455,7 +744,7 @@ export function useConnectSession({
     try {
       applyCapabilities(await radio.requestPermission(), { afterRequest: true });
     } catch {
-      dispatch({ type: 'unsupported' });
+      dispatch({ type: 'unsupported', reason: 'bluetooth' });
     }
   }, [applyCapabilities, radio]);
 
@@ -473,24 +762,24 @@ export function useConnectSession({
     }
   }, [radio]);
 
-  // Bluetooth ligado/desligado pelo sistema; anúncio sem suporte descoberto só ao tentar.
+  // Bluetooth ligado/desligado pelo sistema; anúncio sem suporte descoberto só ao tentar. Do cartão
+  // em diante (11 a 16, 21, 22 e o Bloqueado), a tela não muda (§11.15).
   useEffect(() => {
     const stateSubscription = radio.onStateChange((bluetooth) => {
-      const kind = viewRef.current.kind;
-      if (bluetooth === 'off' && SCANNING_VIEWS.has(kind)) {
-        dispatch({ type: 'view', view: { kind: 'btOff' } });
+      const { kind } = viewRef.current;
+      if (bluetooth === 'off' && kind === 'ready') {
+        dispatch({ type: 'view', view: { kind: 'btOff' }, reason: 'system' });
+      } else if (bluetooth === 'off' && RADIO_QUIET_VIEWS.has(kind)) {
+        dispatch({ type: 'radioLost', unsupported: false });
       } else if (bluetooth === 'on' && kind === 'btOff') {
         dispatch({ type: 'view', view: CHECKING, reason: 'bluetooth' });
       }
     });
     const errorSubscription = radio.onError((error) => {
-      if (
-        error.operation === 'advertise' &&
-        error.code === 'unsupported' &&
-        SCANNING_VIEWS.has(viewRef.current.kind)
-      ) {
-        dispatch({ type: 'unsupported' });
-      }
+      if (error.operation !== 'advertise' || error.code !== 'unsupported') return;
+      const { kind } = viewRef.current;
+      if (kind === 'ready') dispatch({ type: 'unsupported', reason: 'system' });
+      else if (RADIO_QUIET_VIEWS.has(kind)) dispatch({ type: 'radioLost', unsupported: true });
     });
     return () => {
       stateSubscription.remove();
@@ -526,29 +815,97 @@ export function useConnectSession({
     radio.startAdvertising(bleToken, ADVERTISE).catch(failRadio);
   }, [advertising, bleToken, failRadio, radio]);
 
-  const showCard = useCallback((card: TouchCard) => {
-    dispatch({
-      type: 'view',
-      view: { kind: 'card', card, alreadyConnected: card.person.alreadyConnected },
-    });
-    // O "pode afastar": a vibração do cartão, nunca no Confirmando (D-UX24). O anúncio vem abaixo.
-    vibrate('touched');
+  const listening = touchMode && state.view.kind === 'ready';
+
+  /** A câmera que fechou por causa do cartão saiu da tela (no iOS, o `onDismiss`, ou a folga). */
+  const cameraFallback = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const finishCameraClose = useCallback(() => {
+    clearTimeout(cameraFallback.current);
+    setScanner((current) => (current?.closing === true ? null : current));
   }, []);
+
+  /**
+   * O cartão aparece (ux.md §11.15): também no QR (o seletor volta a "Encostar" por baixo; a
+   * câmera sem leitura em andamento fecha) e nos estados de Bluetooth. O cartão que esperou
+   * (`waited`) é atrasado se faltam menos de 10 s para o `actionsUntil` na hora em que aparece; o
+   * que aparece na chegada fica com o `late` do motor (A3-4). O foco, o anúncio e a vibração saem
+   * depois, pelos efeitos do cartão (esperam a folha, a câmera no iOS e o segundo plano).
+   */
+  const present = useCallback(
+    (card: TouchCard, waited: boolean) => {
+      const late =
+        card.late ||
+        (waited && card.actionsUntil - connectClock.now() < TOUCH_CALIBRATION.lateCardBelowMs);
+      dispatch({ type: 'card', card: late === card.late ? card : { ...card, late } });
+      if (scannerRef.current === null) return;
+      if (Platform.OS !== 'ios') {
+        setScanner(null);
+        return;
+      }
+      // No iOS, o `Modal` sai com a animação dele, e o foco do cartão espera o `onDismiss`.
+      setScanner((current) => (current === null ? null : { ...current, closing: true }));
+      clearTimeout(cameraFallback.current);
+      cameraFallback.current = setTimeout(finishCameraClose, connectTiming.cameraDismissFallbackMs);
+    },
+    [finishCameraClose],
+  );
+
+  /**
+   * O cartão que o motor entregou, também de um relato em voo depois de sair do Pronto (A3-3 item
+   * 6), com a aba aberta. `true`: mostrado agora ou guardado para aparecer depois (`wait`); o motor
+   * ignora o mesmo @ por 10 s (item 5), o que vale também para o guardado, que é esse mesmo cartão.
+   * `false`: descartado (a tela parada, ou a mesma pessoa já na tela), e ele não conta.
+   */
+  const showCard = useCallback(
+    (card: TouchCard): boolean => {
+      const placement = placeCard(card, {
+        halted: haltRef.current !== null,
+        view: viewRef.current,
+        reading: qrReadingRef.current > 0,
+      });
+      if (placement === 'discard') return false;
+      if (placement === 'wait') setPendingCard(card);
+      else present(card, false);
+      return true;
+    },
+    [present],
+  );
+
+  // O cartão que esperou aparece na próxima ida ao início, ou é descartado (§11.15).
+  useEffect(() => {
+    if (pendingCard === null) return undefined;
+    const placement = placeCard(pendingCard, {
+      halted: state.halt !== null,
+      view: state.view,
+      reading: qrReading,
+    });
+    if (placement === 'wait') return undefined;
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      setPendingCard(null);
+      if (placement === 'show') present(pendingCard, true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingCard, present, qrReading, state.halt, state.view]);
 
   const receiver = useMemo<TouchReceiver>(
     () => ({ platform: PLATFORM, model: deviceModel }),
     [deviceModel],
   );
-  const listening = touchMode && state.view.kind === 'ready';
   const touch = useTouch({
     api,
+    ownerId: user.id,
     radio,
-    scanning: touchMode && SCANNING_VIEWS.has(state.view.kind),
+    scanning: touchMode && state.scan,
     listening,
     receiver,
     onCard: showCard,
     onReportError: (error) => {
-      // 429, 503, 403, sem rede: para a tela. 400 (bug do app): o relato só para.
+      // 429 e 403: para a tela na hora. Sem rede e 5xx: só depois da sequência de falhas, com o
+      // último erro (A3-3 item 3). 400 (bug do app): o relato só para.
       halt(error);
     },
     onScanError: failRadio,
@@ -588,9 +945,8 @@ export function useConnectSession({
   }, [listening, touch.phase]);
 
   // Tela acesa (ux.md §11.4): no Pronto, só nos primeiros 2 min sem encostar; sempre no
-  // Confirmando, no Encostado (menos o de quem já é conexão, estado 12, que não tem prazo) e no
-  // Aguardando.
-  const cardWithDeadline = state.view.kind === 'card' && !state.view.alreadyConnected;
+  // Confirmando, no Encostado (menos o 12, o 21 e o Bloqueado, que não têm prazo) e no Aguardando.
+  const cardWithDeadline = cardVariant !== null && CARD_WITH_DEADLINE.has(cardVariant);
   const keepAwake =
     active && ((listening && touch.keepAwake) || cardWithDeadline || state.view.kind === 'waiting');
   useEffect(() => {
@@ -601,41 +957,45 @@ export function useConnectSession({
     };
   }, [keepAwake, radio]);
 
-  // --- Cartão de quem encostou (estados 11, 12, 14 e 17) ------------------------------------------
+  // --- Cartão de quem encostou (estados 11, 12, 14, 17, 21 e 22) ----------------------------------
 
   /**
-   * O cartão venceu (17): volta ao Pronto, com o foco no título, e o Toast T20. O próprio Toast
-   * anuncia, depois do foco e em fila (ux.md §11.4 e §11.8). O Bloqueado vence sem Toast: o T20
-   * diria "encostem os celulares de novo" a quem acabou de bloquear (M13).
+   * O cartão venceu (17): volta ao início do Encostar, com o foco no título, e o Toast T20. O
+   * próprio Toast anuncia, depois do foco e em fila (ux.md §11.4 e §11.8); ele aparece com a tela
+   * de início (§11.17, C2). Só o 11 e o 22 vencem; o Bloqueado não vence desde a R1-PO-1, e, se
+   * viesse aqui, sairia sem o T20 (M13).
    */
   const expireCard = useCallback(
     (person: NearbyPerson) => {
       const view = viewRef.current;
       if (view.kind !== 'card' || view.card.person.handle !== person.handle) return;
-      dispatch({ type: 'view', view: READY, reason: 'cardClosed' });
-      if (moderationOf(cardIdOf(view.card)).blocked) return;
-      toast.show({
-        message: COPY.cardExpired(firstName(person.name)),
-        announceAfterMs: announceAfterFocusMs(),
-      });
+      const blocked = moderationOf(cardIdOf(view.card)).blocked;
+      exitCard(blocked ? [] : [{ message: COPY.cardExpired(firstName(person.name)) }]);
     },
-    [moderationOf, toast],
+    [exitCard, moderationOf],
   );
 
-  // A3 e A4 (ux.md §11.8): o foco vai ao nome no cartão, e o anúncio sai depois dele, em fila. O
-  // 409 `ALREADY_CONNECTED` no Conectar troca o A3 pelo A4 (estado 12).
-  const cardBlocked = cardModeration?.blocked === true;
-  let cardAnnouncement: string | null = null;
-  if (cardView !== null && cardRequest === null && !cardBlocked) {
-    const { name } = cardView.card.person;
-    cardAnnouncement = cardView.alreadyConnected
-      ? COPY.announceTouchedConnected(name)
-      : COPY.announceTouched(name);
-  }
+  // O cartão aparece: a vibração do "pode afastar" (D-UX24, uma vez por cartão, também no 21, no
+  // 22 e no que chega fora do Pronto), nunca no Confirmando; espera a folha, a câmera no iOS e o
+  // segundo plano (§11.15).
   useEffect(() => {
-    if (cardAnnouncement === null) return undefined;
-    return announceAfterFocus(cardAnnouncement);
-  }, [cardAnnouncement]);
+    if (cardId === null || cardCueHeld || cuedCardRef.current === cardId) return;
+    cuedCardRef.current = cardId;
+    vibrate('touched');
+  }, [cardCueHeld, cardId]);
+
+  // A3, A4, A7 e A8 (ux.md §11.8): o foco vai ao nome no cartão, e o anúncio sai depois dele, em
+  // fila; os dois esperam como a vibração. O 409 `ALREADY_CONNECTED` no Conectar troca o A3 pelo A4
+  // (estado 12).
+  const cardAnnouncement =
+    cardView === null || cardVariant === null
+      ? null
+      : cardAnnouncementOf(cardVariant, cardView.card.person);
+  useAnnounceAfterFocusUnlessHeld(
+    cardId === null || cardVariant === null ? null : `${cardId}:${cardVariant}`,
+    cardAnnouncement,
+    cardCueHeld || cardCovered,
+  );
 
   /** O 14 chegou ao prazo do cartão: a linha some, e o pedido continua (M14). */
   const closeLine = useCallback(
@@ -652,37 +1012,42 @@ export function useConnectSession({
     [moderationOf, patchModeration],
   );
 
-  // O cartão vale até o `expiresAt` (P4, PROX-64); o de quem já é conexão (estado 12) não tem prazo.
-  // No 14, o prazo do cartão só tira a linha (o pedido segue o prazo dele, 120 s). Com o `Alert`, o
-  // formulário ou o bloqueio em andamento, o vencimento espera (M15).
-  const cardIsRequest = cardRequest !== null;
+  // O 11 e o 22 valem até o `actionsUntil` (P4, PROX-64, A3-4). No 14, o prazo do cartão só tira a
+  // linha (o pedido segue o prazo dele, 120 s), e o 14 do cartão atrasado nem tem a linha. O 12, o
+  // 21 e o Bloqueado não têm prazo (§11.14 e §11.15). Com o `Alert`, o formulário ou o bloqueio em
+  // andamento, o vencimento espera (M15).
   const lineGone = cardModeration?.lineGone === true;
   useEffect(() => {
-    if (cardView === null || cardView.alreadyConnected || cardHeld) return undefined;
-    if (cardIsRequest && lineGone) return undefined;
-    const timer = setTimeout(
-      () => {
-        if (cardIsRequest) closeLine(cardIdOf(cardView.card));
-        else expireCard(cardView.card.person);
-      },
-      Math.max(0, cardView.card.expiresAt - connectClock.now()),
-    );
+    if (cardView === null || cardHeld) return undefined;
+    const { card, alreadyConnected } = cardView;
+    let onDeadline: (() => void) | null = null;
+    if (cardVariant === 'touched' || cardVariant === 'noConnect') {
+      onDeadline = () => {
+        expireCard(card.person);
+      };
+    } else if (cardVariant === 'incoming' && !lineGone && !card.late && !alreadyConnected) {
+      onDeadline = () => {
+        closeLine(cardIdOf(card));
+      };
+    }
+    if (onDeadline === null) return undefined;
+    const timer = setTimeout(onDeadline, Math.max(0, card.actionsUntil - connectClock.now()));
     return () => {
       clearTimeout(timer);
     };
-  }, [cardHeld, cardIsRequest, cardView, closeLine, expireCard, lineGone]);
+  }, [cardHeld, cardVariant, cardView, closeLine, expireCard, lineGone]);
 
   /**
    * Fecha o que segurava o cartão (o `Alert`, o bloqueio ou o formulário) e aplica o que a §11.14
    * manda para cada variante (M2, M6, M7, M9, M10, M12, M15): volta ao cartão, tira a linha do 14
-   * ou volta ao Pronto, com o Toast certo. O foco vai ao cabeçalho do cartão quando o controle
+   * ou volta ao início, com o Toast certo. O foco vai ao cabeçalho do cartão quando o controle
    * focado some (o formulário fechou, ou o ‹Bloquear› saiu com a linha).
    */
   const settleCard = useCallback(
     (id: string, outcome: CardOutcome) => {
       const view = viewRef.current;
       const current = moderationOf(id);
-      const toasts: { message: string; variant?: 'success' | 'error' }[] = [];
+      const toasts: ShowToastOptions[] = [];
       if (outcome.kind === 'sent')
         toasts.push({ message: REPORT_SENT_MESSAGE, variant: 'success' });
       if (outcome.kind === 'gone') toasts.push({ message: PROFILE_GONE_MESSAGE, variant: 'error' });
@@ -694,7 +1059,9 @@ export function useConnectSession({
         return;
       }
       const requestPending = current.heldGone === null && cardIncomingRef.current !== null;
-      const expired = !view.alreadyConnected && connectClock.now() >= view.card.expiresAt;
+      // O 12, o Bloqueado (R1-PO-1) e o 21 não vencem: o 202 e o "Cancelar" voltam a eles.
+      const noDeadline = view.alreadyConnected || current.blocked || view.card.late;
+      const expired = !noDeadline && connectClock.now() >= view.card.actionsUntil;
       let close = false;
       let removeLine = false;
       if (current.heldGone !== null) {
@@ -702,7 +1069,8 @@ export function useConnectSession({
         close = true;
         toasts.push({ message: current.heldGone.message });
       } else if (outcome.kind === 'gone') {
-        // 404 (o par acabou no servidor) ou "Bloquear" depois do prazo: o 14 fica como pedido.
+        // 404 (o par acabou no servidor ou a conta foi excluída; no Bloqueado, só a conta excluída,
+        // R1-PO-1) ou "Bloquear" depois do prazo: o 14 fica como pedido.
         if (requestPending) removeLine = true;
         else close = true;
       } else if (expired) {
@@ -710,8 +1078,8 @@ export function useConnectSession({
           removeLine = true;
         } else {
           close = true;
-          // O 17 de sempre, sem o T20 depois de enviar e no Bloqueado (M9, M12, M13).
-          if (outcome.kind !== 'sent' && !current.blocked) {
+          // O 17 de sempre, sem o T20 depois de enviar (M9, M12).
+          if (outcome.kind !== 'sent') {
             toasts.push({ message: COPY.cardExpired(firstName(view.card.person.name)) });
           }
         }
@@ -720,30 +1088,42 @@ export function useConnectSession({
         outcome.kind === 'sent' ||
         outcome.kind === 'formCancelled' ||
         (outcome.kind === 'gone' && outcome.from === 'form');
-      const lineVanished = removeLine && !current.lineGone;
-      const moveFocus = close || fromForm || lineVanished;
       if (close) {
-        dispatch({ type: 'view', view: READY, reason: 'cardClosed' });
+        // De volta ao início: os Toasts aparecem com a tela de início (§11.17, C2).
         patchModeration(id, { heldGone: null });
-      } else {
-        patchModeration(id, {
-          heldGone: null,
-          lineGone: current.lineGone || removeLine,
-          focusRun: moveFocus ? current.focusRun + 1 : current.focusRun,
-          focusOnLine: moveFocus ? false : current.focusOnLine,
-        });
+        exitCard(toasts);
+        return;
       }
+      const lineVanished = removeLine && !current.lineGone;
+      const moveFocus = fromForm || lineVanished;
+      patchModeration(id, {
+        heldGone: null,
+        lineGone: current.lineGone || removeLine,
+        focusRun: moveFocus ? current.focusRun + 1 : current.focusRun,
+        focusOnLine: moveFocus ? false : current.focusOnLine,
+      });
       for (const options of toasts) {
         toast.show(moveFocus ? { ...options, announceAfterMs: announceAfterFocusMs() } : options);
       }
     },
-    [moderationOf, patchModeration, toast],
+    [exitCard, moderationOf, patchModeration, toast],
   );
 
   // --- Pedido (A) ---------------------------------------------------------------------------------
 
   const markConnected = useCallback(
     (other: ConnectionRequestParty) => {
+      // O cartão que chegou por baixo da folha de outra pessoa e ainda não foi visto (o foco, o
+      // anúncio e a vibração esperavam a folha fechar) não se perde com o aceite na folha: espera o
+      // 15, como o cartão de outra pessoa que chega no 15 (§11.15).
+      const view = viewRef.current;
+      if (
+        view.kind === 'card' &&
+        cuedCardRef.current !== cardIdOf(view.card) &&
+        view.card.person.handle !== other.handle
+      ) {
+        setPendingCard(view.card);
+      }
       dispatch({ type: 'view', view: { kind: 'connected', other, at: connectClock.now() } });
       posts.showPostsOf(other.handle);
       vibrate('connected');
@@ -785,11 +1165,14 @@ export function useConnectSession({
   const connectCard = useCallback(async () => {
     const view = viewRef.current;
     if (view.kind !== 'card' || busyRef.current !== null) return;
+    // O 21 e o 22 não têm Conectar e, por defesa, nenhum pedido sai com um token que não é o
+    // relatado (A3-4): daria o 400 genérico e contaria como falha de token.
+    if (view.card.late || !view.card.canConnect) return;
     // Bloqueando, ou já bloqueado: o pedido seria recusado (M3, M4).
     const current = moderationOf(cardIdOf(view.card));
     if (current.blocking || current.blocked) return;
-    const { person, expiresAt } = view.card;
-    if (connectClock.now() >= expiresAt) {
+    const { person, actionsUntil } = view.card;
+    if (connectClock.now() >= actionsUntil) {
       expireCard(person);
       return;
     }
@@ -839,11 +1222,12 @@ export function useConnectSession({
   );
 
   /**
-   * O início do modo atual: o Pronto no Encostar; o meu código no QR. O botão tocado some da tela:
-   * no Pronto, o foco vai ao título.
+   * O início do modo atual, pelos botões do 13, do 15 e do 16: no Encostar, pelo Verificando (o
+   * Bluetooth pode ter mudado com essas telas abertas, §11.15), com o foco no título do estado que
+   * aparecer; no QR, o meu código. O cartão que esperava aparece nessa hora.
    */
   const backToStart = useCallback(() => {
-    dispatch({ type: 'view', view: state.mode === 'touch' ? READY : CHECKING, reason: 'restart' });
+    dispatch({ type: 'start', mode: state.mode, reason: 'restart' });
   }, [state.mode]);
 
   const cancelRequest = useCallback(async () => {
@@ -930,7 +1314,7 @@ export function useConnectSession({
     incoming.dismiss(request.id);
     const view = viewRef.current;
     if (view.kind === 'card' && view.card.person.handle === request.other.handle) {
-      dispatch({ type: 'view', view: READY, reason: 'cardClosed' });
+      dispatch(EXIT_CARD);
     }
     try {
       await declineConnectionRequest(api, request.id);
@@ -952,6 +1336,8 @@ export function useConnectSession({
     const view = viewRef.current;
     if (view.kind !== 'card' || busyRef.current !== null) return;
     const { card, alreadyConnected } = view;
+    // O 21 (e o 14 que vem dele) não tem a linha: o par venceu ou vence em menos de 10 s (A3-4).
+    if (card.late && !alreadyConnected) return;
     const id = cardIdOf(card);
     const current = moderationOf(id);
     if (current.blocked || isHeld(current)) return;
@@ -972,7 +1358,7 @@ export function useConnectSession({
           // M7: o `Alert` segurou o cartão além do prazo, ou a confirmação saiu nos últimos 3 s
           // dele (R1-11). Fora do par, o 204 não grava, e o app diria "Você bloqueou" sem ter
           // bloqueado: não chama a API. O 12 não tem prazo.
-          const deadline = card.expiresAt - connectTiming.blockConfirmMarginMs;
+          const deadline = card.actionsUntil - connectTiming.blockConfirmMarginMs;
           if (!alreadyConnected && connectClock.now() >= deadline) {
             settleCard(id, { kind: 'gone', from: 'alert' });
             return false;
@@ -986,7 +1372,7 @@ export function useConnectSession({
           if (pending !== null) incoming.dismiss(pending.request.id);
           const now = viewRef.current;
           const onCard = now.kind === 'card' && cardIdOf(now.card) === id;
-          if (onCard && !alreadyConnected && connectClock.now() < card.expiresAt) {
+          if (onCard && !alreadyConnected && connectClock.now() < card.actionsUntil) {
             // M4: o cartão vira o Bloqueado, sem Toast; o foco vai ao nome e o anúncio sai depois.
             patchModeration(id, {
               blocking: false,
@@ -998,14 +1384,11 @@ export function useConnectSession({
             return;
           }
           // M5 (12), ou o cartão que venceu durante a chamada: fecha, como o perfil depois do
-          // bloqueio, com o Toast `blockedMessage` depois do foco no título do Pronto.
+          // bloqueio, com o Toast `blockedMessage` depois do foco no título do início (§11.17, C2).
           patchModeration(id, { blocking: false, heldGone: null });
-          if (onCard) dispatch({ type: 'view', view: READY, reason: 'cardClosed' });
-          toast.show({
-            message: blockedMessage(handle),
-            variant: 'success',
-            ...(onCard ? { announceAfterMs: announceAfterFocusMs() } : {}),
-          });
+          const done: ShowToastOptions = { message: blockedMessage(handle), variant: 'success' };
+          if (onCard) exitCard([done]);
+          else toast.show(done);
         },
         onFailed: () => {
           // M6: o Toast do erro já saiu; o cartão fica como estava e o foco, no ‹Bloquear›.
@@ -1014,12 +1397,14 @@ export function useConnectSession({
         },
       },
     );
-  }, [block, incoming, moderationOf, patchModeration, settleCard, toast]);
+  }, [block, exitCard, incoming, moderationOf, patchModeration, settleCard, toast]);
 
   /** ‹Denunciar› no cartão: o formulário por cima do cartão, que continua montado (M8). */
   const openReport = useCallback(() => {
     const view = viewRef.current;
     if (view.kind !== 'card' || busyRef.current !== null) return;
+    // O 21 (e o 14 que vem dele) não tem a linha (A3-4).
+    if (view.card.late && !view.alreadyConnected) return;
     const id = cardIdOf(view.card);
     const current = moderationOf(id);
     if (isHeld(current)) return;
@@ -1027,7 +1412,9 @@ export function useConnectSession({
       handle: view.card.person.handle,
       form: 'open',
       formRun: current.formRun + 1,
-      formNote: !view.alreadyConnected,
+      // O T46 só no 11, no 14 e no 22: o 12 não tem prazo, e quem bloqueou denuncia sem prazo
+      // (R1-PO-1).
+      formNote: !view.alreadyConnected && !current.blocked,
       focusOnLine: false,
     });
   }, [moderationOf, patchModeration]);
@@ -1037,7 +1424,7 @@ export function useConnectSession({
   const dismissFallback = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   /**
-   * O `Modal` saiu: o foco, o Toast e a volta ao cartão ou ao Pronto. No iOS, só depois do
+   * O `Modal` saiu: o foco, o Toast e a volta ao cartão ou ao início. No iOS, só depois do
    * `onDismiss`; antes disso, o sistema devolve o foco a outro lugar e corta o anúncio (§11.13).
    */
   const finishFormClose = useCallback(() => {
@@ -1106,7 +1493,7 @@ export function useConnectSession({
    * falha de token): QR vencido ou adulterado não cria nada (4.7 CA4). Depois: no aceite, confere
    * que o código é de quem pediu; senão, se a pessoa já me pediu, aceita; se não, pede (`qr`).
    */
-  const handleQrToken = useCallback(
+  const readQrToken = useCallback(
     async (qrToken: string, purpose: ScannerPurpose, fromScanner: boolean) => {
       let person: NearbyPerson | undefined;
       try {
@@ -1165,16 +1552,29 @@ export function useConnectSession({
     ],
   );
 
-  const scannerRef = useRef(scanner);
-  useEffect(() => {
-    scannerRef.current = scanner;
-  });
+  /**
+   * A leitura do QR em andamento: o cartão que chega nesse meio-tempo espera o resultado (§11.15) e
+   * aparece depois, se a tela voltar ao QR (com a câmera ou sem ela).
+   */
+  const handleQrToken = useCallback(
+    async (qrToken: string, purpose: ScannerPurpose, fromScanner: boolean) => {
+      qrReadingRef.current += 1;
+      setQrReading(true);
+      try {
+        await readQrToken(qrToken, purpose, fromScanner);
+      } finally {
+        qrReadingRef.current -= 1;
+        setQrReading(qrReadingRef.current > 0);
+      }
+    },
+    [readQrToken],
+  );
 
   /** Leitura da câmera: o conteúdo precisa ser `sussurro://c/{qrToken}` (senão, nada é enviado). */
   const onScanned = useCallback(
     async (data: string) => {
       const current = scannerRef.current;
-      if (current === null || current.busy) return;
+      if (current === null || current.busy || current.closing === true) return;
       const qrToken = parseProximityQr(data);
       if (qrToken === null) {
         if (current.error !== COPY.qrInvalid) setScanner({ ...current, error: COPY.qrInvalid });
@@ -1258,10 +1658,9 @@ export function useConnectSession({
     dispatch({ type: 'resume' });
   }, [reloadUser, state.halt, toast]);
 
-  // A folha espera o formulário de denúncia fechar (dois `Modal` um sobre o outro, não).
-  const showSheet = head !== null && scanner === null && cardRequest === null && !formOpen;
   const incomingError =
     sheetError !== null && sheetError.id === head?.request.id ? sheetError.message : null;
+  const startFocusKey = `pronto:${String(state.ready.run)}`;
 
   return {
     user,
@@ -1274,9 +1673,20 @@ export function useConnectSession({
     touch: { phase: touch.phase, demoRun: touch.demoRun },
     /** Foco no título do Pronto (ux.md §11.8): só quando o controle focado sumiu da tela. */
     readyFocus: {
-      key: `pronto:${String(state.ready.run)}`,
+      key: startFocusKey,
       enabled: FOCUS_READY_TITLE.has(state.ready.reason),
     },
+    /**
+     * Foco no título do EmptyState de Bluetooth e na faixa T30, quando é isso que aparece: na saída
+     * do cartão ou do 13 ao 16 por um botão (ux.md §11.15), no "Continuar" recusado, na volta dos
+     * Ajustes e no Pronto que sai da tela sozinho (§11.17, C1 e S2).
+     */
+    startFocus: {
+      key: startFocusKey,
+      enabled: FOCUS_START_STATE.has(state.ready.reason),
+    },
+    /** Qual cartão está na tela (ux.md §11.15, "Qual cartão aparece"), ou `null` sem cartão. */
+    cardVariant,
     /** O pedido de quem está no cartão (estado 14), mostrado no próprio cartão. */
     cardIncoming:
       cardRequest === null || cardBlocked
@@ -1294,11 +1704,18 @@ export function useConnectSession({
         : {
             blocked: cardBlocked,
             blocking: cardModeration?.blocking === true,
-            /** No 14, a linha some no prazo do cartão (M14); no resto, fica até o cartão fechar. */
-            lineVisible: !(cardRequest !== null && !cardBlocked && lineGone),
+            /**
+             * No 14, a linha some no prazo do cartão (M14), e o 14 do cartão atrasado nem a tem
+             * (§11.15); no resto, fica até o cartão fechar.
+             */
+            lineVisible: !(
+              cardRequest !== null &&
+              !cardBlocked &&
+              (lineGone || cardView.card.late)
+            ),
             focusRun: cardModeration?.focusRun ?? 0,
-            /** O `Alert` ou o formulário por cima: o foco espera (M15, M16). */
-            focusHeld: cardCovered,
+            /** O `Alert`, o formulário, a folha, a câmera saindo ou o segundo plano: o foco espera. */
+            focusHeld: cardCovered || cardCueHeld,
           },
     /** O formulário de denúncia por cima do cartão (M8), enquanto aberto ou saindo. */
     reportForm:
@@ -1308,7 +1725,7 @@ export function useConnectSession({
             visible: moderation.form === 'open',
             run: moderation.formRun,
             handle: moderation.handle,
-            /** O T46, só no formulário aberto pelo 11, pelo 14 ou pelo Bloqueado. */
+            /** O T46, só no formulário aberto pelo 11, pelo 14 ou pelo 22. */
             note: moderation.formNote ? COPY.reportDeadline : undefined,
           },
     /** A folha da §4.11: só quando o pedido não é de quem está no cartão. */
@@ -1341,13 +1758,13 @@ export function useConnectSession({
         void connectCard();
       },
       /**
-       * "Cancelar" (cartão) e "Voltar" (já conectados e Bloqueado, M13): de volta ao Pronto, com o
-       * foco no título e sem Toast.
+       * "Cancelar" (11) e "Voltar" (12, 21, 22 e Bloqueado, M13): de volta ao início do Encostar,
+       * pelo Verificando, com o foco no título e sem Toast (§11.15).
        */
       closeCard: () => {
         const view = viewRef.current;
         if (view.kind === 'card' && isHeld(moderationOf(cardIdOf(view.card)))) return;
-        dispatch({ type: 'view', view: READY, reason: 'cardClosed' });
+        dispatch(EXIT_CARD);
       },
       /** ‹Bloquear› no cartão (M1). */
       blockCard,
@@ -1357,11 +1774,14 @@ export function useConnectSession({
       cancelReport: () => {
         closeForm({ kind: 'formCancelled' });
       },
-      /** 202 (M9). */
+      /**
+       * 202 (M9). Pelo Bloqueado, também depois do fim do par: quem bloqueou denuncia sem prazo
+       * (R1-PO-1), e o 202 volta ao Bloqueado.
+       */
       reportSent: () => {
         closeForm({ kind: 'sent' });
       },
-      /** 404: o par acabou no servidor, ou a conta foi excluída (M10). */
+      /** 404: o par acabou no servidor (no 11, no 14 e no 22), ou a conta foi excluída (M10). */
       reportGone: () => {
         closeForm({ kind: 'gone', from: 'form' });
       },
@@ -1384,6 +1804,8 @@ export function useConnectSession({
       },
       openScanner,
       closeScanner,
+      /** A câmera que fechou por causa do cartão saiu da tela (iOS, §11.15). */
+      cameraDismissed: finishCameraClose,
       onScanned: (data: string) => {
         void onScanned(data);
       },

@@ -1,4 +1,6 @@
 import { screen, userEvent } from '@testing-library/react-native';
+import { createRef } from 'react';
+import type { ViewInstance } from 'react-native';
 
 import { EmptyState } from './EmptyState';
 import { renderUi } from '../../test-utils/render';
@@ -33,5 +35,25 @@ describe('EmptyState', () => {
     await userEvent.press(screen.getByRole('button', { name: 'Voltar ao perfil' }));
     expect(primary).toHaveBeenCalledTimes(1);
     expect(secondary).toHaveBeenCalledTimes(1);
+  });
+
+  it('ux.md §11.15: com titleRef, o título fica num cabeçalho acessível que recebe a ref (para o foco); sem ele, nada muda', async () => {
+    const titleRef = createRef<ViewInstance>();
+    const { rerender } = await renderUi(
+      <EmptyState
+        icon="bluetooth-off"
+        title="O Bluetooth está desligado"
+        titleRef={titleRef}
+        testID="bt-desligado"
+      />,
+    );
+    const header = screen.getByRole('header', { name: 'O Bluetooth está desligado' });
+    expect(header.props.testID).toBe('bt-desligado-titulo');
+    expect(titleRef.current).not.toBeNull();
+    await rerender(
+      <EmptyState icon="bluetooth-off" title="O Bluetooth está desligado" testID="bt-desligado" />,
+    );
+    expect(screen.getByRole('header', { name: 'O Bluetooth está desligado' })).toBeOnTheScreen();
+    expect(screen.queryByTestId('bt-desligado-titulo')).toBeNull();
   });
 });

@@ -29,9 +29,12 @@ export const PROXIMITY_LIMITS = {
   tokens: { name: 'prox-tokens:user', limit: 6, windowMs: MINUTE },
   // (ADR 0012) Só o QR: uma chamada por código lido.
   resolve: { name: 'prox-resolve:user', limit: 30, windowMs: MINUTE },
-  // (ADR 0012) Relato do encosto: o app manda 1 por segundo, um por vez, e no máximo 39 em
-  // qualquer minuto (A2 rev. 1, R1-3). Nunca conta como falha (não ser mútuo é normal). (R1-4) O
-  // cartão devido sai antes deste limite: um relato com cartão a receber não conta nem dá 429.
+  // (ADR 0012) Relato do encosto: o app manda 1 por segundo, um por vez. (ADR 0012, A3-8, item 1)
+  // No pior caso, 51 inícios por admissão sem alternância, e até 56 em 60 s com uma rede que
+  // alterna (cada 200 que encerra uma sequência de falhas depois de ≥ 5 s sem aceite estende o
+  // prazo de novo): sempre abaixo deste limite. Nunca conta como falha (não ser mútuo é normal).
+  // (R1-4) A primeira entrega do cartão devido sai antes deste limite: não conta nem dá 429.
+  // (ADR 0012, A3-2) A reentrega, por até 10 s depois dela, conta, e acima do limite dá 429.
   touches: { name: 'prox-touches:user', limit: PROXIMITY_TOUCH_LIMIT_PER_MIN, windowMs: MINUTE },
   requestsPerMinute: { name: 'conn-requests:user:min', limit: 10, windowMs: MINUTE },
   requestsPerDay: { name: 'conn-requests:user:day', limit: 50, windowMs: 24 * 60 * MINUTE },

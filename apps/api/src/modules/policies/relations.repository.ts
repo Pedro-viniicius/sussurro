@@ -66,6 +66,28 @@ export class RelationsRepository {
     return { connected: row?.connected === true, blocked: row?.blocked === true };
   }
 
+  /**
+   * `blockerId` bloqueou `blockedId`, só neste sentido (R1-PO-1: denunciar a conta de quem você
+   * bloqueou). Diferente do `blocked` de `relationship`, o bloqueio inverso não conta. Uma busca
+   * pela PK de `blocks` (`blocker_id`, `blocked_id`). Com `executor`, roda na transação de quem
+   * chama.
+   */
+  async hasBlocked(
+    blockerId: string,
+    blockedId: string,
+    executor: DbExecutor = this.database.db,
+  ): Promise<boolean> {
+    if (blockerId === blockedId) {
+      return false;
+    }
+    const result = await executor.execute(sql`
+      select exists(select 1 from blocks b
+                     where b.blocker_id = ${blockerId} and b.blocked_id = ${blockedId}) as blocked
+    `);
+    const [row] = rowsOf<{ blocked: boolean }>(result);
+    return row?.blocked === true;
+  }
+
   /** Quais de `others` são conexão de `viewerId` (uma consulta só, para listas de comentários). */
   async connectedAmong(viewerId: string, others: readonly string[]): Promise<Set<string>> {
     const candidates = [...new Set(others)].filter((id) => id !== viewerId);

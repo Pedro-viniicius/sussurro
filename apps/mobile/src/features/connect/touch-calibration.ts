@@ -2,6 +2,7 @@ import {
   PROXIMITY_TOUCH_PAIR_TTL_S,
   PROXIMITY_TOUCH_REPORT_FOR_S,
   PROXIMITY_TOUCH_REPORT_INTERVAL_S,
+  PROXIMITY_TOUCH_WINDOW_S,
 } from '@sussurro/shared';
 
 import type { AdvertiseTxPower } from '../../../modules/sussurro-proximity';
@@ -79,7 +80,32 @@ export interface TouchCalibration {
    * de cobertura nunca é recusado.
    */
   readonly reportReserve: number;
-  /** A tela avisa "Não deu para confirmar" (o relato continua até `reportForMs`). */
+  /**
+   * Prazo de cada relato (ADR 0012, A3-3 item 1): no fim, a conexão é abortada e o relato conta
+   * como falha repetível. Contrato com o servidor, não calibração do spike.
+   */
+  readonly reportTimeoutMs: number;
+  /**
+   * Ritmo da repetição depois de uma falha repetível (A3-3 item 3): o mesmo token, um relato por
+   * vez, com este tempo entre os inícios. Contrato com o servidor.
+   */
+  readonly reportRetryEveryMs: number;
+  /**
+   * A reentrega do servidor (A3-2: o ocupado, `2 × janela`): quanto dura a repetição depois do
+   * início do 1º relato que falhou e por quanto tempo o mesmo @ do último cartão mostrado é
+   * ignorado (A3-3 itens 3 e 5). Contrato com o servidor.
+   */
+  readonly cardRedeliveryMs: number;
+  /**
+   * O cartão atrasado (A3-4): com `pairExpiresInS × 1000` abaixo disto, o cartão chega sem ações e
+   * sem prazo. Contrato com o servidor.
+   */
+  readonly lateCardBelowMs: number;
+  /**
+   * A tela avisa "Não deu para confirmar" (o relato continua até `reportForMs`). Contrato com o
+   * servidor (A3-3 item 8): pelo menos a janela do casamento + 2 relatos, para o aviso só sair
+   * depois do último casamento possível e de mais um relato.
+   */
   readonly confirmWarnAfterMs: number;
   /** QR em destaque (P9): 20 s no Pronto sem encostar, 10 s em "quase" ou 2 falhas seguidas. */
   readonly noTouchFallbackMs: number;
@@ -116,7 +142,11 @@ export const TOUCH_CALIBRATION: TouchCalibration = {
   reportForMs: PROXIMITY_TOUCH_REPORT_FOR_S * 1000,
   reportBudgetPerMinute: 40,
   reportReserve: 10,
-  confirmWarnAfterMs: 4000,
+  reportTimeoutMs: 4000,
+  reportRetryEveryMs: 2000,
+  cardRedeliveryMs: 2 * PROXIMITY_TOUCH_WINDOW_S * 1000,
+  lateCardBelowMs: 10_000,
+  confirmWarnAfterMs: 7000,
   noTouchFallbackMs: 20_000,
   nearFallbackMs: 10_000,
   failuresBeforeQr: 2,
@@ -130,15 +160,15 @@ export function cardTtlMs(calibration: TouchCalibration = TOUCH_CALIBRATION): nu
 }
 
 /**
- * Quando o cartão vence no app (P4; PROX-64): `chegada + min(cardTtlMs, pairExpiresInS × 1000)`.
- * O `pairExpiresInS` vem do servidor, em cada cartão do `touches`: o que falta para o par vencer lá,
- * arredondado para baixo em múltiplos de 5 s (55 no casamento na hora). O arredondamento já é a
- * margem: o valor nunca passa do tempo que de fato resta, então o app não desconta a margem de novo.
- * Um cartão devido que chega tarde (rede lenta, com um relato em voo) vence antes, e o app nunca
- * mostra "Conectar", "Bloquear" ou "Denunciar" depois que o par acabou no servidor (ux.md §11.14,
- * ponto para o `arquiteto`).
+ * Até quando o cartão tem ações no app (P4; PROX-64; A3-4, o `actionsUntil`):
+ * `chegada + min(cardTtlMs, pairExpiresInS × 1000)`. O `pairExpiresInS` vem do servidor, em cada
+ * cartão do `touches`: o que falta para o par vencer lá, arredondado para baixo em múltiplos de 5 s
+ * (55 no casamento na hora; nunca acima de 55, A3-5). O arredondamento já é a margem: o valor nunca
+ * passa do tempo que de fato resta, então o app não desconta a margem de novo. Um cartão devido que
+ * chega tarde (rede lenta, com um relato em voo) perde as ações antes, e o app nunca mostra
+ * "Conectar", "Bloquear" ou "Denunciar" depois que o par acabou no servidor (ux.md §11.14).
  */
-export function cardExpiresAt(
+export function cardActionsUntil(
   arrivedAt: number,
   pairExpiresInS: number,
   calibration: TouchCalibration = TOUCH_CALIBRATION,

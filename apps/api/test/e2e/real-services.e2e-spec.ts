@@ -9,9 +9,12 @@
 //   par encostado (`prox:m`);
 // - (ADR 0012, Adendo A2 e revisão 1; PROX-56) idem para o `TOUCH_SCRIPT` com o prazo deslizante
 //   (PX de 2 × janela em todo relato, sem `KEEPTTL`), o casamento (`CLAIM_TOUCH_SCRIPT`: janela,
-//   ocupado, teto e cartão devido), a entrega única (`TAKE_OWED_CARD_SCRIPT`) e o sinal de abuso
-//   (`BLOCK_SIGNAL_SCRIPT`: uma vez por casamento e por sentido, com `KEEPTTL` no par), com os
-//   mesmos casos do fake (`proximity.store.spec.ts`).
+//   ocupado, teto e cartão devido), a entrega do cartão devido (`TAKE_OWED_CARD_SCRIPT`) e o sinal
+//   de abuso (`BLOCK_SIGNAL_SCRIPT`: uma vez por casamento e por sentido, com `KEEPTTL` no par),
+//   com os mesmos casos do fake (`proximity.store.spec.ts`);
+// - (ADR 0012, Adendo A3; PROX-66 e PROX-67) idem para o `refused` do `CLAIM_TOUCH_SCRIPT` (o
+//   cartão nulo, sem gravar nada) e a reentrega do `TAKE_OWED_CARD_SCRIPT` (a marca `!`, o prazo de
+//   até 10 s, o ocupado só na 1ª entrega, sem `DEL`, inclusive no valor ilegível).
 import { follows, refreshTokens } from '@sussurro/db';
 import { createUser, isPgliteMode } from '@sussurro/db/testing';
 import { Redis } from 'ioredis';
@@ -440,14 +443,14 @@ describe.skipIf(isPgliteMode())('tokens de proximidade no Valkey (Fase 4, ADR 00
     ).toBe(0);
     expect(await redis.get(proximityKeys.pairsPerHour('b'))).toBe('1');
     expect(await redis.get(proximityKeys.pairsPerDay('b'))).toBe('1');
-    // O teto do dia também barra (1/dia), e a resposta fora das cinco nunca aparece.
+    // O teto do dia também barra (1/dia), e a resposta fora das seis nunca aparece.
     expect(await claimAt(store, 'c', 'b', matched + 3, { perHour: 30, perDay: 1 })).toBe('capped');
     expect(await claimAt(store, 'c', 'b', matched + 4, { perHour: 30, perDay: 30 })).toBe(
       'created',
     );
   });
 
-  it('[PROX-49] [PROX-56] TAKE_OWED_CARD_SCRIPT no Valkey: entrega única (GET, DEL) e a conta fica ocupada (PX); sem cartão → null sem gravar nada; ilegível → null e apagado', async () => {
+  it('[PROX-67] [PROX-49] [PROX-43] [PROX-56] TAKE_OWED_CARD_SCRIPT no Valkey (A3-2): a 1ª retirada devolve o cartão (redelivered false), grava "!{hash}|{json}" com PX de até 10 s e o ocupado (PX de 10 s), sem DEL; a retirada seguinte devolve o mesmo cartão (redelivered true), sem mexer no prazo do cartão nem no ocupado; ao vencer, null; sem cartão → null sem gravar nada', async () => {
     const store = new RedisProximityStore(redis);
     const at = 3_000_000;
     expect(await store.takeOwedCard('a', TOUCH_BUSY_MS)).toBeNull();
@@ -455,7 +458,10 @@ describe.skipIf(isPgliteMode())('tokens de proximidade no Valkey (Fase 4, ADR 00
 
     await store.recordTouch('a', 'b', 'hash-de-b', at, TOUCH_WINDOW_MS);
     expect(await claimAt(store, 'b', 'a', at)).toBe('created');
-    expect(await store.takeOwedCard('a', TOUCH_BUSY_MS)).toEqual({
+    const stored = await redis.get(proximityKeys.owed('a'));
+    await expectTtl(proximityKeys.owed('a'), TOUCH_BUSY_MS, TOUCH_PAIR_MS);
+    await redis.del(proximityKeys.busy('b'));
+    const cardOfB = {
       tokenHash: 'hash-de-b',
       subjectId: 'b',
       atMs: at,
@@ -463,23 +469,151 @@ describe.skipIf(isPgliteMode())('tokens de proximidade no Valkey (Fase 4, ADR 00
       name: 'Nome b',
       avatarKey: 'avatars/b.jpg',
       connected: false,
+    };
+
+    // 1ª entrega: não apaga; marca com "!", encurta o prazo para 10 s e grava o ocupado.
+    expect(await store.takeOwedCard('a', TOUCH_BUSY_MS)).toEqual({
+      ...cardOfB,
+      redelivered: false,
     });
-    expect(await redis.exists(proximityKeys.owed('a'))).toBe(0);
+    expect(await redis.get(proximityKeys.owed('a'))).toBe(`!${stored!}`);
+    await expectTtl(proximityKeys.owed('a'), 0, TOUCH_BUSY_MS);
     expect(await redis.get(proximityKeys.busy('a'))).toBe('1');
     await expectTtl(proximityKeys.busy('a'), 0, TOUCH_BUSY_MS);
-    expect(await store.takeOwedCard('a', TOUCH_BUSY_MS)).toBeNull();
 
-    for (const value of ['sem-separador', '|{"s":"b"}', 'h|não é json', 'h|{"s":"b","at":1}']) {
-      await redis.set(proximityKeys.owed('c'), value, 'PX', TOUCH_PAIR_MS);
-      expect(await store.takeOwedCard('c', TOUCH_BUSY_MS), value).toBeNull();
-      expect(await redis.exists(proximityKeys.owed('c'))).toBe(0);
+    // Reentrega: o mesmo cartão, sem regravar o valor (nada de "!!"), o prazo nem o ocupado. Com
+    // os prazos encurtados à mão, um SET … PX novo os levaria de volta a 10 s.
+    await redis.pexpire(proximityKeys.owed('a'), 3_000);
+    await redis.pexpire(proximityKeys.busy('a'), 2_000);
+    for (let round = 0; round < 3; round++) {
+      expect(await store.takeOwedCard('a', TOUCH_BUSY_MS), `reentrega ${String(round)}`).toEqual({
+        ...cardOfB,
+        redelivered: true,
+      });
+    }
+    expect(await redis.get(proximityKeys.owed('a'))).toBe(`!${stored!}`);
+    await expectTtl(proximityKeys.owed('a'), 0, 3_000);
+    await expectTtl(proximityKeys.busy('a'), 0, 2_000);
+    // Nenhuma chave nova (o script só toca o cartão e o ocupado da própria conta). A observação
+    // (`prox:o`, 10 s pelo relógio do Valkey) fica de fora da conta.
+    const keysBut = async (prefix: string) =>
+      (await redis.keys('*')).filter((key) => !key.startsWith(prefix)).sort();
+    expect(await keysBut('prox:o:')).toEqual(
+      [
+        proximityKeys.pair('a', 'b'),
+        proximityKeys.owed('a'),
+        proximityKeys.busy('a'),
+        proximityKeys.pairsPerHour('a'),
+        proximityKeys.pairsPerDay('a'),
+        proximityKeys.pairsPerHour('b'),
+        proximityKeys.pairsPerDay('b'),
+      ].sort(),
+    );
+
+    // Ao vencer, acabou a reentrega: null, e o ocupado não é regravado.
+    await redis.pexpire(proximityKeys.owed('a'), 1);
+    await expect.poll(() => redis.exists(proximityKeys.owed('a'))).toBe(0);
+    await redis.del(proximityKeys.busy('a'));
+    expect(await store.takeOwedCard('a', TOUCH_BUSY_MS)).toBeNull();
+    expect(await redis.exists(proximityKeys.owed('a'), proximityKeys.busy('a'))).toBe(0);
+  });
+
+  it('[PROX-67] [PROX-49] [PROX-56] TAKE_OWED_CARD_SCRIPT no Valkey: o cartão com menos de 10 s de vida não ganha prazo (o ocupado dura os 10 s); valor ilegível → null, sem DEL (marcado, vence em até 10 s); o cartão à espera da reentrega ocupa a conta sozinho no CLAIM_TOUCH_SCRIPT', async () => {
+    const store = new RedisProximityStore(redis);
+    const at = 3_500_000;
+    const value = `hash-de-b|{"s":"b","at":${String(at)},"h":"h.b","n":"Nome b","a":null,"c":true}`;
+
+    // Faltam 4 s para o cartão vencer: a 1ª entrega não o estende a 10 s.
+    await redis.set(proximityKeys.owed('d'), value, 'PX', 4_000);
+    expect(await store.takeOwedCard('d', TOUCH_BUSY_MS)).toMatchObject({
+      subjectId: 'b',
+      connected: true,
+      redelivered: false,
+    });
+    expect(await redis.get(proximityKeys.owed('d'))).toBe(`!${value}`);
+    await expectTtl(proximityKeys.owed('d'), 0, 4_000);
+    await expectTtl(proximityKeys.busy('d'), 4_000, TOUCH_BUSY_MS);
+
+    // Ilegível: null, sem apagar. O script não lê o JSON: marca e grava o ocupado, como a 1ª
+    // entrega, e o valor vence em até 10 s; a retirada seguinte também dá null, sem mudar nada.
+    for (const unreadable of [
+      'sem-separador',
+      '|{"s":"b"}',
+      'h|não é json',
+      'h|{"s":"b","at":1}',
+    ]) {
+      await redis.del(proximityKeys.owed('c'), proximityKeys.busy('c'));
+      await redis.set(proximityKeys.owed('c'), unreadable, 'PX', TOUCH_PAIR_MS);
+      expect(await store.takeOwedCard('c', TOUCH_BUSY_MS), unreadable).toBeNull();
+      expect(await redis.get(proximityKeys.owed('c')), unreadable).toBe(`!${unreadable}`);
+      await expectTtl(proximityKeys.owed('c'), 0, TOUCH_BUSY_MS);
+      expect(await store.takeOwedCard('c', TOUCH_BUSY_MS), unreadable).toBeNull();
+      expect(await redis.get(proximityKeys.owed('c')), unreadable).toBe(`!${unreadable}`);
     }
 
+    // O cartão já entregue, à espera da reentrega, ocupa a conta sozinho (mesmo sem o prox:c):
+    // ninguém casa com ela, e ela não casa com ninguém, sem gravar nada.
+    await redis.set(proximityKeys.owed('d'), `!${value}`, 'PX', TOUCH_BUSY_MS);
+    await redis.del(proximityKeys.busy('d'));
+    for (const [caller, other] of [
+      ['x', 'd'],
+      ['d', 'x'],
+    ] as const) {
+      await store.recordTouch(other, caller, `hash-de-${caller}`, at, TOUCH_WINDOW_MS);
+      expect(await claimAt(store, caller, other, at), `${caller} → ${other}`).toBe('busy');
+    }
+    expect(await redis.exists(proximityKeys.pair('d', 'x'), proximityKeys.owed('x'))).toBe(0);
+    expect(await redis.exists(proximityKeys.busy('d'), proximityKeys.busy('x'))).toBe(0);
+
     // forgetTouchState (só dev): apaga o cartão devido e o ocupado, e nada mais.
-    await store.forgetTouchState('a');
+    await store.forgetTouchState('d');
     await store.forgetTouchState('c');
-    expect(await redis.exists(proximityKeys.busy('a'), proximityKeys.busy('c'))).toBe(0);
-    expect(await redis.exists(proximityKeys.pair('a', 'b'))).toBe(1);
+    expect(
+      await redis.exists(
+        proximityKeys.owed('d'),
+        proximityKeys.busy('d'),
+        proximityKeys.owed('c'),
+        proximityKeys.busy('c'),
+      ),
+    ).toBe(0);
+    expect(await redis.exists(proximityKeys.touch('d', 'x'))).toBe(1);
+  });
+
+  it('[PROX-66] [PROX-46] [PROX-56] CLAIM_TOUCH_SCRIPT no Valkey com o cartão nulo (a política recusou, A3-1): gone sem a observação ou fora da janela; refused logo depois, antes do ocupado e do teto, sem ler nem gravar par, contadores, cartão devido ou ocupado', async () => {
+    const store = new RedisProximityStore(redis);
+    const at = 5_000_000;
+    const refusedClaim = (callerId: string, otherId: string, atMs: number) =>
+      claimAt(store, callerId, otherId, atMs, { callerCard: null });
+
+    // A janela vem antes: sem a observação do outro, ou com o primeiro relato a 5 s → gone.
+    expect(await refusedClaim('b', 'a', at)).toBe('gone');
+    expect(await redis.keys('*')).toEqual([]);
+    await store.recordTouch('a', 'b', 'hash-de-b', at, TOUCH_WINDOW_MS);
+    expect(await refusedClaim('b', 'a', at + TOUCH_WINDOW_MS)).toBe('gone');
+
+    // Na janela: refused, e nenhuma chave nova (só a observação de a).
+    expect(await refusedClaim('b', 'a', at + TOUCH_WINDOW_MS - 1)).toBe('refused');
+    expect(await redis.keys('*')).toEqual([proximityKeys.touch('a', 'b')]);
+
+    // Com o cartão devido, o ocupado e o teto no caminho, refused continua: sai antes deles, e
+    // nada muda (nem o cartão devido, nem o ocupado, nem os contadores no teto).
+    await redis.set(proximityKeys.owed('a'), 'devido', 'PX', TOUCH_PAIR_MS);
+    await redis.set(proximityKeys.busy('b'), '1', 'PX', TOUCH_BUSY_MS);
+    await redis.set(proximityKeys.pairsPerHour('b'), '10', 'PX', 3_600_000);
+    const before = new Map<string, string | null>();
+    for (const key of await redis.keys('*')) {
+      before.set(key, await redis.get(key));
+    }
+    expect(await refusedClaim('b', 'a', at + 1)).toBe('refused');
+    expect((await redis.keys('*')).sort()).toEqual([...before.keys()].sort());
+    for (const [key, value] of before) {
+      expect(await redis.get(key), key).toBe(value);
+    }
+    await expectTtl(proximityKeys.busy('b'), 0, TOUCH_BUSY_MS);
+
+    // O mesmo par, com o cartão de quem chama, chega ao ocupado (controle: a ordem é janela,
+    // recusa, ocupado).
+    expect(await claimAt(store, 'b', 'a', at + 1)).toBe('busy');
   });
 
   it('[PROX-54] [PROX-56] 50 rodadas de casamentos simultâneos do mesmo par no Valkey: um created e um busy; nunca dois pares nem dois cartões devidos; cada conta soma 1', async () => {

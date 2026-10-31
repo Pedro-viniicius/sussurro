@@ -266,20 +266,26 @@ describe('Conectar: bloquear pelo cartão (ux.md §11.14; PROX-61)', () => {
     expect(api.callsTo('GET /v1/me').length).toBeGreaterThanOrEqual(2);
   });
 
-  it('PROX-61 (M13): o Bloqueado vence no expiresAt e volta ao Pronto sem Toast, com o foco no título', async () => {
+  it('PROX-62 / PROX-65 (R1-PO-1, M13): o Bloqueado não vence — depois do expiresAt continua na tela, com o ‹Denunciar›, sem o T20 e sem manter a tela acesa', async () => {
     const alert = captureAlert();
-    const { cardAt } = await openCard();
+    const { cardAt, radio } = await openCard();
     await userEvent.press(screen.getByTestId('cartao-bloquear'));
     await alert.press('Bloquear');
     expect(await screen.findByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
-    // A tela continua acesa no Bloqueado (conta como "Encostado").
-    await advance(cardAt + CARD_TTL_MS - 1000 - Date.now());
-    expect(screen.getByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
-    focus.mockClear();
-    await advance(1500);
-    expect(await screen.findByRole('header', { name: COPY.readyTitle })).toBeOnTheScreen();
+    // Sem prazo, como o 12: a tela não fica acesa.
+    await waitFor(() => {
+      expect(radio.keepScreenOn).toBe(false);
+    });
     await advance(afterFocus());
-    expect(focusedTestIds()).toEqual(['conectar-titulo']);
+    focus.mockClear();
+    queued.mockClear();
+    await advance(cardAt + 60_000 + 30_000 - Date.now());
+    expect(screen.getByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
+    expect(screen.getByTestId('cartao-denunciar')).toBeEnabled();
+    expect(screen.queryByTestId('cartao-bloquear')).toBeNull();
+    expect(screen.getByRole('button', { name: COPY.back })).toBeEnabled();
+    expect(radio.keepScreenOn).toBe(false);
+    expect(focusedTestIds()).toEqual([]);
     expect(screen.queryByTestId('toast')).toBeNull();
     expect(screen.queryByText(COPY.cardExpired('Caio'))).toBeNull();
     expect(queued).not.toHaveBeenCalledWith(COPY.cardExpired('Caio'), expect.anything());
@@ -300,7 +306,7 @@ describe('Conectar: bloquear pelo cartão (ux.md §11.14; PROX-61)', () => {
     expect(screen.queryByTestId('toast')).toBeNull();
   });
 
-  it('PROX-61 (M4, 14): no pedido do cartão, o Bloqueado aparece sem Aceitar e sem Recusar; o pedido sai sem o Toast "não está mais disponível", mesmo com o polling devolvendo o pedido cancelado', async () => {
+  it('PROX-61 / PROX-62 (M4, 14): no pedido do cartão, o Bloqueado aparece sem Aceitar e sem Recusar; o pedido sai sem o Toast "não está mais disponível", mesmo com o polling devolvendo o pedido cancelado; o formulário aberto pelo Bloqueado vem sem o T46 (R1-PO-1)', async () => {
     const alert = captureAlert();
     const request = incomingRequest();
     let polled: 'none' | 'pending' | 'cancelled' = 'none';
@@ -337,12 +343,15 @@ describe('Conectar: bloquear pelo cartão (ux.md §11.14; PROX-61)', () => {
     expect(screen.queryByText(COPY.gone('Helena'))).toBeNull();
     expect(screen.queryByTestId('folha-pedido')).toBeNull();
     expect(screen.getByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
-    // T46 também no formulário aberto pelo Bloqueado.
+    // Sem o T46 no formulário aberto pelo Bloqueado: quem bloqueou denuncia sem prazo (R1-PO-1).
     await openReport();
-    expect(reportModal().getByText(COPY.reportDeadline)).toBeOnTheScreen();
+    expect(
+      reportModal().getByRole('header', { name: 'Por que você está denunciando @helena?' }),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText(COPY.reportDeadline)).toBeNull();
   });
 
-  it('PROX-61 (M14, 14): a linha some no expiresAt do cartão e o pedido continua com o "Expira em"; o foco não salta', async () => {
+  it('PROX-61 / PROX-62 (M14, 14): o T46 no formulário aberto pelo 14; a linha some no expiresAt do cartão e o pedido continua com o "Expira em"; o foco não salta', async () => {
     const request = incomingRequest();
     let pending = false;
     const { cardAt } = await openCard({
@@ -571,6 +580,128 @@ describe('Conectar: denunciar pelo cartão (ux.md §11.14; PROX-62)', () => {
       await screen.findByRole('header', { name: 'Por que você está denunciando @caio.r?' }),
     ).toBeOnTheScreen();
     expect(screen.queryByText(COPY.reportDeadline)).toBeNull();
+  });
+
+  it('PROX-62 (M8, R1-PO-1): o T46 não aparece no formulário aberto pelo Bloqueado do 11', async () => {
+    const alert = captureAlert();
+    await openCard();
+    await userEvent.press(screen.getByTestId('cartao-bloquear'));
+    await alert.press('Bloquear');
+    expect(await screen.findByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
+    await openReport();
+    expect(
+      reportModal().getByRole('header', { name: 'Por que você está denunciando @caio.r?' }),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText(COPY.reportDeadline)).toBeNull();
+  });
+
+  it('PROX-62 (M9, Bloqueado): o 202 antes do prazo volta ao Bloqueado (só o ‹Denunciar›), com o Toast depois do foco no nome', async () => {
+    const alert = captureAlert();
+    const { api } = await openCard();
+    await userEvent.press(screen.getByTestId('cartao-bloquear'));
+    await alert.press('Bloquear');
+    expect(await screen.findByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
+    await advance(afterFocus());
+    await openReport();
+    await advance(connectTiming.focusDelayMs);
+    await fillReport();
+    focus.mockClear();
+    queued.mockClear();
+    await userEvent.press(reportModal().getByRole('button', { name: 'Enviar' }));
+    await formDismissed();
+    expect(await screen.findByText(REPORT_SENT_MESSAGE)).toBeOnTheScreen();
+    expect(api.callsTo('POST /v1/reports')).toHaveLength(1);
+    expect(screen.getByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
+    expect(screen.getByTestId('cartao-denunciar')).toBeEnabled();
+    expect(screen.queryByTestId('cartao-bloquear')).toBeNull();
+    expect(screen.queryByText('Conectar com Caio')).toBeNull();
+    await advance(afterFocus());
+    expect(focusedTestIds()).toEqual(['cartao-nome']);
+    expectAnnouncedAfterFocus(REPORT_SENT_MESSAGE, 'cartao-nome');
+  });
+
+  /** Bloqueia pelo cartão, abre o formulário e passa do fim do par no servidor (60 s). */
+  async function reportFromBlockedAfterPair(reply: FakeReply) {
+    const alert = captureAlert();
+    const opened = await openCard({
+      configure: (fake) => {
+        fake.on('POST /v1/reports', reply);
+      },
+    });
+    await userEvent.press(screen.getByTestId('cartao-bloquear'));
+    await alert.press('Bloquear');
+    expect(await screen.findByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
+    await openReport();
+    await fillReport('Escrevendo sem pressa');
+    // Depois do fim do par no servidor (60 s depois do encosto): quem bloqueou denuncia sem prazo.
+    await advance(opened.cardAt + 60_000 + 5_000 - Date.now());
+    expect(screen.getByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
+    expect(reportModal().getByLabelText(REPORT_DETAILS_LABEL).props.value).toBe(
+      'Escrevendo sem pressa',
+    );
+    focus.mockClear();
+    queued.mockClear();
+    await userEvent.press(reportModal().getByRole('button', { name: 'Enviar' }));
+    await formDismissed();
+    expect(opened.api.callsTo('POST /v1/reports').map((call) => call.body)).toEqual([
+      {
+        target: { type: 'account', handle: 'caio.r' },
+        reason: 'spam',
+        details: 'Escrevendo sem pressa',
+      },
+    ]);
+    return opened;
+  }
+
+  it('PROX-62 / PROX-65 (R1-PO-1, M15, M9, Bloqueado, 202): o formulário aberto pelo Bloqueado vale além do fim do par (60 s); o 202 volta ao Bloqueado, só com o ‹Denunciar›, com o Toast depois do foco no nome e sem o T20', async () => {
+    await reportFromBlockedAfterPair({ status: 202 });
+    expect(await screen.findByText(REPORT_SENT_MESSAGE)).toBeOnTheScreen();
+    expect(screen.getByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
+    expect(screen.getByTestId('cartao-denunciar')).toBeEnabled();
+    expect(screen.queryByTestId('cartao-bloquear')).toBeNull();
+    await advance(afterFocus());
+    expect(focusedTestIds()).toEqual(['cartao-nome']);
+    expectAnnouncedAfterFocus(REPORT_SENT_MESSAGE, 'cartao-nome');
+    expect(screen.queryByText(COPY.cardExpired('Caio'))).toBeNull();
+    expect(queued).not.toHaveBeenCalledWith(COPY.cardExpired('Caio'), expect.anything());
+  });
+
+  it('PROX-62 / PROX-65 (R1-PO-1, M15, M10, Bloqueado, 404 da conta excluída): o envio depois do fim do par volta ao Pronto com o PROFILE_GONE_MESSAGE, sem o T20', async () => {
+    await reportFromBlockedAfterPair(apiError(404, 'NOT_FOUND'));
+    expect(await screen.findByText(PROFILE_GONE_MESSAGE)).toBeOnTheScreen();
+    expect(await screen.findByRole('header', { name: COPY.readyTitle })).toBeOnTheScreen();
+    expect(screen.queryByText(COPY.cardExpired('Caio'))).toBeNull();
+    await advance(afterFocus());
+    expectAnnouncedAfterFocus(PROFILE_GONE_MESSAGE, 'conectar-titulo');
+    expect(queued).not.toHaveBeenCalledWith(COPY.cardExpired('Caio'), expect.anything());
+  });
+
+  it('PROX-62 / PROX-65 (R1-PO-1, M12 / M15, Bloqueado): "Cancelar" depois do prazo volta ao Bloqueado, com o foco no nome, sem Toast nem o T20', async () => {
+    const alert = captureAlert();
+    const { api, cardAt } = await openCard();
+    await userEvent.press(screen.getByTestId('cartao-bloquear'));
+    await alert.press('Bloquear');
+    expect(await screen.findByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
+    await openReport();
+    await advance(cardAt + CARD_TTL_MS + 3000 - Date.now());
+    expect(screen.getByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
+    focus.mockClear();
+    await userEvent.press(reportModal().getByRole('button', { name: 'Cancelar' }));
+    await formDismissed();
+    await advance(afterFocus());
+    expect(screen.getByTestId('conectar-encostado-bloqueado')).toBeOnTheScreen();
+    expect(screen.getByTestId('cartao-denunciar')).toBeEnabled();
+    expect(focusedTestIds()).toEqual(['cartao-nome']);
+    expect(screen.queryByTestId('toast')).toBeNull();
+    expect(screen.queryByText(COPY.cardExpired('Caio'))).toBeNull();
+    expect(api.callsTo('POST /v1/reports')).toHaveLength(0);
+    // "Voltar" (M13) sai sem Toast, com o foco no título do Pronto.
+    focus.mockClear();
+    await userEvent.press(screen.getByRole('button', { name: COPY.back }));
+    expect(await screen.findByRole('header', { name: COPY.readyTitle })).toBeOnTheScreen();
+    await advance(afterFocus());
+    expect(focusedTestIds()).toEqual(['conectar-titulo']);
+    expect(screen.queryByTestId('toast')).toBeNull();
   });
 
   it.each([

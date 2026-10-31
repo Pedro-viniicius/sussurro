@@ -6,8 +6,9 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 
 import { reportTouch } from './api';
+import { isRepeatableFailure } from './errors';
 import { connectClock, connectTiming } from './timing';
-import { cardExpiresAt, TOUCH_CALIBRATION, type TouchCalibration } from './touch-calibration';
+import { cardActionsUntil, TOUCH_CALIBRATION, type TouchCalibration } from './touch-calibration';
 import { TouchDetector, type TouchReceiver } from './touch-detector';
 import type { ProximityRadio } from '../../../modules/sussurro-proximity';
 import type { ApiClient } from '../../lib/api/client';
@@ -20,13 +21,31 @@ import { isApiError } from '../../lib/api/errors';
  */
 export type TouchPhase = 'idle' | 'approaching' | 'confirming' | 'notConfirmed' | 'noTouch';
 
-/** O cartão de quem encostou: o servidor confirmou os dois lados (P1). */
+/**
+ * O cartão de quem encostou: o servidor confirmou os dois lados (P1). Os três últimos dados saem do
+ * motor na chegada (ADR 0012, A3-4).
+ */
 export interface TouchCard {
-  /** `person.token` é o `bleToken` da pessoa: o `targetToken` do pedido. */
+  /** `person.token` é o rótulo do cartão: o `targetToken` do pedido (só se `canConnect`). */
   person: NearbyPerson;
+  /** A chegada do cartão ao app. */
   matchedAt: number;
-  /** O cartão vence aos 55 s no app (o par vale 60 s no servidor, P4). */
-  expiresAt: number;
+  /**
+   * Até quando o cartão tem ações (Conectar, Bloquear, Denunciar): `chegada + min(55 s,
+   * pairExpiresInS × 1000)`, o par no servidor (P4, PROX-64). O cartão comum vence aqui.
+   */
+  actionsUntil: number;
+  /**
+   * Cartão atrasado (`pairExpiresInS × 1000 < lateCardBelowMs`; na prática, 0 ou 5): o par está
+   * acabando ou acabou no servidor. A tela o mostra sem ações e sem prazo, até a pessoa fechar.
+   */
+  late: boolean;
+  /**
+   * O rótulo é o token do relato que trouxe o cartão. Falso só no cartão devido com o token nunca
+   * emitido (regra do rótulo, A2-2): o pedido com ele daria o 400 genérico e contaria como falha de
+   * token, então a tela tira o Conectar.
+   */
+  canConnect: boolean;
 }
 
 export interface TouchState {
@@ -40,10 +59,24 @@ export interface TouchState {
 /** O que o motor precisa de fora (atualizado a cada render). */
 export interface TouchDeps {
   api: ApiClient;
+  /**
+   * O `id` da conta da sessão. O último cartão mostrado é dela (A3-3 item 5): o mesmo @ só é
+   * ignorado como reentrega para a mesma conta.
+   */
+  ownerId: string;
   receiver: TouchReceiver;
   calibration: TouchCalibration;
-  onCard: (card: TouchCard) => void;
-  /** Erro do relato que não é o 409 de tela fechada (a tela decide se para). */
+  /**
+   * O cartão que chegou, também de um relato em voo depois de sair do Pronto, enquanto o motor está
+   * montado (A3-3 item 6). `true`: a tela mostrou (o mesmo @ passa a ser ignorado por
+   * `cardRedeliveryMs`, item 5); `false`: a tela descartou (parada, por exemplo), e ele não conta.
+   */
+  onCard: (card: TouchCard) => boolean;
+  /**
+   * Erro do relato que para a tela: o que não é repetível (429, 403, 400…) na hora, ou o último da
+   * sequência de falhas quando o relator para com ela aberta (A3-3 item 3). Nunca o 409 de tela
+   * fechada que a renovação resolveu.
+   */
   onReportError: (error: unknown) => void;
   /** Erro ao ligar a varredura (vem do rádio). */
   onScanError: (error: unknown) => void;
@@ -59,6 +92,20 @@ interface TouchSession {
   firstTouchedAt: number;
   /** O aviso "Não deu para confirmar" já saiu. */
   warned: boolean;
+}
+
+/**
+ * A sequência de falhas (ADR 0012, A3-3 item 3), aberta pela 1ª falha repetível e fechada por
+ * qualquer 200: o relator repete o mesmo token até `since + cardRedeliveryMs` (ou o prazo, se for
+ * depois). Se ele parar com ela aberta, a tela para com o último erro.
+ */
+interface FailingRun {
+  /** O início do 1º relato que falhou. */
+  since: number;
+  /** O token repetido: o do relato que falhou. */
+  token: string;
+  /** O último erro (a tela para com ele). */
+  error: unknown;
 }
 
 export const INITIAL_TOUCH_STATE: TouchState = {
@@ -83,15 +130,64 @@ interface TouchReportGate {
   lastStartAt: number;
   /** Inícios dos últimos 60 s, do mais antigo ao mais novo. */
   starts: number[];
+  /**
+   * O último cartão mostrado, por qualquer motor (A3-3 item 5): o servidor reentrega o mesmo cartão
+   * por até 10 s (A3-2), e o mesmo @ chegando nesse tempo é ignorado. Fica no módulo porque outra
+   * instância do motor pode ter mostrado o cartão. É **da conta** (`ownerId`): sai da memória
+   * quando a sessão termina ou troca (`useTouchSessionScope`), e o de outra conta nunca vale.
+   */
+  lastCard: { ownerId: string; handle: string; shownAt: number } | null;
 }
 
-const touchReportGate: TouchReportGate = { inFlight: null, lastStartAt: -Infinity, starts: [] };
+const touchReportGate: TouchReportGate = {
+  inFlight: null,
+  lastStartAt: -Infinity,
+  starts: [],
+  lastCard: null,
+};
 
-/** Só para os testes: zera o ritmo e o orçamento entre um teste e outro. */
+/** Só para os testes: zera o ritmo, o orçamento e o último cartão entre um teste e outro. */
 export function resetTouchReportGate(): void {
   touchReportGate.inFlight = null;
   touchReportGate.lastStartAt = -Infinity;
   touchReportGate.starts = [];
+  touchReportGate.lastCard = null;
+}
+
+/**
+ * Esquece o último cartão mostrado: o @ de quem encostou não fica na memória do processo depois
+ * que a sessão termina.
+ *
+ * Só ele: o ritmo e o orçamento (`inFlight`, `lastStartAt` e `starts`) continuam. São do processo
+ * inteiro de propósito (R1-3 item 2: valem também na troca de sessão) e não guardam dado da pessoa,
+ * só instantes. Zerados, deixariam um relato da conta anterior ainda em voo (até 4 s) sobrepor o
+ * primeiro da conta nova. Manter custa pouco: na pior hipótese, a conta nova espera os inícios do
+ * último minuto saírem da janela, e o limite do servidor é por conta.
+ */
+function forgetShownTouchCard(): void {
+  touchReportGate.lastCard = null;
+}
+
+/**
+ * O estado do encostar que é da conta, no módulo, acompanha a sessão. A pilha raiz chama com o
+ * `id` da conta logada (ou `null`), como faz com os stores por conta. Quando ele muda, o último
+ * cartão mostrado é esquecido: ao sair, ao sair de todos, ao excluir a conta, ao redefinir a senha,
+ * com a sessão expirada ou revogada e na troca de conta. Todos esses caminhos levam o usuário do
+ * `AuthProvider` a `null`.
+ *
+ * A limpeza roda no fim do efeito da conta anterior. Isso acontece no mesmo commit em que a tela
+ * Conectar desmonta, depois do `dispose` do motor: um relato em voo que chega depois não grava mais
+ * nada. Sem isso, o @ ficaria na memória depois de sair. E, se outra conta entrasse em até 10 s e
+ * recebesse o cartão do mesmo @, ele seria descartado, embora o servidor já o tenha marcado como
+ * entregue (revelação assimétrica).
+ */
+export function useTouchSessionScope(ownerId: string | null): void {
+  useEffect(
+    () => () => {
+      forgetShownTouchCard();
+    },
+    [ownerId],
+  );
 }
 
 /** Quantos relatos começaram nos últimos 60 s (e esquece os mais antigos). */
@@ -104,8 +200,12 @@ function recentStarts(now: number): number {
 /**
  * O portão do orçamento (R1-3 item 5): um encosto novo, ou um token que pode contar como novo, só
  * entra com no máximo `reportBudgetPerMinute − reportReserve` (30) inícios nos últimos 60 s. Depois
- * de cada admissão, o prazo leva a no máximo 8 relatos, então nunca há mais de 39 inícios em
- * qualquer janela de 60 s (o servidor recusa o 61º).
+ * de cada admissão, o prazo leva a no máximo 8 relatos (39 inícios em 60 s). Com a sequência de
+ * falhas e o 200 que a encerra estendendo o prazo uma vez, o pior caso medido é 51 por admissão,
+ * sem alternância (a sequência acrescenta no máximo 4 inícios: o dos 10 s já não sai). Com uma rede
+ * que alterna, cada 200 que encerra uma sequência de falhas depois de ≥ 5 s sem aceite estende o
+ * prazo de novo, e a conta chega a 56 em 60 s, sempre abaixo dos 60 do servidor, que recusa o 61º
+ * (ADR 0012, A3-3 item 7 e A3-8 item 1; aceito pelo Tech Lead em 2026-10-31).
  */
 function budgetOpen(now: number, calibration: TouchCalibration): boolean {
   return recentStarts(now) <= calibration.reportBudgetPerMinute - calibration.reportReserve;
@@ -141,6 +241,8 @@ export class TouchEngine {
   private stopped = false;
   /** O relator (um só por motor) está rodando. */
   private looping = false;
+  /** A sequência de falhas aberta no período (A3-3 item 3), ou `null`. */
+  private failing: FailingRun | null = null;
   /** Fim do aviso "Não deu para confirmar" (estado 9). */
   private noticeUntil: number | null = null;
   /** "Não deu" seguidos, sem cartão no meio (P9). */
@@ -205,6 +307,8 @@ export class TouchEngine {
     this.lastAccepted = null;
     this.token = null;
     this.stopped = false;
+    // A sequência de falhas é do período: fora do Pronto, nada é relatado, e a tela não para.
+    this.failing = null;
     if (!listening) return;
     this.lastActivityAt = connectClock.now();
     this.lastNearAt = null;
@@ -311,10 +415,11 @@ export class TouchEngine {
   /**
    * Um encosto novo (ADR 0012, A2 rev. 1, R1-3 itens 1, 3 e 5). Só entra se o orçamento deixar,
    * seja o token novo ou não: sem isso, um transmissor que some e volta com o mesmo token estenderia
-   * o prazo para sempre. Admitido, abre a sessão da tela ("Encostou!" e o aviso dos 4 s), troca o
+   * o prazo para sempre. Admitido, abre a sessão da tela ("Encostou!" e o aviso dos 7 s), troca o
    * token do próximo relato e leva o prazo a pelo menos `agora + reportForMs`; **não** inicia outro
-   * laço. Recusado, nada muda: nem a fase, nem a atividade (o QR em destaque aparece aos 20 s sem
-   * encosto admitido, P9).
+   * laço. Com a sequência de falhas aberta, o token novo só vai depois de ela acabar (A3-3 item 3).
+   * Recusado, nada muda: nem a fase, nem a atividade (o QR em destaque aparece aos 20 s sem encosto
+   * admitido, P9).
    */
   private admit(token: string, now: number): void {
     const deps = this.deps;
@@ -357,21 +462,38 @@ export class TouchEngine {
 
   /** O relator pode seguir: no Pronto, montado, sem cartão nem erro, e antes do fim do prazo. */
   private canReport(): boolean {
+    const deps = this.deps;
     return (
       this.listening &&
       !this.disposed &&
       !this.stopped &&
-      this.deps !== null &&
-      connectClock.now() < this.reportUntil
+      deps !== null &&
+      connectClock.now() < this.reportDeadline(deps.calibration)
     );
+  }
+
+  /**
+   * Até quando o relator segue: o prazo (`reportUntil`) ou, com a sequência de falhas aberta,
+   * `cardRedeliveryMs` depois do início do 1º relato que falhou, o que vier depois (A3-3 item 3). Se
+   * esse relato retirou o cartão, foi na chegada, depois do início, e a reentrega dura 10 s desde a
+   * retirada: qualquer repetição que chegue antes recebe o cartão.
+   */
+  private reportDeadline(calibration: TouchCalibration): number {
+    const failing = this.failing;
+    if (failing === null) return this.reportUntil;
+    return Math.max(this.reportUntil, failing.since + calibration.cardRedeliveryMs);
   }
 
   /**
    * O relator, **um só por motor** (R1-3 itens 1 e 2): `POST /proximity/touches` com **um** token,
    * um relato por vez no processo inteiro (espera o relato em voo de qualquer motor) e com pelo menos
-   * `reportEveryMs` entre os inícios, mesmo afastados (a revelação é simétrica). Segue enquanto
-   * `agora < reportUntil`, até o cartão. Assim, toda janela que o servidor abre sobre este aparelho é
+   * `reportEveryMs` entre os inícios, mesmo afastados (a revelação é simétrica). Segue até o prazo
+   * (`reportDeadline`), até o cartão. Assim, toda janela que o servidor abre sobre este aparelho é
    * seguida de relatos por pelo menos 8 s, contados da resposta do relato que a abriu (R1-2).
+   *
+   * Com a sequência de falhas aberta (A3-3 item 3), repete o token do relato que falhou, sem a
+   * escolha do P8 e sem o portão do orçamento (é cobertura), com `reportRetryEveryMs` entre os
+   * inícios. Se parar com ela aberta, a tela para com o último erro (estados 18 e 19).
    */
   private async runReports(): Promise<void> {
     if (this.looping) return;
@@ -386,12 +508,17 @@ export class TouchEngine {
         const deps = this.deps;
         if (deps === null) break;
         const { calibration } = deps;
-        const wait = touchReportGate.lastStartAt + calibration.reportEveryMs - connectClock.now();
+        const failing = this.failing;
+        const every = failing === null ? calibration.reportEveryMs : calibration.reportRetryEveryMs;
+        const now = connectClock.now();
+        const wait = touchReportGate.lastStartAt + every - now;
         if (wait > 0) {
-          await sleep(wait);
+          // Acorda no prazo, se ele vier antes: a sequência de falhas acaba (e a tela para) na hora.
+          await sleep(Math.min(wait, this.reportDeadline(calibration) - now));
           continue;
         }
-        const token = this.pickToken(connectClock.now(), calibration);
+        const token =
+          failing === null ? this.pickToken(connectClock.now(), calibration) : failing.token;
         if (token === null) {
           await sleep(calibration.reportEveryMs);
           continue;
@@ -401,7 +528,22 @@ export class TouchEngine {
     } finally {
       this.looping = false;
     }
+    this.endFailingRun();
     if (!this.disposed) this.step();
+  }
+
+  /**
+   * O relator parou com a sequência de falhas aberta: pelo prazo, a tela para com o último erro,
+   * como antes (A3-3 item 3). Fora do Pronto ou desmontado, a sequência só é esquecida.
+   */
+  private endFailingRun(): void {
+    const failing = this.failing;
+    if (failing === null) return;
+    this.failing = null;
+    const deps = this.deps;
+    if (!this.listening || this.disposed || this.stopped || deps === null) return;
+    this.stopped = true;
+    deps.onReportError(failing.error);
   }
 
   /** Um relato: marca o ritmo e o orçamento no módulo e trata a resposta (R1-3 itens 3, 4 e 7). */
@@ -420,7 +562,9 @@ export class TouchEngine {
     let person: ProximityTouchItem | undefined;
     let failure: { error: unknown } | null = null;
     try {
-      person = (await reportTouch(deps.api, token)).items[0];
+      // O prazo (4 s) aborta a conexão e vira `NetworkError`: o relato em voo nunca prende o portão
+      // do processo até o sistema desistir (A3-3 item 1).
+      person = (await reportTouch(deps.api, token, calibration.reportTimeoutMs)).items[0];
     } catch (error) {
       failure = { error };
     } finally {
@@ -428,35 +572,22 @@ export class TouchEngine {
       if (touchReportGate.inFlight === inFlight) touchReportGate.inFlight = null;
       release();
     }
-    // Saiu do Pronto (ou desmontou) com o relato em voo: a resposta é descartada (R1-7).
+    if (this.disposed) return;
+    const current = this.deps ?? deps;
+    if (person !== undefined) {
+      // O cartão vai para a tela mesmo depois de sair do Pronto (A3-3 item 6).
+      this.receiveCard(person, token, period, current);
+      return;
+    }
+    // Saiu do Pronto com o relato em voo: o erro e o 200 sem cartão são descartados (R1-7).
     if (!this.isPeriod(period)) return;
     if (failure !== null) {
-      const closed = isApiError(failure.error, 'PROXIMITY_SCREEN_CLOSED');
-      // 409 "tela fechada": renova os tokens e segue (não conta como aceito).
-      if (closed && (await this.reopenScreen())) return;
-      if (!this.isPeriod(period)) return;
-      this.stopped = true;
-      if (!closed) deps.onReportError(failure.error);
+      await this.reportFailed(failure.error, token, startedAt, period, current);
       return;
     }
-    if (person !== undefined) {
-      // O servidor confirmou os dois lados: para de relatar e abre o cartão (P1, P3). O prazo do
-      // cartão vem do par no servidor (`pairExpiresInS`), não só da chegada (PROX-64).
-      const matchedAt = connectClock.now();
-      const { pairExpiresInS, ...shown } = person;
-      this.stopped = true;
-      this.session = null;
-      this.noticeUntil = null;
-      this.failures = 0;
-      this.hintLatched = false;
-      deps.onCard({
-        person: shown,
-        matchedAt,
-        expiresAt: cardExpiresAt(matchedAt, pairExpiresInS, calibration),
-      });
-      return;
-    }
-    // 200 sem cartão: aceito. Token novo leva o prazo a pelo menos `resposta + reportForMs` (R1-2).
+    // 200 sem cartão: aceito, e a sequência de falhas acaba (A3-3 item 3). Token novo leva o prazo
+    // a pelo menos `resposta + reportForMs` (R1-2).
+    this.failing = null;
     const respondedAt = connectClock.now();
     const previous = this.accepted.get(token);
     const fresh =
@@ -468,20 +599,94 @@ export class TouchEngine {
     }
   }
 
+  /**
+   * O cartão que chegou (P1, P3; ADR 0012, A3-3 itens 5 e 6, e A3-4).
+   *
+   * - O mesmo @ do último cartão mostrado à mesma conta há menos de `cardRedeliveryMs` (por
+   *   qualquer motor) é a reentrega do servidor: a resposta é **neutra**. Não abre cartão, não conta como aceita, não
+   *   estende o prazo e não para o relator; só encerra a sequência de falhas, como todo 200.
+   * - O resto vai para a tela, também de um relato em voo depois de sair do Pronto (a tela decide
+   *   como mostrar). Mostrado, o relator para (P8: com o cartão na tela, nada é relatado).
+   * - Os dados do A3-4 saem aqui, na chegada: `actionsUntil` pelo `pairExpiresInS` (PROX-64),
+   *   `late` abaixo de `lateCardBelowMs` e `canConnect` se o rótulo é o token relatado.
+   */
+  private receiveCard(
+    item: ProximityTouchItem,
+    reportedToken: string,
+    period: number,
+    deps: TouchDeps,
+  ): void {
+    const { calibration } = deps;
+    const arrivedAt = connectClock.now();
+    if (this.isPeriod(period)) this.failing = null;
+    const { pairExpiresInS, ...person } = item;
+    const last = touchReportGate.lastCard;
+    if (
+      last !== null &&
+      last.ownerId === deps.ownerId &&
+      last.handle === person.handle &&
+      arrivedAt - last.shownAt < calibration.cardRedeliveryMs
+    ) {
+      return;
+    }
+    const shown = deps.onCard({
+      person,
+      matchedAt: arrivedAt,
+      actionsUntil: cardActionsUntil(arrivedAt, pairExpiresInS, calibration),
+      late: pairExpiresInS * 1000 < calibration.lateCardBelowMs,
+      canConnect: person.token === reportedToken,
+    });
+    if (!shown) return;
+    touchReportGate.lastCard = { ownerId: deps.ownerId, handle: person.handle, shownAt: arrivedAt };
+    this.stopped = true;
+    this.failing = null;
+    this.session = null;
+    this.noticeUntil = null;
+    this.failures = 0;
+    this.hintLatched = false;
+  }
+
+  /**
+   * O relato falhou (A3-3 item 2). O 409 "tela fechada" renova os tokens e segue, sem contar como
+   * aceito; se a renovação falhar, vale o erro dela. Falha repetível (`NetworkError`, inclusive o
+   * prazo, e 5xx) abre a sequência de falhas, ou a continua, com o token do relato; a tela não para.
+   * O resto (429, 403, 400…) para a tela na hora, como antes.
+   */
+  private async reportFailed(
+    error: unknown,
+    token: string,
+    startedAt: number,
+    period: number,
+    deps: TouchDeps,
+  ): Promise<void> {
+    let cause = error;
+    if (isApiError(error, 'PROXIMITY_SCREEN_CLOSED')) {
+      const renewal = await reopenScreen(deps);
+      if (!this.isPeriod(period) || renewal === null) return;
+      cause = renewal.error;
+    }
+    if (isRepeatableFailure(cause)) {
+      this.failing = { since: this.failing?.since ?? startedAt, token, error: cause };
+      return;
+    }
+    this.stopped = true;
+    this.failing = null;
+    (this.deps ?? deps).onReportError(cause);
+  }
+
   /** Ainda no mesmo período do Pronto e montado (a resposta de outro período é descartada). */
   private isPeriod(period: number): boolean {
     return period === this.period && !this.disposed;
   }
+}
 
-  /** 409 "tela fechada": renova os tokens; se não der, o erro vai para a tela. */
-  private async reopenScreen(): Promise<boolean> {
-    try {
-      await this.deps?.refreshScreen();
-      return true;
-    } catch (error) {
-      this.deps?.onReportError(error);
-      return false;
-    }
+/** 409 "tela fechada": renova os tokens. `null` se deu certo; senão, o erro da renovação. */
+async function reopenScreen(deps: TouchDeps): Promise<{ error: unknown } | null> {
+  try {
+    await deps.refreshScreen();
+    return null;
+  } catch (error) {
+    return { error };
   }
 }
 
@@ -505,7 +710,11 @@ export interface UseTouchOptions extends Omit<TouchDeps, 'calibration'> {
  *   **um** token (o de menor perda), um relato por vez no processo e com 1 s entre os inícios, até
  *   um prazo único que só cresce: 8 s depois de cada encosto admitido e da resposta de cada relato
  *   aceito de token novo (A2 rev. 1, R1-3), **mesmo depois de afastar**;
- * - para quando o cartão chega (`items[0]`), inclusive depois do aviso dos 4 s (9 → 11, P3);
+ * - para quando o cartão chega (`items[0]`), inclusive depois do aviso dos 7 s (9 → 11, P3); o
+ *   cartão de um relato em voo vai para a tela mesmo depois de sair do Pronto, e o mesmo @ do último
+ *   cartão mostrado é ignorado por 10 s (a reentrega do servidor; A3-3 itens 5 e 6);
+ * - cada relato tem prazo de 4 s; sem rede, com o prazo esgotado ou com 5xx, repete o mesmo token a
+ *   cada 2 s por até 10 s antes de parar a tela (A3-3 itens 1 a 3);
  * - com o cartão (ou qualquer coisa fora do Pronto) na tela, não relata nada (P8);
  * - QR em destaque aos 20 s sem encosto admitido, aos 10 s em "quase" ou depois de 2 "não deu" (P9).
  *
@@ -521,7 +730,7 @@ export function useTouch({
 }: UseTouchOptions): TouchState & { simulate: (bleToken: string) => void } {
   const [state, setState] = useState<TouchState>(INITIAL_TOUCH_STATE);
   const [engine] = useState(() => new TouchEngine(setState));
-  const { api, receiver, onCard, onReportError, onScanError, refreshScreen } = deps;
+  const { api, ownerId, receiver, onCard, onReportError, onScanError, refreshScreen } = deps;
 
   useEffect(() => {
     engine.activate();
@@ -533,6 +742,7 @@ export function useTouch({
   useEffect(() => {
     engine.setDeps({
       api,
+      ownerId,
       receiver,
       calibration,
       onCard,

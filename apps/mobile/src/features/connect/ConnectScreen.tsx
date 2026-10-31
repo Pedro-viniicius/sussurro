@@ -242,13 +242,21 @@ function Ready({ session }: { session: ConnectSession }) {
   );
 }
 
-/** "QR code": meu código (o `qrToken`), renovado a cada 20 s sem piscar (4.7 CA1). */
+/**
+ * "QR code": meu código (o `qrToken`), renovado a cada 20 s sem piscar (4.7 CA1). Sem suporte, a
+ * faixa T30 recebe o foco quando o celular vem para cá pela saída do cartão (ux.md §11.15) ou
+ * quando o Pronto sai da tela sozinho, porque o celular deixou de anunciar (§11.17, C1).
+ */
 function QrStart({ session }: { session: ConnectSession }) {
   const { user, tokens } = session;
+  const bannerRef = useFocusOnShow(
+    session.startFocus.key,
+    session.startFocus.enabled && session.unsupported,
+  );
   return (
     <View style={styles.stack} testID="conectar-qr">
       {session.unsupported ? (
-        <View style={styles.banner} testID="conectar-sem-suporte-faixa">
+        <View ref={bannerRef} accessible style={styles.banner} testID="conectar-sem-suporte-faixa">
           <Text variant="bodySm" color="greyStrong">
             {COPY.unsupportedBanner}
           </Text>
@@ -278,10 +286,13 @@ function QrStart({ session }: { session: ConnectSession }) {
   );
 }
 
-/** O cartão (11, 12, 14 e o Bloqueado), sem a introdução e sem o seletor. */
+/**
+ * O cartão (11, 12, 14, 21, 22 e o Bloqueado), sem a introdução e sem o seletor. A variante vem da
+ * sessão, na ordem da ux.md §11.15 ("Qual cartão aparece").
+ */
 function Card({ session }: { session: ConnectSession }) {
-  const { view, cardIncoming, cardActions, actions } = session;
-  if (view.kind !== 'card' || cardActions === null) return null;
+  const { view, cardVariant, cardIncoming, cardActions, actions } = session;
+  if (view.kind !== 'card' || cardActions === null || cardVariant === null) return null;
   const { person } = view.card;
   // O Conectar ou o Aceitar em andamento desativam a linha, como o ‹Cancelar› (ux.md §11.14).
   const busy = cardIncoming === null ? session.busy === person.handle : cardIncoming.busy;
@@ -297,43 +308,40 @@ function Card({ session }: { session: ConnectSession }) {
       onBlock: actions.blockCard,
     },
   };
-  if (cardActions.blocked) {
-    return <TouchCard variant="blocked" person={person} onBack={actions.closeCard} {...common} />;
+  switch (cardVariant) {
+    case 'incoming':
+      if (cardIncoming === null) return null;
+      return (
+        <TouchCard
+          variant="incoming"
+          person={cardIncoming.request.other}
+          secondsLeft={cardIncoming.secondsLeft}
+          busy={cardIncoming.busy}
+          error={cardIncoming.error}
+          onAccept={actions.accept}
+          onDecline={actions.decline}
+          {...common}
+        />
+      );
+    case 'touched':
+      return (
+        <TouchCard
+          variant="touched"
+          person={person}
+          busy={busy}
+          onConnect={actions.connectCard}
+          onCancel={actions.closeCard}
+          {...common}
+        />
+      );
+    case 'blocked':
+    case 'alreadyConnected':
+    case 'late':
+    case 'noConnect':
+      return (
+        <TouchCard variant={cardVariant} person={person} onBack={actions.closeCard} {...common} />
+      );
   }
-  if (cardIncoming !== null) {
-    return (
-      <TouchCard
-        variant="incoming"
-        person={cardIncoming.request.other}
-        secondsLeft={cardIncoming.secondsLeft}
-        busy={cardIncoming.busy}
-        error={cardIncoming.error}
-        onAccept={actions.accept}
-        onDecline={actions.decline}
-        {...common}
-      />
-    );
-  }
-  if (view.alreadyConnected) {
-    return (
-      <TouchCard
-        variant="alreadyConnected"
-        person={person}
-        onBack={actions.closeCard}
-        {...common}
-      />
-    );
-  }
-  return (
-    <TouchCard
-      variant="touched"
-      person={person}
-      busy={busy}
-      onConnect={actions.connectCard}
-      onCancel={actions.closeCard}
-      {...common}
-    />
-  );
 }
 
 /**
@@ -496,14 +504,21 @@ function Connected({ session }: { session: ConnectSession }) {
   );
 }
 
-/** Estados de Bluetooth (ux.md §11.4, 2 a 5), sempre com a saída pelo QR (4.3 CA4). */
+/**
+ * Estados de Bluetooth (ux.md §11.4, 2 a 5), sempre com a saída pelo QR (4.3 CA4). O foco vai ao
+ * título quando o controle que tinha o foco sumiu: a saída do cartão (ou do 13 ao 16 por um botão;
+ * §11.15), o "Continuar" recusado, a volta dos Ajustes sem resolver e o Bluetooth desligado ou o
+ * erro do rádio com a tela no Pronto (§11.17, C1 e S2). Só na abertura e pelo seletor fica onde está.
+ */
 function BluetoothState({ session }: { session: ConnectSession }) {
   const { view, actions } = session;
+  const titleRef = useFocusOnShow(session.startFocus.key, session.startFocus.enabled);
   const useQr = { label: COPY.useQr, onPress: actions.useQr };
   switch (view.kind) {
     case 'btExplain':
       return (
         <EmptyState
+          titleRef={titleRef}
           icon="bluetooth"
           title={COPY.btExplainTitle}
           description={
@@ -517,6 +532,7 @@ function BluetoothState({ session }: { session: ConnectSession }) {
     case 'btDenied':
       return (
         <EmptyState
+          titleRef={titleRef}
           icon="bluetooth-off"
           title={COPY.btDeniedTitle}
           description={COPY.btDeniedText}
@@ -528,6 +544,7 @@ function BluetoothState({ session }: { session: ConnectSession }) {
     case 'btOff':
       return (
         <EmptyState
+          titleRef={titleRef}
           icon="bluetooth-off"
           title={COPY.btOffTitle}
           description={COPY.btOffText}
@@ -543,6 +560,7 @@ function BluetoothState({ session }: { session: ConnectSession }) {
     case 'btLocationOff':
       return (
         <EmptyState
+          titleRef={titleRef}
           icon="bluetooth-off"
           title={COPY.locationOffTitle}
           description={COPY.locationOffText}
@@ -554,6 +572,7 @@ function BluetoothState({ session }: { session: ConnectSession }) {
     case 'btUnsupported':
       return (
         <EmptyState
+          titleRef={titleRef}
           icon="bluetooth-off"
           title={COPY.btUnavailableTitle}
           description={COPY.btUnavailableText}
@@ -706,9 +725,11 @@ function ConnectSessionView(props: ConnectSessionViewProps) {
         <QrScanner
           error={scanner.error}
           busy={scanner.busy}
+          visible={scanner.closing !== true}
           onRead={actions.onScanned}
           onClose={actions.closeScanner}
           onShowMyCode={actions.showMyCode}
+          onDismiss={actions.cameraDismissed}
         />
       )}
       <ReportSheet session={session} />

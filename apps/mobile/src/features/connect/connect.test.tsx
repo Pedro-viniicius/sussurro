@@ -24,7 +24,7 @@ import {
   nearbyPerson,
   touchItem,
 } from '../../test-utils/connect-fixtures';
-import { type FakeApi, personalMe } from '../../test-utils/fake-api';
+import { type FakeApi, type FakeReply, personalMe } from '../../test-utils/fake-api';
 import { renderApp } from '../../test-utils/render-app';
 
 const SAVED_TIMING = { ...connectTiming };
@@ -298,7 +298,7 @@ describe('Conectar encostando (ADR 0012, ux.md §11)', () => {
     expect(await screen.findByRole('header', { name: COPY.readyTitle })).toBeOnTheScreen();
   });
 
-  it('A2-2 / PROX-51 / estado 17: cartão devido com token que não serve → o "Conectar" leva o 400 genérico e cai no mesmo "o tempo acabou", sem parar a tela', async () => {
+  it('A2-2 / PROX-51 / PROX-70 (estado 22): cartão devido com token que não serve → o cartão sem Conectar; nenhum pedido sai com esse token, e a tela não para', async () => {
     const NEVER_ISSUED = 'NeverIssuedTok01';
     const { radio, api } = await openReady({
       configure: (fake) => {
@@ -312,14 +312,14 @@ describe('Conectar encostando (ADR 0012, ux.md §11)', () => {
       },
     });
     await openCard(radio);
-    await userEvent.press(screen.getByRole('button', { name: CAIO_LABEL }));
+    expect(screen.getByTestId('conectar-encostado-sem-conectar')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: CAIO_LABEL })).toBeNull();
+    expect(screen.getByText(COPY.noConnectCardText('Caio'))).toBeOnTheScreen();
+    await advance(55_000 + 1000);
+    // Vence como o 11 (17), sem nenhum pedido e sem parar a tela.
     expect(await screen.findByText(COPY.cardExpired('Caio'))).toBeOnTheScreen();
     expect(await screen.findByRole('header', { name: COPY.readyTitle })).toBeOnTheScreen();
-    // O pedido leva o token do cartão (não o relatado), uma vez só, e não vira erro na tela.
-    expect(api.callsTo('POST /v1/connections/requests').map((call) => call.body)).toEqual([
-      { targetToken: NEVER_ISSUED, method: 'ble' },
-    ]);
-    expect(screen.queryByText(/Não foi possível enviar o pedido/)).toBeNull();
+    expect(api.callsTo('POST /v1/connections/requests')).toHaveLength(0);
     expect(screen.getByTestId('conectar-pronto')).toBeOnTheScreen();
   });
 
@@ -416,14 +416,22 @@ describe('Conectar encostando (ADR 0012, ux.md §11)', () => {
     expect(focusedTestIds()).toEqual([]);
   });
 
-  it('P3 / estado 9: "Não deu para confirmar" aos 4 s; o casamento até 8 s depois ainda abre o cartão', async () => {
+  it('P3 / estado 9: "Não deu para confirmar" aos 7 s; o casamento até 8 s depois ainda abre o cartão', async () => {
+    // O 1º relato responde em 3 s (o relato vai até 11 s); o cartão vem no relato dos 8 s.
     let calls = 0;
     const { radio } = await openReady({
       configure: (fake) => {
         configureConnect(fake);
         fake.on('POST /v1/proximity/touches', () => {
           calls += 1;
-          return { status: 200, body: { items: calls >= 6 ? [touchItem(CAIO)] : [] } };
+          if (calls === 1) {
+            return new Promise<FakeReply>((resolve) => {
+              setTimeout(() => {
+                resolve({ status: 200, body: { items: [] } });
+              }, 3000);
+            });
+          }
+          return { status: 200, body: { items: calls >= 7 ? [touchItem(CAIO)] : [] } };
         });
       },
     });
@@ -673,7 +681,7 @@ describe('Conectar: erros e ciclo de vida (estados 18 a 20)', () => {
     expect(radio.advertising).toBeNull();
   });
 
-  it('estado 18: sem rede no Confirmando → "Sem internet"', async () => {
+  it('estado 18: sem rede no Confirmando → "Sem internet" (depois de repetir o relato por 10 s, A3-3)', async () => {
     const { radio } = await openReady({
       configure: (fake) => {
         configureConnect(fake);
@@ -683,8 +691,88 @@ describe('Conectar: erros e ciclo de vida (estados 18 a 20)', () => {
       },
     });
     await touch(radio);
+    await advance(CAL.cardRedeliveryMs);
     expect(await screen.findByRole('header', { name: COPY.offlineTitle })).toBeOnTheScreen();
   });
+
+  /** O relato que não chega ao servidor: o `fetch` falha e vira `NetworkError`. */
+  function offline(): FakeReply {
+    throw new Error('sem rede');
+  }
+
+  it.each([
+    ['18, sem rede', COPY.offlineTitle, offline],
+    ['19, 503', COPY.unavailableTitle, () => apiError(503, 'PROXIMITY_UNAVAILABLE')],
+  ] as const)(
+    'PROX-68 (estado %s): o relato que falha não para a tela antes dos 10 s do 1º que falhou (o "Encostou!" e, aos 7 s, o T11); no fim da sequência, "%s"',
+    async (_case, title, fail) => {
+      const starts: number[] = [];
+      const { radio } = await openReady({
+        configure: (fake) => {
+          configureConnect(fake);
+          fake.on('POST /v1/proximity/touches', () => {
+            starts.push(Date.now());
+            return fail();
+          });
+        },
+      });
+      await touch(radio);
+      const [firstAt = 0] = starts;
+      expect(screen.getByRole('header', { name: COPY.confirmingTitle })).toBeOnTheScreen();
+      // ux.md §11.4, estado 18 (A3-3): a fase normal segue, inclusive o T11 aos 7 s.
+      await advance(firstAt + CAL.cardRedeliveryMs - 200 - Date.now());
+      expect(screen.queryByRole('header', { name: title })).toBeNull();
+      expect(screen.getByTestId('conectar-nao-deu')).toBeOnTheScreen();
+      await advance(400);
+      expect(await screen.findByRole('header', { name: title })).toBeOnTheScreen();
+      // O mesmo token, um por vez, a cada 2 s, até 10 s depois do início do 1º que falhou.
+      expect(starts.map((at) => at - firstAt)).toEqual([0, 2000, 4000, 6000, 8000]);
+    },
+  );
+
+  it.each([
+    ['sem rede na volta', offline, CAL.reportRetryEveryMs],
+    ['503 depois do script', () => apiError(503, 'PROXIMITY_UNAVAILABLE'), CAL.reportRetryEveryMs],
+    [
+      'conexão travada até o prazo de 4 s',
+      () => new Promise<FakeReply>(() => undefined),
+      CAL.reportTimeoutMs,
+    ],
+  ] as const)(
+    'PROX-68 (R23, o diagrama do A3): a resposta com o cartão se perde (%s) → o mesmo token sai de novo, a reentrega abre o 11 com o Conectar, e a tela não para',
+    async (_case, lose, retryAfterMs) => {
+      const sent: { at: number; token: string }[] = [];
+      const { radio } = await openReady({
+        configure: (fake) => {
+          configureConnect(fake);
+          fake.on('POST /v1/proximity/touches', ({ body }) => {
+            const [token = ''] = (body as { tokens: string[] }).tokens;
+            sent.push({ at: Date.now(), token });
+            // 1º: o outro ainda não relatou. 2º: o servidor retira o cartão, e a resposta se perde.
+            // Depois: a reentrega (A3-2), com o pairExpiresInS recalculado (50).
+            if (sent.length === 1) return { status: 200, body: { items: [] } };
+            if (sent.length === 2) return lose();
+            return { status: 200, body: { items: [touchItem(CAIO, 50)] } };
+          });
+        },
+      });
+      await touch(radio);
+      await advance(6000);
+      expect(screen.getByTestId('conectar-encostado')).toBeOnTheScreen();
+      expect(screen.getByRole('header', { name: 'Caio Ribeiro' })).toBeOnTheScreen();
+      expect(screen.getByRole('button', { name: CAIO_LABEL })).toBeEnabled();
+      expect(sent.map((call) => call.token)).toEqual([CAIO_TOKEN, CAIO_TOKEN, CAIO_TOKEN]);
+      const [first, lost, retried] = sent.map((call) => call.at);
+      expect((lost ?? 0) - (first ?? 0)).toBe(CAL.reportEveryMs);
+      expect((retried ?? 0) - (lost ?? 0)).toBe(retryAfterMs);
+      // Com o cartão na tela, nada mais é relatado (P8), e a tela não para.
+      await advance(15_000);
+      expect(sent).toHaveLength(3);
+      expect(screen.getByTestId('conectar-encostado')).toBeOnTheScreen();
+      expect(screen.queryByRole('header', { name: COPY.offlineTitle })).toBeNull();
+      expect(screen.queryByRole('header', { name: COPY.unavailableTitle })).toBeNull();
+    },
+  );
 
   it('4.3 CA3 / PROX-28: em background o anúncio e a varredura param; ao voltar recomeçam com o token novo', async () => {
     const setAppState = captureAppState();

@@ -62,7 +62,12 @@ describe('touch-calibration (ADR 0012 §2 e adendo A1): o ponto único com os va
       holdMs: 700,
       reportEveryMs: 1000,
       reportForMs: 8000,
-      confirmWarnAfterMs: 4000,
+      // A3-3 (contrato com o servidor): o prazo, a repetição, a reentrega e o aviso aos 7 s.
+      reportTimeoutMs: 4000,
+      reportRetryEveryMs: 2000,
+      cardRedeliveryMs: 10_000,
+      lateCardBelowMs: 10_000,
+      confirmWarnAfterMs: 7000,
       noTouchFallbackMs: 20_000,
       nearFallbackMs: 10_000,
       failuresBeforeQr: 2,

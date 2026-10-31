@@ -12,6 +12,13 @@ export interface QrScannerProps {
   onClose: () => void;
   /** "Mostrar meu código" com a câmera negada. */
   onShowMyCode: () => void;
+  /**
+   * `false`: a câmera está saindo porque o cartão de quem encostou chegou (ux.md §11.15). O `Modal`
+   * fica montado até o `onDismiss` do iOS, para o foco do cartão esperar por ele.
+   */
+  visible?: boolean | undefined;
+  /** O `Modal` saiu da tela (iOS). */
+  onDismiss?: (() => void) | undefined;
 }
 
 /**
@@ -19,7 +26,15 @@ export interface QrScannerProps {
  * continua aberta no servidor). Só lê QR codes; nada é fotografado nem gravado. Antes do pedido do
  * sistema, a explicação do ux.md §4.12; negada, "Câmera sem permissão" (4.7 CA5).
  */
-export function QrScanner({ error, busy, onRead, onClose, onShowMyCode }: QrScannerProps) {
+export function QrScanner({
+  error,
+  busy,
+  onRead,
+  onClose,
+  onShowMyCode,
+  visible = true,
+  onDismiss,
+}: QrScannerProps) {
   const [permission, requestPermission] = useCameraPermissions();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
@@ -92,10 +107,12 @@ export function QrScanner({ error, busy, onRead, onClose, onShowMyCode }: QrScan
 
   return (
     <Modal
-      visible
+      visible={visible}
       animationType={reduceMotion ? 'none' : 'slide'}
       presentationStyle="fullScreen"
       onRequestClose={onClose}
+      {...(onDismiss === undefined ? {} : { onDismiss })}
+      testID="conectar-camera"
     >
       <View
         style={[styles.screen, granted ? styles.dark : styles.light]}
