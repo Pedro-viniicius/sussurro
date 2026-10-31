@@ -45,6 +45,7 @@ const TM2 = 'MarcosTokenAAAA2';
 const TX = 'XavierTokenBBBB1';
 const TY = 'YaraTokenCCCCCC1';
 const REAL = 'RealPessoaToken1';
+const NEVER_ISSUED = 'NuncaEmitidoTok1';
 /** As contas da sessão (o `id` do usuário logado). */
 const ACCOUNT_A = '01a189e0-af57-7000-85fe-2054e618fea6';
 const ACCOUNT_B = '01a189e0-af57-7000-85fe-2054e618feb1';
@@ -1510,7 +1511,7 @@ describe('useTouch: PROX-70, cartão atrasado, cartão sem Conectar e o aviso ao
     const caio = touchItem(nearbyPerson({ token: CAIO }));
     // O cartão devido de Marcos, entregue no relato de outro token, com o rótulo nunca emitido.
     const marcos = touchItem(
-      nearbyPerson({ token: 'NuncaEmitidoTok1', handle: 'marcos', name: 'Marcos Lima' }),
+      nearbyPerson({ token: NEVER_ISSUED, handle: 'marcos', name: 'Marcos Lima' }),
     );
     const { result, onCard } = await setup({
       touches: ({ body }) => {
