@@ -1,439 +1,363 @@
 package expo.modules.sussurroproximity
 
-import android.Manifest
-import android.annotation.SuppressLint
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothManager
-import android.bluetooth.le.AdvertiseCallback
-import android.bluetooth.le.AdvertiseData
-import android.bluetooth.le.AdvertiseSettings
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
-import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
+import android.app.Activity
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.location.LocationManager
+import android.nfc.FormatException
+import android.nfc.NdefMessage
+import android.nfc.NfcAdapter
+import android.nfc.Tag
+import android.nfc.cardemulation.CardEmulation
+import android.nfc.tech.IsoDep
+import android.nfc.tech.Ndef
 import android.os.Build
-import android.os.ParcelUuid
+import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
-import android.view.WindowManager
-import expo.modules.interfaces.permissions.PermissionsResponse
-import expo.modules.interfaces.permissions.PermissionsResponseListener
-import expo.modules.interfaces.permissions.PermissionsStatus
-import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import java.util.concurrent.ConcurrentHashMap
+import java.io.IOException
 
-// Módulo `sussurro-proximity` (ADR 0002; ADR 0012, "Conectar encostando"): anuncia um único UUID
-// de serviço de 128 bits (prefixo "SUSS" + 12 bytes do bleToken efêmero) e varre os UUIDs com o
-// mesmo prefixo. Sem nome do aparelho, sem conexão GATT e só com o app em primeiro plano: em
-// background, para tudo. A conversão token <-> UUID fica no TypeScript (`@sussurro/shared`), e os
-// limiares do encosto ficam no app (`touch-calibration.ts`): aqui só chegam a potência do anúncio
-// e o intervalo mínimo entre eventos, como parâmetros. ADR 0012, adendo A1: o anúncio nunca leva o
-// campo TX Power, e a varredura não o lê (o evento é só `uuid` e `rssi`): é um número que o emissor
-// escreve e o receptor não tem como conferir.
+// Módulo `sussurro-proximity` (ADR 0013 §4): o código de conexão `sussurro://c/{token}` por NFC.
+// - Emitir: o JS grava o código em `SussurroNfcPayload` e o `SussurroNdefService` (HCE) o entrega
+//   como uma Type 4 Tag. O código fica só em memória, só é aceito com o app em primeiro plano, vence
+//   em 30 s (o JS reemite a cada renovação) e é apagado ao ir para o background e no `OnDestroy`.
+// - Ler: reader mode na Activity atual, só com o app em primeiro plano. Enquanto lê, este aparelho
+//   não é lido por outro (o sistema desliga a emulação de cartão).
+// Sem Bluetooth, sem localização e sem permissão em tempo de execução (a de NFC é "normal").
 
 private const val TAG = "SussurroProximity"
-private const val SIGHTING_EVENT = "onSighting"
-private const val STATE_EVENT = "onStateChange"
-private const val ERROR_EVENT = "onError"
+private const val READ_EVENT = "onNfcRead"
+private const val READ_ERROR_EVENT = "onNfcReadError"
+private const val STATE_EVENT = "onNfcStateChange"
 
-/** Intervalo padrão entre eventos do mesmo UUID, se o JS não mandar outro (ADR 0012 §2). */
-private const val DEFAULT_SIGHTING_INTERVAL_MS = 200L
+/** No máximo um evento pelo mesmo código neste intervalo (o leitor vê a tag várias vezes). */
+private const val DEDUPE_MS = 1_500L
 
-/** Máscara do `ScanFilter`: só os 4 primeiros bytes (o prefixo) precisam bater. */
-private val PREFIX_MASK: ParcelUuid = ParcelUuid.fromString("ffffffff-0000-0000-0000-000000000000")
+/** Intervalo da checagem de presença da tag (o padrão do sistema é 125 ms). */
+private const val PRESENCE_CHECK_DELAY_MS = 250
 
-internal class BluetoothUnavailableException :
-  CodedException("ERR_BLUETOOTH_UNAVAILABLE", "O Bluetooth está desligado ou indisponível.", null)
+/** Tempo máximo de cada APDU na leitura por IsoDep. */
+private const val ISO_DEP_TIMEOUT_MS = 1_000
 
-internal class AdvertisingUnsupportedException :
-  CodedException("ERR_ADVERTISING_UNSUPPORTED", "Este aparelho não consegue anunciar por Bluetooth.", null)
+/** O que é emitido por NFC nunca passa disso (a mensagem do Sussurro tem uns 34 bytes). */
+private const val MAX_NDEF_READ = 256
 
-internal class BluetoothPermissionException(cause: Throwable) :
-  CodedException("ERR_BLUETOOTH_PERMISSION", "Sem permissão de Bluetooth.", cause)
+/** Uma leitura por IsoDep troca no máximo esta quantidade de APDUs... */
+private const val ISO_DEP_MAX_APDUS = 16
 
-internal class InvalidServiceUuidException(value: String, cause: Throwable) :
-  CodedException("ERR_INVALID_SERVICE_UUID", "UUID de serviço inválido: $value", cause)
+/** ...e dura no máximo isto, do connect ao último READ BINARY. */
+private const val ISO_DEP_TOTAL_MS = 3_000L
 
-internal class InvalidTxPowerException(value: String) :
-  CodedException("ERR_INVALID_TX_POWER", "Potência de anúncio desconhecida: $value", null)
+/**
+ * Reader mode só NFC-A/B (o HCE do Android responde em ISO-DEP sobre A ou B). Sem
+ * `FLAG_READER_SKIP_NDEF_CHECK`: o sistema faz a checagem NDEF e o `Ndef.get` já traz a mensagem.
+ * Sem `FLAG_READER_NO_PLATFORM_SOUNDS`: o som do sistema é o retorno de que o encosto deu certo,
+ * útil com os celulares costas com costas e a tela fora da vista.
+ */
+private const val READER_FLAGS = NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_NFC_B
+
+internal class NfcUnsupportedException :
+  CodedException("ERR_NFC_UNSUPPORTED", "Este aparelho não tem NFC.", null)
+
+internal class NfcDisabledException :
+  CodedException("ERR_NFC_DISABLED", "O NFC está desligado.", null)
+
+internal class NoActivityException :
+  CodedException("ERR_NFC_NO_ACTIVITY", "O app não está em primeiro plano.", null)
+
+internal class InvalidPayloadException(cause: Throwable) :
+  CodedException("ERR_NFC_INVALID_PAYLOAD", "Código de conexão inválido para o NFC.", cause)
 
 class SussurroProximityModule : Module() {
-  @Volatile private var advertiseCallback: AdvertiseCallback? = null
-  @Volatile private var scanCallback: ScanCallback? = null
-  @Volatile private var scanPrefix: String? = null
-  @Volatile private var sightingIntervalMs: Long = DEFAULT_SIGHTING_INTERVAL_MS
+  /** O JS pediu para ler (o reader mode volta sozinho ao sair do background). */
+  @Volatile private var wantsReading = false
+  /** A Activity em que o reader mode está ligado agora. */
+  @Volatile private var readerActivity: Activity? = null
+  @Volatile private var lastUri: String? = null
+  @Volatile private var lastUriAt = 0L
   private var stateReceiver: BroadcastReceiver? = null
-  private val lastEmission = ConcurrentHashMap<String, Long>()
 
   private val context: Context?
     get() = appContext.reactContext
 
-  private val adapter: BluetoothAdapter?
-    get() = (context?.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+  private val adapter: NfcAdapter?
+    get() = context?.let { NfcAdapter.getDefaultAdapter(it) }
 
   override fun definition() = ModuleDefinition {
     Name("SussurroProximity")
 
-    Events(SIGHTING_EVENT, STATE_EVENT, ERROR_EVENT)
+    Events(READ_EVENT, READ_ERROR_EVENT, STATE_EVENT)
 
     OnCreate {
+      // O módulo nasce no 1º acesso do JS, com o app aberto; os eventos abaixo mantêm a flag.
+      SussurroNfcPayload.foreground = appContext.currentActivity != null
       registerStateReceiver()
     }
 
     OnDestroy {
-      stopAll()
+      SussurroNfcPayload.foreground = false
+      SussurroNfcPayload.clear()
+      wantsReading = false
+      disableReader()
       unregisterStateReceiver()
     }
 
-    // Em background o anúncio e a varredura param (PROX-28); o JS recomeça ao voltar.
+    // Em background o código deixa de ser emitido e a leitura para (o JS grava o código de novo
+    // quando a tela Conectar volta a ficar visível).
     OnActivityEntersBackground {
-      stopAll()
+      SussurroNfcPayload.foreground = false
+      clearPayload()
+      disableReader()
     }
 
-    AsyncFunction("getCapabilitiesAsync") { promise: Promise ->
-      checkPermissions(false, promise)
+    OnActivityEntersForeground {
+      SussurroNfcPayload.foreground = true
+      if (wantsReading) {
+        enableReader()
+      }
     }
 
-    AsyncFunction("requestPermissionAsync") { promise: Promise ->
-      checkPermissions(true, promise)
+    AsyncFunction("getNfcCapabilities") {
+      capabilities()
     }
 
-    AsyncFunction("startAdvertisingAsync") { serviceUuid: String, txPower: String ->
-      startAdvertising(serviceUuid, txPower)
-    }.runOnQueue(Queues.MAIN)
-
-    AsyncFunction("stopAdvertisingAsync") {
-      stopAdvertising()
-    }.runOnQueue(Queues.MAIN)
-
-    AsyncFunction("startScanAsync") { prefix: String, minIntervalMs: Int ->
-      startScan(prefix, minIntervalMs)
-    }.runOnQueue(Queues.MAIN)
-
-    AsyncFunction("stopScanAsync") {
-      stopScan()
-    }.runOnQueue(Queues.MAIN)
-
-    AsyncFunction("requestEnableBluetoothAsync") {
-      requestEnableBluetooth()
-    }.runOnQueue(Queues.MAIN)
-
-    AsyncFunction("setKeepScreenOnAsync") { enabled: Boolean ->
-      setKeepScreenOn(enabled)
-    }.runOnQueue(Queues.MAIN)
-  }
-
-  // --- Permissões e capacidades ---------------------------------------------------------------
-
-  /**
-   * Android 12+: só "Dispositivos próximos" (`BLUETOOTH_SCAN` com `neverForLocation`,
-   * `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT`). Android ≤ 11: a localização que o sistema exige
-   * para varrer (declarada com `maxSdkVersion` 30 no manifesto). 4.3 CA5.
-   */
-  private fun requiredPermissions(): Array<String> =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-      arrayOf(
-        Manifest.permission.BLUETOOTH_SCAN,
-        Manifest.permission.BLUETOOTH_ADVERTISE,
-        Manifest.permission.BLUETOOTH_CONNECT
-      )
-    } else {
-      arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    // Fora do primeiro plano a gravação é ignorada (M2): nada é emitido com o app em background.
+    Function("setEmittedPayload") { uri: String? ->
+      try {
+        SussurroNfcPayload.set(uri)
+      } catch (e: IllegalArgumentException) {
+        SussurroNfcPayload.clear()
+        throw InvalidPayloadException(e)
+      }
+      updatePreferredService(SussurroNfcPayload.ndefFile != null)
     }
 
-  private fun checkPermissions(ask: Boolean, promise: Promise) {
-    val permissions = appContext.permissions
-    if (permissions == null) {
-      promise.resolve(capabilities("undetermined", true))
-      return
+    AsyncFunction("startReading") {
+      val adapter = adapter ?: throw NfcUnsupportedException()
+      if (!adapter.isEnabled) {
+        throw NfcDisabledException()
+      }
+      appContext.currentActivity ?: throw NoActivityException()
+      wantsReading = true
+      enableReader()
+    }.runOnQueue(Queues.MAIN)
+
+    Function("stopReading") {
+      wantsReading = false
+      runOnUi { disableReader() }
     }
-    val listener = PermissionsResponseListener { result -> promise.resolve(capabilities(result)) }
-    if (ask) {
-      permissions.askForPermissions(listener, *requiredPermissions())
-    } else {
-      permissions.getPermissions(listener, *requiredPermissions())
+
+    Function("openNfcSettings") {
+      openNfcSettings()
     }
   }
 
-  private fun capabilities(result: Map<String, PermissionsResponse>): Map<String, Any> {
-    val responses = result.values
-    val permission = when {
-      responses.isNotEmpty() && responses.all { it.status == PermissionsStatus.GRANTED } -> "granted"
-      responses.any { it.status == PermissionsStatus.DENIED } -> "denied"
-      else -> "undetermined"
-    }
-    return capabilities(permission, responses.all { it.canAskAgain })
-  }
+  // --- Capacidades -------------------------------------------------------------------------------
 
-  private fun capabilities(permission: String, canAskAgain: Boolean): Map<String, Any> {
-    val hasBle = context?.packageManager?.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE) == true
-    val adapter = if (hasBle) adapter else null
-    val enabled = adapter?.isEnabled == true
-    val bluetooth = when {
-      adapter == null -> "unsupported"
-      enabled -> "on"
-      else -> "off"
-    }
-    // `isMultipleAdvertisementSupported` só é confiável com o Bluetooth ligado.
-    val canAdvertise = adapter != null && (!enabled || adapter.isMultipleAdvertisementSupported)
+  private fun capabilities(): Map<String, Boolean> {
+    val adapter = adapter
+    val canEmit = adapter != null &&
+      context?.packageManager?.hasSystemFeature(PackageManager.FEATURE_NFC_HOST_CARD_EMULATION) == true
     return mapOf(
-      "bleSupported" to (adapter != null),
-      "bluetooth" to bluetooth,
-      "permission" to permission,
-      "canAskAgain" to canAskAgain,
-      "canAdvertise" to canAdvertise,
-      "locationServices" to locationServices(),
-      // Só para a correção de calibração no próprio aparelho (nunca vai para a API).
-      "deviceModel" to (Build.MODEL ?: "")
+      "supported" to (adapter != null),
+      "enabled" to (adapter?.isEnabled == true),
+      "canEmit" to canEmit,
+      "canRead" to (adapter != null)
     )
   }
 
-  /**
-   * Android ≤ 11 (API ≤ 30): a varredura BLE só entrega resultados com a localização do sistema
-   * ligada; desligada, volta vazia e sem erro (ADR 0012 §2). Android 12+: `not_required`.
-   */
-  private fun locationServices(): String {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-      return "not_required"
-    }
-    val context = context ?: return "on"
-    val enabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-      val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-      manager?.isLocationEnabled ?: true
-    } else {
-      legacyLocationEnabled(context)
-    }
-    return if (enabled) "on" else "off"
-  }
+  // --- Emissão (HCE) -----------------------------------------------------------------------------
 
-  /** Android 7 a 8.1 (API 24 a 27): `LocationManager.isLocationEnabled` ainda não existe. */
-  @Suppress("DEPRECATION")
-  private fun legacyLocationEnabled(context: Context): Boolean {
-    val mode = Settings.Secure.getInt(
-      context.contentResolver,
-      Settings.Secure.LOCATION_MODE,
-      Settings.Secure.LOCATION_MODE_OFF
-    )
-    return mode != Settings.Secure.LOCATION_MODE_OFF
+  private fun clearPayload() {
+    SussurroNfcPayload.clear()
+    updatePreferredService(false)
   }
-
-  // --- Anúncio ----------------------------------------------------------------------------------
 
   /**
-   * Potência pedida pelo JS (`touch-calibration.ts`, ADR 0012 adendo A1). O nativo não guarda valor
-   * de calibração: nível desconhecido é erro, e não uma potência escolhida em silêncio.
+   * Com a tela Conectar emitindo, o serviço do Sussurro tem a preferência sobre outro app que
+   * registre o mesmo AID NDEF (sem isso, o sistema pode mostrar um seletor ou escolher o outro).
    */
-  private fun advertiseTxPower(value: String): Int = when (value) {
-    "ultraLow" -> AdvertiseSettings.ADVERTISE_TX_POWER_ULTRA_LOW
-    "low" -> AdvertiseSettings.ADVERTISE_TX_POWER_LOW
-    "medium" -> AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM
-    "high" -> AdvertiseSettings.ADVERTISE_TX_POWER_HIGH
-    else -> throw InvalidTxPowerException(value)
-  }
-
-  @SuppressLint("MissingPermission")
-  private fun startAdvertising(serviceUuid: String, txPower: String) {
-    // Antes de mexer no anúncio atual: um nível desconhecido é bug do build e rejeita a promise.
-    val txPowerLevel = advertiseTxPower(txPower)
-    val adapter = adapter
-    if (adapter == null || !adapter.isEnabled) {
-      throw BluetoothUnavailableException()
-    }
-    val advertiser = adapter.bluetoothLeAdvertiser
-    if (advertiser == null || !adapter.isMultipleAdvertisementSupported) {
-      throw AdvertisingUnsupportedException()
-    }
-    val uuid = try {
-      ParcelUuid.fromString(serviceUuid)
-    } catch (e: IllegalArgumentException) {
-      throw InvalidServiceUuidException(serviceUuid, e)
-    }
-    stopAdvertising()
-    val settings = AdvertiseSettings.Builder()
-      .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-      .setTxPowerLevel(txPowerLevel)
-      .setConnectable(false)
-      .setTimeout(0)
-      .build()
-    // Só o UUID de serviço (flags 3 + UUID 18 = 21 de 31 bytes). Nunca o nome do aparelho nem o
-    // campo TX Power (ADR 0012, adendo A1): o anúncio fica igual ao do iPhone.
-    val data = AdvertiseData.Builder()
-      .setIncludeDeviceName(false)
-      .setIncludeTxPowerLevel(false)
-      .addServiceUuid(uuid)
-      .build()
-    val callback = object : AdvertiseCallback() {
-      override fun onStartFailure(errorCode: Int) {
-        if (advertiseCallback === this) {
-          advertiseCallback = null
+  private fun updatePreferredService(preferred: Boolean) {
+    val activity = appContext.currentActivity ?: return
+    val adapter = adapter ?: return
+    runOnUi {
+      try {
+        val cardEmulation = CardEmulation.getInstance(adapter)
+        if (preferred) {
+          cardEmulation.setPreferredService(
+            activity,
+            ComponentName(activity, SussurroNdefService::class.java)
+          )
+        } else {
+          cardEmulation.unsetPreferredService(activity)
         }
-        sendEvent(ERROR_EVENT, mapOf("operation" to "advertise", "code" to advertiseError(errorCode)))
+      } catch (e: Exception) {
+        // Sem HCE, Activity fora do primeiro plano ou NFC desligado: o serviço continua registrado.
+        Log.w(TAG, "Não foi possível ajustar o serviço preferido de NFC", e)
       }
     }
-    try {
-      advertiser.startAdvertising(settings, data, callback)
-      advertiseCallback = callback
-    } catch (e: SecurityException) {
-      throw BluetoothPermissionException(e)
-    }
   }
 
-  @SuppressLint("MissingPermission")
-  private fun stopAdvertising() {
-    val callback = advertiseCallback ?: return
-    advertiseCallback = null
-    try {
-      adapter?.bluetoothLeAdvertiser?.stopAdvertising(callback)
-    } catch (e: Exception) {
-      Log.w(TAG, "Não foi possível parar o anúncio", e)
-    }
-  }
+  // --- Leitura (reader mode) ---------------------------------------------------------------------
 
-  private fun advertiseError(code: Int): String = when (code) {
-    AdvertiseCallback.ADVERTISE_FAILED_FEATURE_UNSUPPORTED -> "unsupported"
-    AdvertiseCallback.ADVERTISE_FAILED_TOO_MANY_ADVERTISERS -> "too_many_advertisers"
-    AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE -> "data_too_large"
-    AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED -> "already_started"
-    else -> "internal_error"
-  }
-
-  // --- Varredura --------------------------------------------------------------------------------
-
-  /**
-   * Uma sessão contínua por visita à tela (ADR 0012 §2): com a varredura já ligada no mesmo
-   * prefixo, só troca o intervalo, sem parar e reiniciar (o sistema segura em silêncio mais de
-   * cerca de 5 inícios em 30 s). O JS só reinicia quando o Bluetooth liga ou desliga ou ao voltar
-   * do background.
-   */
-  @SuppressLint("MissingPermission")
-  private fun startScan(prefix: String, minIntervalMs: Int) {
-    val adapter = adapter
-    if (adapter == null || !adapter.isEnabled) {
-      throw BluetoothUnavailableException()
-    }
-    val scanner = adapter.bluetoothLeScanner ?: throw BluetoothUnavailableException()
-    val prefixUuid = try {
-      ParcelUuid.fromString("$prefix-0000-0000-0000-000000000000")
-    } catch (e: IllegalArgumentException) {
-      throw InvalidServiceUuidException(prefix, e)
-    }
-    sightingIntervalMs = if (minIntervalMs >= 0) minIntervalMs.toLong() else DEFAULT_SIGHTING_INTERVAL_MS
-    val normalized = prefix.lowercase()
-    if (scanCallback != null && scanPrefix == normalized) {
+  /** Liga o reader mode na Activity atual. Precisa rodar na thread principal. */
+  private fun enableReader() {
+    val activity = appContext.currentActivity ?: return
+    val adapter = adapter ?: return
+    if (!adapter.isEnabled) {
       return
     }
-    stopScan()
-    scanPrefix = normalized
-    lastEmission.clear()
-    val filter = ScanFilter.Builder().setServiceUuid(prefixUuid, PREFIX_MASK).build()
-    val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
-    val callback = object : ScanCallback() {
-      override fun onScanResult(callbackType: Int, result: ScanResult) {
-        handleResult(result)
-      }
-
-      override fun onBatchScanResults(results: MutableList<ScanResult>) {
-        results.forEach { handleResult(it) }
-      }
-
-      override fun onScanFailed(errorCode: Int) {
-        if (scanCallback === this) {
-          scanCallback = null
-        }
-        sendEvent(ERROR_EVENT, mapOf("operation" to "scan", "code" to "scan_failed_$errorCode"))
-      }
+    val previous = readerActivity
+    if (previous != null && previous !== activity) {
+      disableReaderOn(previous, adapter)
+    }
+    val extras = Bundle().apply {
+      putInt(NfcAdapter.EXTRA_READER_PRESENCE_CHECK_DELAY, PRESENCE_CHECK_DELAY_MS)
     }
     try {
-      scanner.startScan(listOf(filter), settings, callback)
-      scanCallback = callback
-    } catch (e: SecurityException) {
-      scanPrefix = null
-      throw BluetoothPermissionException(e)
+      adapter.enableReaderMode(activity, { tag -> onTag(tag) }, READER_FLAGS, extras)
+      readerActivity = activity
+    } catch (e: Exception) {
+      Log.w(TAG, "Não foi possível ligar a leitura de NFC", e)
+      readerActivity = null
+      sendEvent(READ_ERROR_EVENT, mapOf("code" to "disabled"))
     }
   }
+
+  private fun disableReader() {
+    val activity = readerActivity ?: return
+    readerActivity = null
+    lastUri = null
+    val adapter = adapter ?: return
+    disableReaderOn(activity, adapter)
+  }
+
+  private fun disableReaderOn(activity: Activity, adapter: NfcAdapter) {
+    try {
+      adapter.disableReaderMode(activity)
+    } catch (e: Exception) {
+      Log.w(TAG, "Não foi possível desligar a leitura de NFC", e)
+    }
+  }
+
+  /** Chamado pelo sistema numa thread de binder: a leitura bloqueante fica aqui. */
+  private fun onTag(tag: Tag) {
+    if (!wantsReading) {
+      return
+    }
+    val uri = try {
+      readSussurroUri(tag)
+    } catch (e: IOException) {
+      // A tag saiu do campo no meio (o encosto foi curto demais).
+      Log.d(TAG, "Leitura de NFC interrompida", e)
+      sendEvent(READ_ERROR_EVENT, mapOf("code" to "read_failed"))
+      return
+    } catch (e: FormatException) {
+      sendEvent(READ_ERROR_EVENT, mapOf("code" to "read_failed"))
+      return
+    } catch (e: Exception) {
+      Log.w(TAG, "Falha inesperada ao ler NFC", e)
+      sendEvent(READ_ERROR_EVENT, mapOf("code" to "read_failed"))
+      return
+    }
+    if (uri == null) {
+      // Uma tag ou um cartão que não tem um código do Sussurro.
+      sendEvent(READ_ERROR_EVENT, mapOf("code" to "read_failed"))
+      return
+    }
+    synchronized(this) {
+      val now = SystemClock.elapsedRealtime()
+      if (uri == lastUri && now - lastUriAt < DEDUPE_MS) {
+        return
+      }
+      lastUri = uri
+      lastUriAt = now
+    }
+    sendEvent(READ_EVENT, mapOf("uri" to uri))
+  }
+
+  /** O 1º registro URI no formato exato do Sussurro: pela pilha NDEF do sistema e, se faltar, por IsoDep. */
+  private fun readSussurroUri(tag: Tag): String? {
+    val ndef = Ndef.get(tag)
+    if (ndef != null) {
+      val message = ndef.cachedNdefMessage ?: readNdef(ndef)
+      SussurroNdef.sussurroUri(message)?.let { return it }
+    }
+    val isoDep = IsoDep.get(tag) ?: return null
+    return readIsoDep(isoDep)
+  }
+
+  private fun readNdef(ndef: Ndef): NdefMessage? =
+    try {
+      ndef.connect()
+      ndef.ndefMessage
+    } finally {
+      closeQuietly { ndef.close() }
+    }
 
   /**
-   * Só lê os UUIDs do anúncio: nunca conecta nem guarda o aparelho visto. O RSSI medido aqui vai
-   * para o JS, que estima a perda no próprio aparelho (nada disso vai para a API). O campo TX Power
-   * não é lido, venha ou não no anúncio (ADR 0012, adendo A1).
+   * O mesmo diálogo de um leitor Type 4 (`SussurroNdef.readType4NdefFile`, testado contra o
+   * `SussurroNdefService` na JVM). Um aparelho do outro lado que responda devagar ou em pedaços
+   * mínimos não prende a leitura: no máximo [ISO_DEP_MAX_APDUS] APDUs em [ISO_DEP_TOTAL_MS].
    */
-  private fun handleResult(result: ScanResult) {
-    val prefix = scanPrefix ?: return
-    val record = result.scanRecord ?: return
-    val uuids = record.serviceUuids ?: return
-    val interval = sightingIntervalMs
-    val now = SystemClock.elapsedRealtime()
-    for (parcel in uuids) {
-      val value = parcel.uuid.toString()
-      if (!value.startsWith(prefix)) {
-        continue
-      }
-      val last = lastEmission[value]
-      if (last != null && now - last < interval) {
-        continue
-      }
-      lastEmission[value] = now
-      sendEvent(SIGHTING_EVENT, mapOf("uuid" to value, "rssi" to result.rssi))
-    }
-  }
-
-  @SuppressLint("MissingPermission")
-  private fun stopScan() {
-    scanPrefix = null
-    lastEmission.clear()
-    val callback = scanCallback ?: return
-    scanCallback = null
+  private fun readIsoDep(isoDep: IsoDep): String? {
+    val deadline = SystemClock.elapsedRealtime() + ISO_DEP_TOTAL_MS
+    var apdus = 0
     try {
-      adapter?.bluetoothLeScanner?.stopScan(callback)
-    } catch (e: Exception) {
-      Log.w(TAG, "Não foi possível parar a varredura", e)
+      isoDep.connect()
+      isoDep.timeout = ISO_DEP_TIMEOUT_MS
+      val maxChunk = minOf(SussurroNdef.MAX_READ_LENGTH, isoDep.maxTransceiveLength - 2)
+      val body = SussurroNdef.readType4NdefFile(maxChunk, MAX_NDEF_READ) { command ->
+        if (apdus >= ISO_DEP_MAX_APDUS || SystemClock.elapsedRealtime() >= deadline) {
+          null
+        } else {
+          apdus += 1
+          isoDep.transceive(command)
+        }
+      } ?: return null
+      return SussurroNdef.sussurroUriFromMessage(body)
+    } finally {
+      closeQuietly { isoDep.close() }
     }
   }
 
-  // --- Ligar o Bluetooth, tela acesa e parada geral -----------------------------------------------
-
-  /** Pedido do sistema para ligar o Bluetooth ("Ligar Bluetooth", ux.md §4.12). */
-  @SuppressLint("MissingPermission")
-  private fun requestEnableBluetooth(): Boolean {
-    val activity = appContext.currentActivity ?: return false
-    return try {
-      activity.startActivity(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-      true
-    } catch (e: Exception) {
-      Log.w(TAG, "Não foi possível pedir para ligar o Bluetooth", e)
-      false
+  private inline fun closeQuietly(block: () -> Unit) {
+    try {
+      block()
+    } catch (e: IOException) {
+      Log.d(TAG, "Falha ao fechar a tag", e)
     }
   }
 
-  private fun setKeepScreenOn(enabled: Boolean) {
-    val activity = appContext.currentActivity ?: return
-    activity.runOnUiThread {
-      if (enabled) {
-        activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-      } else {
-        activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+  // --- Ajustes e estado do NFC -------------------------------------------------------------------
+
+  /** "Ligar NFC": os Ajustes do NFC (ou os de conexões, se o aparelho não tiver a tela própria). */
+  private fun openNfcSettings() {
+    val activity = appContext.currentActivity
+    val launcher: Context = activity ?: context ?: return
+    for (action in listOf(Settings.ACTION_NFC_SETTINGS, Settings.ACTION_WIRELESS_SETTINGS)) {
+      val intent = Intent(action)
+      if (activity == null) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      try {
+        launcher.startActivity(intent)
+        return
+      } catch (e: Exception) {
+        Log.w(TAG, "Não foi possível abrir $action", e)
       }
     }
   }
 
-  private fun stopAll() {
-    stopAdvertising()
-    stopScan()
-    setKeepScreenOn(false)
-  }
-
-  /** Avisa o JS quando o Bluetooth liga ou desliga (para sair de "O Bluetooth está desligado"). */
+  /** Avisa o JS quando o NFC liga ou desliga, e religa a leitura se ela estava pedida. */
   private fun registerStateReceiver() {
     val context = context ?: return
     if (stateReceiver != null) {
@@ -441,24 +365,28 @@ class SussurroProximityModule : Module() {
     }
     val receiver = object : BroadcastReceiver() {
       override fun onReceive(ctx: Context?, intent: Intent?) {
-        if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) {
+        if (intent?.action != NfcAdapter.ACTION_ADAPTER_STATE_CHANGED) {
           return
         }
-        val value = when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
-          BluetoothAdapter.STATE_ON -> "on"
-          BluetoothAdapter.STATE_OFF -> "off"
+        val enabled = when (intent.getIntExtra(NfcAdapter.EXTRA_ADAPTER_STATE, NfcAdapter.STATE_OFF)) {
+          NfcAdapter.STATE_ON -> true
+          NfcAdapter.STATE_OFF -> false
           else -> return
         }
-        if (value == "off") {
-          // O sistema já parou o anúncio e a varredura.
-          advertiseCallback = null
-          scanCallback = null
-          scanPrefix = null
+        sendEvent(STATE_EVENT, mapOf("enabled" to enabled))
+        if (!wantsReading) {
+          return
         }
-        sendEvent(STATE_EVENT, mapOf("bluetooth" to value))
+        if (enabled) {
+          runOnUi { enableReader() }
+        } else {
+          // O sistema já parou o reader mode; ele volta quando o NFC ligar de novo.
+          readerActivity = null
+          sendEvent(READ_ERROR_EVENT, mapOf("code" to "disabled"))
+        }
       }
     }
-    val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+    val filter = IntentFilter(NfcAdapter.ACTION_ADAPTER_STATE_CHANGED)
     try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -467,7 +395,7 @@ class SussurroProximityModule : Module() {
       }
       stateReceiver = receiver
     } catch (e: Exception) {
-      Log.w(TAG, "Não foi possível acompanhar o estado do Bluetooth", e)
+      Log.w(TAG, "Não foi possível acompanhar o estado do NFC", e)
     }
   }
 
@@ -477,7 +405,16 @@ class SussurroProximityModule : Module() {
     try {
       context?.unregisterReceiver(receiver)
     } catch (e: IllegalArgumentException) {
-      Log.w(TAG, "Receiver do Bluetooth já removido", e)
+      Log.w(TAG, "Receiver do NFC já removido", e)
+    }
+  }
+
+  private fun runOnUi(block: () -> Unit) {
+    val activity = appContext.currentActivity
+    if (activity != null) {
+      activity.runOnUiThread(block)
+    } else {
+      block()
     }
   }
 }

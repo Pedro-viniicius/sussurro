@@ -1,3 +1,24 @@
-<!-- As permissões de Bluetooth ficam no manifesto do app, pelo config plugin (app.plugin.js), com
-     maxSdkVersion e neverForLocation conferidos no prebuild (4.3 CA5). -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+<!-- NFC do código de conexão (ADR 0013 §4). Entra no manifesto do app pelo merge do Gradle.
+     NFC e HCE são opcionais na loja (required="false"): sem eles, o app fica só com o QR code.
+     A permissão NFC é "normal" (sem pedido na tela). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.NFC" />
+  <uses-feature android:name="android.hardware.nfc" android:required="false" />
+  <uses-feature android:name="android.hardware.nfc.hce" android:required="false" />
+
+  <application>
+    <!-- Emite o código como uma Type 4 Tag só com a tela Conectar aberta e o aparelho
+         desbloqueado. Exportado só para o sistema (BIND_NFC_SERVICE), como o HCE exige. -->
+    <service
+      android:name="expo.modules.sussurroproximity.SussurroNdefService"
+      android:exported="true"
+      android:permission="android.permission.BIND_NFC_SERVICE">
+      <intent-filter>
+        <action android:name="android.nfc.cardemulation.action.HOST_APDU_SERVICE" />
+      </intent-filter>
+      <meta-data
+        android:name="android.nfc.cardemulation.host_apdu_service"
+        android:resource="@xml/sussurro_apduservice" />
+    </service>
+  </application>
+</manifest>

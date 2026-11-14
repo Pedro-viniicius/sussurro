@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
-import { issueProximityTokens } from './api';
+import { issueProximityToken } from './api';
 import { isRepeatableFailure } from './errors';
 import { connectClock, connectTiming } from './timing';
 import type { ApiClient } from '../../lib/api/client';
@@ -59,23 +59,14 @@ export function usePolling(task: () => Promise<void>, intervalMs: number, active
   }, [active, intervalMs]);
 }
 
-/** Os dois tokens da emissão em vigor (ADR 0012 §1). */
-export interface OwnTokens {
-  /** Só vai no anúncio Bluetooth (UUID de serviço). */
-  bleToken: string;
-  /** Só aparece no QR (`sussurro://c/{qrToken}`). */
-  qrToken: string;
-}
-
 /**
- * Meus tokens de proximidade enquanto a tela Conectar está aberta (ADR 0003 e 0012): pede agora e
- * renova a cada `renewInS` (20 s), sem esperar vencer. Os tokens anteriores continuam valendo até
- * os novos chegarem, então o anúncio e o QR nunca ficam vazios (4.2 CA3).
+ * Meu token de proximidade enquanto a tela Conectar está aberta (ADR 0003 e 0013 §1): pede agora e
+ * renova a cada `renewInS` (20 s), sem esperar vencer. O token anterior continua valendo até o novo
+ * chegar, então o QR e o NFC nunca ficam vazios (4.2 CA3).
  *
  * Erros: na renovação, a falha repetível (sem rede, 5xx) tenta de novo a cada `tokenRetryMs` (3 s),
- * até `tokenRetries` (3) vezes, e só então vai para `onError` (ADR 0012, A3-3 item 4); os outros
- * erros, e qualquer erro do 1º pedido da visita (sem tokens ainda), vão na hora. O `onError` para a
- * renovação (a tela decide o estado). `refresh` pede tokens fora do ciclo (ex.: depois de um 409 de
+ * até `tokenRetries` (3) vezes, e só então vai para `onError`; os outros erros, e qualquer erro do 1º pedido da visita (sem token ainda), vão na hora. O `onError` para a
+ * renovação (a tela decide o estado). `refresh` pede um token fora do ciclo (ex.: depois de um 409 de
  * "tela fechada"), sem repetir: quem chama decide.
  *
  * Teto (PROX-68): as tentativas zeram a cada sucesso, então, numa rede ruim, a renovação faria até 9
@@ -89,8 +80,8 @@ export function useProximityToken(
   api: ApiClient,
   active: boolean,
   onError: (error: unknown) => void,
-): { tokens: OwnTokens | null; refresh: () => Promise<void> } {
-  const [tokens, setTokens] = useState<OwnTokens | null>(null);
+): { token: string | null; refresh: () => Promise<void> } {
+  const [token, setToken] = useState<string | null>(null);
   const onErrorRef = useRef(onError);
   useEffect(() => {
     onErrorRef.current = onError;
@@ -103,7 +94,7 @@ export function useProximityToken(
     const now = connectClock.now();
     forgetOldIssues(issuedAtRef.current, now);
     issuedAtRef.current.push(now);
-    return issueProximityTokens(api);
+    return issueProximityToken(api);
   }, [api]);
 
   useEffect(() => {
@@ -128,7 +119,7 @@ export function useProximityToken(
         renewing = true;
         retries = 0;
         failure = null;
-        setTokens({ bleToken: result.bleToken, qrToken: result.qrToken });
+        setToken(result.token);
         nextInMs = result.renewInS * 1000;
       } catch (error) {
         if (cancelled) return;
@@ -153,10 +144,10 @@ export function useProximityToken(
 
   const refresh = useCallback(async () => {
     const result = await issue();
-    setTokens({ bleToken: result.bleToken, qrToken: result.qrToken });
+    setToken(result.token);
   }, [issue]);
 
-  return { tokens, refresh };
+  return { token, refresh };
 }
 
 /** Esquece as emissões de mais de `tokenIssueWindowMs` (60 s). */

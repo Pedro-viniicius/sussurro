@@ -3,8 +3,10 @@ import { Avatar, Button, IconButton, Text, theme, useReducedMotion } from '@suss
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useFocusOnShow } from './a11y';
+import { useAnnounceOnIos, useFocusOnShow } from './a11y';
 import { COPY, firstName, formatCountdown } from './copy';
+import type { NfcRole } from './useConnectSession';
+import { BLOCK_ACTION, REPORT_ACTION } from '../moderation/useModerationMenu';
 
 export interface IncomingRequestSheetProps {
   request: ConnectionRequest;
@@ -12,34 +14,121 @@ export interface IncomingRequestSheetProps {
   /** Mensagem do aceite que não deu certo (o pedido continua valendo). */
   error: string | null;
   busy: boolean;
-  /** No QR (D7) o aceite é ler o código de quem pediu. */
-  acceptByQr: boolean;
+  /** Depois do "Aceitar": a folha pede a leitura do código de quem pediu (D7). */
+  reading: boolean;
+  /** O NFC deste celular, para dizer como ler (ADR 0013 §5). */
+  nfc: { role: NfcRole; enabled: boolean };
   onAccept: () => void;
   onDecline: () => void;
+  /** iPhone: "Aproximar do outro celular" (a folha do sistema). */
+  onTapNfc: () => void;
+  /** Android com o NFC desligado: "Ligar NFC". */
+  onTurnOnNfc: () => void;
+  onUseCamera: () => void;
+  onBlock: () => void;
+  onReport: () => void;
   /** Fecha sem responder (✕ ou voltar do Android): o pedido segue valendo até vencer. */
   onClose: () => void;
 }
 
 /**
  * Folha "Helena quer se conectar" (ux.md §4.11, 4.6 CA1): avatar, nome, @, Aceitar, Recusar e o
- * tempo restante, que não é anunciado a cada segundo. Uma folha por vez (a fila fica na tela).
+ * tempo restante, que não é anunciado a cada segundo. "Aceitar" pede a leitura do código na tela de
+ * quem pediu (D7, ADR 0013 §5): por NFC (no Android, encostando; no iPhone, pelo botão) ou pela
+ * câmera. ‹Denunciar› e ‹Bloquear› ficam no fim, num grupo à parte. Uma folha por vez.
  */
 export function IncomingRequestSheet({
   request,
   secondsLeft,
   error,
   busy,
-  acceptByQr,
+  reading,
+  nfc,
   onAccept,
   onDecline,
+  onTapNfc,
+  onTurnOnNfc,
+  onUseCamera,
+  onBlock,
+  onReport,
   onClose,
 }: IncomingRequestSheetProps) {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
   const { other } = request;
   const first = firstName(other.name);
-  // O foco vai ao título, como no cartão; o A5 sai depois dele (ux.md §11.8).
+  // O foco vai ao título; o anúncio do pedido sai depois dele (ux.md §11.8).
   const titleRef = useFocusOnShow(request.id);
+  const readRef = useFocusOnShow(`${request.id}:ler`, reading);
+  // O erro do aceite, no iOS, sai por anúncio: o VoiceOver ignora a região viva (ux.md §11.19, S2).
+  useAnnounceOnIos(error);
+
+  let actions;
+  if (!reading) {
+    actions = (
+      <View style={styles.actions}>
+        <Button fullWidth label={COPY.accept} loading={busy} onPress={onAccept} />
+        <Button
+          fullWidth
+          variant="secondary"
+          label={COPY.decline}
+          disabled={busy}
+          onPress={onDecline}
+        />
+      </View>
+    );
+  } else {
+    const nfcOn = nfc.role === 'emitter' && nfc.enabled;
+    actions = (
+      <View style={styles.actions} testID="folha-pedido-leitura">
+        <View ref={readRef} accessible style={styles.readText}>
+          <Text variant="bodyStrong" align="center">
+            {COPY.acceptRead(first)}
+          </Text>
+          {nfcOn ? (
+            <Text variant="bodySm" color="grey" align="center" testID="folha-pedido-nfc">
+              {COPY.acceptReadNfc(first)}
+            </Text>
+          ) : null}
+        </View>
+        {nfc.role === 'reader' ? (
+          <Button
+            fullWidth
+            icon="smartphone-nfc"
+            label={COPY.nfcTap}
+            disabled={busy}
+            onPress={onTapNfc}
+          />
+        ) : null}
+        <Button
+          fullWidth
+          variant={nfc.role === 'none' ? 'primary' : 'secondary'}
+          icon="camera"
+          label={COPY.useCamera}
+          loading={busy}
+          onPress={onUseCamera}
+        />
+        {nfc.role === 'emitter' && !nfc.enabled ? (
+          <Button
+            fullWidth
+            variant="secondary"
+            label={COPY.turnOnNfc}
+            accessibilityHint={COPY.turnOnNfcHint}
+            disabled={busy}
+            onPress={onTurnOnNfc}
+          />
+        ) : null}
+        <Button
+          fullWidth
+          variant="link"
+          size="sm"
+          label={COPY.decline}
+          disabled={busy}
+          onPress={onDecline}
+        />
+      </View>
+    );
+  }
 
   return (
     <Modal
@@ -91,22 +180,7 @@ export function IncomingRequestSheet({
           <Text variant="bodySm" color="grey" align="center" style={styles.confirm}>
             {COPY.sheetConfirm(first)}
           </Text>
-          <View style={styles.actions}>
-            <Button
-              fullWidth
-              label={acceptByQr ? COPY.acceptByQr : COPY.accept}
-              {...(acceptByQr ? { icon: 'scan-line' as const } : {})}
-              loading={busy}
-              onPress={onAccept}
-            />
-            <Button
-              fullWidth
-              variant="secondary"
-              label={COPY.decline}
-              disabled={busy}
-              onPress={onDecline}
-            />
-          </View>
+          {actions}
           {error === null ? null : (
             <Text
               variant="bodySm"
@@ -118,9 +192,33 @@ export function IncomingRequestSheet({
               {error}
             </Text>
           )}
-          <Text variant="caption" color="grey" align="center" testID="folha-pedido-prazo">
+          <Text
+            variant="caption"
+            color="grey"
+            align="center"
+            accessibilityLiveRegion="none"
+            testID="folha-pedido-prazo"
+          >
             {COPY.expiresIn(formatCountdown(secondsLeft))}
           </Text>
+          <View style={styles.moderation}>
+            <Button
+              variant="link"
+              size="sm"
+              label={REPORT_ACTION}
+              disabled={busy}
+              onPress={onReport}
+              testID="folha-pedido-denunciar"
+            />
+            <Button
+              variant="link"
+              size="sm"
+              label={BLOCK_ACTION}
+              disabled={busy}
+              onPress={onBlock}
+              testID="folha-pedido-bloquear"
+            />
+          </View>
         </View>
       </View>
     </Modal>
@@ -150,4 +248,15 @@ const styles = StyleSheet.create({
   title: { marginTop: theme.space[8] },
   confirm: { maxWidth: 300 },
   actions: { alignSelf: 'stretch', gap: theme.space[8], marginTop: theme.space[12] },
+  readText: { alignItems: 'center', gap: theme.space[4] },
+  // ‹Denunciar› ‹Bloquear›: dois `link sm` centralizados, num grupo à parte (ux.md §11.14).
+  moderation: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    columnGap: theme.space[32],
+    rowGap: theme.space[8],
+    marginTop: theme.space[8],
+  },
 });

@@ -37,14 +37,14 @@ const HELENA = { handle: 'helena', name: 'Helena Souza' };
 const CAIO = { handle: 'caio.r', name: 'Caio Ribeiro' };
 
 function SegmentedBlock() {
-  const [mode, setMode] = useState<'touch' | 'qr'>('touch');
+  const [mode, setMode] = useState<'show' | 'read'>('show');
   return (
     <Block title="SegmentedControl">
-      <Caption>Conectar (D3 revisto): Encostar / QR code</Caption>
+      <Caption>Conectar (ADR 0013): Mostrar meu código / Ler código</Caption>
       <SegmentedControl
         options={[
-          { key: 'touch', label: 'Encostar' },
-          { key: 'qr', label: 'QR code' },
+          { key: 'show', label: 'Mostrar meu código' },
+          { key: 'read', label: 'Ler código' },
         ]}
         value={mode}
         onChange={setMode}
@@ -81,7 +81,7 @@ export function Phase4Components() {
         <PairAvatars left={HELENA} right={CAIO} state="connected" testID="catalog-pair-yes" />
       </Block>
       <Block title="QRCodeCard">
-        <Caption>Meu código (sussurro://c/qrToken), correção de erro M</Caption>
+        <Caption>Meu código (sussurro://c/token, o mesmo do NFC), correção de erro M</Caption>
         <QRCodeCard
           value={proximityQrPayload('AbCdEfGhIjKlMn-_')}
           handle={HELENA.handle}

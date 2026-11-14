@@ -1,124 +1,15 @@
-import { ProximityTokenValueSchema } from '@sussurro/shared';
-
-import { csvLine, localCalibrationToken } from './CalibrationScreen';
 import { COPY, firstName, formatConnectedDate, formatCountdown } from './copy';
 import { isSimulationEnabled } from './dev-tools';
 import { haltReasonFor, isRepeatableFailure } from './errors';
 import { savePendingQrToken, takePendingQrToken } from './pending-qr-link';
 import { connectTiming } from './timing';
+import { nfcRoleOf } from './useConnectSession';
+import { UNAVAILABLE_NFC_CAPABILITIES } from '../../../modules/sussurro-proximity';
 import {
-  capabilityView,
-  type CardPlacement,
-  cardVariantOf,
-  type ConnectView,
-  placeCard,
-} from './useConnectSession';
-import type { TouchCard } from './useTouch';
-import { READY_CAPABILITIES } from '../../../modules/sussurro-proximity/src/fake-radio';
+  IPHONE_NFC_CAPABILITIES,
+  READY_NFC_CAPABILITIES,
+} from '../../../modules/sussurro-proximity/src/fake-nfc';
 import { ApiError, NetworkError } from '../../lib/api/errors';
-import { connectionRequest, nearbyPerson } from '../../test-utils/connect-fixtures';
-
-function touchCard(overrides: Partial<TouchCard> = {}): TouchCard {
-  return {
-    person: nearbyPerson(),
-    matchedAt: 1_000,
-    actionsUntil: 56_000,
-    late: false,
-    canConnect: true,
-    ...overrides,
-  };
-}
-
-const BIA = { handle: 'bia.alves', name: 'Bianca Alves', avatarUrl: null };
-
-describe('Conectar: qual cartão aparece e onde (ux.md §11.15)', () => {
-  it('PROX-70: a ordem de escolha — Bloqueado → 14 → 12 → 21 → 22 → 11', () => {
-    const all = { card: touchCard({ late: true, canConnect: false }), alreadyConnected: true };
-    expect(cardVariantOf(all, { blocked: true, request: true })).toBe('blocked');
-    expect(cardVariantOf(all, { blocked: false, request: true })).toBe('incoming');
-    // O 12, mesmo atrasado ou sem Conectar: o bloqueio e a denúncia dele não dependem do par.
-    expect(cardVariantOf(all, { blocked: false, request: false })).toBe('alreadyConnected');
-    const late = { card: touchCard({ late: true, canConnect: false }), alreadyConnected: false };
-    expect(cardVariantOf(late, { blocked: false, request: false })).toBe('late');
-    const noConnect = { card: touchCard({ canConnect: false }), alreadyConnected: false };
-    expect(cardVariantOf(noConnect, { blocked: false, request: false })).toBe('noConnect');
-    const touched = { card: touchCard(), alreadyConnected: false };
-    expect(cardVariantOf(touched, { blocked: false, request: false })).toBe('touched');
-    // O 14 e o Bloqueado também a partir do 21 e do 22.
-    expect(cardVariantOf(late, { blocked: false, request: true })).toBe('incoming');
-    expect(cardVariantOf(noConnect, { blocked: true, request: false })).toBe('blocked');
-  });
-
-  it.each<[string, ConnectView, boolean, CardPlacement]>([
-    ['Verificando (1)', { kind: 'checking' }, false, 'show'],
-    ['Pronto (6 a 10)', { kind: 'ready' }, false, 'show'],
-    ['explicação do Bluetooth (2)', { kind: 'btExplain' }, false, 'show'],
-    ['Bluetooth negado (3)', { kind: 'btDenied' }, false, 'show'],
-    ['Bluetooth desligado (4)', { kind: 'btOff' }, false, 'show'],
-    ['localização desligada (4b)', { kind: 'btLocationOff' }, false, 'show'],
-    ['EmptyState do Sem suporte (5)', { kind: 'btUnsupported' }, false, 'show'],
-    ['QR com uma leitura em andamento', { kind: 'checking' }, true, 'wait'],
-    [
-      'Aguardando (13) de outra pessoa',
-      { kind: 'waiting', request: connectionRequest({ other: { ...BIA } }) },
-      false,
-      'wait',
-    ],
-    [
-      'Aguardando (13) da mesma pessoa',
-      { kind: 'waiting', request: connectionRequest() },
-      false,
-      'discard',
-    ],
-    [
-      'Não confirmado (16) de outra pessoa',
-      { kind: 'notConfirmed', request: connectionRequest({ other: { ...BIA } }) },
-      false,
-      'wait',
-    ],
-    [
-      'Não confirmado (16) da mesma pessoa',
-      { kind: 'notConfirmed', request: connectionRequest() },
-      false,
-      'discard',
-    ],
-    ['Conectados (15) de outra pessoa', { kind: 'connected', other: BIA, at: 0 }, false, 'wait'],
-    [
-      'Conectados (15) da mesma pessoa',
-      {
-        kind: 'connected',
-        other: { handle: 'caio.r', name: 'Caio Ribeiro', avatarUrl: null },
-        at: 0,
-      },
-      false,
-      'discard',
-    ],
-    [
-      'outro cartão na tela',
-      {
-        kind: 'card',
-        card: touchCard({ person: nearbyPerson({ handle: 'bia.alves', name: 'Bianca Alves' }) }),
-        alreadyConnected: false,
-      },
-      false,
-      'wait',
-    ],
-    [
-      'o cartão da mesma pessoa na tela',
-      { kind: 'card', card: touchCard(), alreadyConnected: false },
-      false,
-      'discard',
-    ],
-  ])('PROX-69: o cartão que chega com %s → %s', (_case, view, reading, expected) => {
-    expect(placeCard(touchCard(), { halted: false, view, reading })).toBe(expected);
-  });
-
-  it('PROX-69: com a tela parada (18 a 20), o cartão é descartado em qualquer estado', () => {
-    for (const view of [{ kind: 'checking' }, { kind: 'ready' }] as const) {
-      expect(placeCard(touchCard(), { halted: true, view, reading: false })).toBe('discard');
-    }
-  });
-});
 
 describe('Conectar: funções auxiliares', () => {
   it('textos: primeiro nome, data do p14 e "Expira em 1:45"', () => {
@@ -142,7 +33,7 @@ describe('Conectar: funções auxiliares', () => {
     expect(haltReasonFor(new ApiError(409, 'ALREADY_CONNECTED', 'x'))).toBeNull();
   });
 
-  it('PROX-68: falha repetível (A3-3 item 2) — sem rede, o prazo e 5xx; 429, 403, 400, 409 e 404 não', () => {
+  it('PROX-68: falha repetível — sem rede, o prazo e 5xx; 429, 403, 400, 409 e 404 não', () => {
     expect(isRepeatableFailure(new NetworkError())).toBe(true);
     expect(isRepeatableFailure(new NetworkError(new Error('Sem resposta em 4000 ms')))).toBe(true);
     expect(isRepeatableFailure(new ApiError(503, 'PROXIMITY_UNAVAILABLE', 'x'))).toBe(true);
@@ -158,88 +49,80 @@ describe('Conectar: funções auxiliares', () => {
     expect(isRepeatableFailure(new Error('schema'))).toBe(false);
   });
 
-  it('ux.md §11.4: o estado de cada combinação de capacidades (2 a 5)', () => {
-    const ready = READY_CAPABILITIES;
-    expect(capabilityView(ready)).toBe('ready');
-    expect(capabilityView({ ...ready, permission: 'undetermined' })).toBe('btExplain');
-    expect(capabilityView({ ...ready, permission: 'denied', canAskAgain: true })).toBe('btExplain');
-    expect(capabilityView({ ...ready, permission: 'undetermined' }, { afterRequest: true })).toBe(
-      'btDenied',
-    );
-    expect(capabilityView({ ...ready, permission: 'denied', canAskAgain: false })).toBe('btDenied');
-    expect(capabilityView({ ...ready, bluetooth: 'off' })).toBe('btOff');
-    expect(capabilityView({ ...ready, locationServices: 'off' })).toBe('btLocationOff');
-    expect(capabilityView({ ...ready, locationServices: 'on' })).toBe('ready');
-    // P6: sem BLE, sem o módulo ou sem anunciar, o encostar não funciona: vai para o QR.
-    expect(capabilityView({ ...ready, canAdvertise: false })).toBe('unsupported');
-    expect(capabilityView({ ...ready, available: false })).toBe('unsupported');
-    expect(capabilityView({ ...ready, bleSupported: false })).toBe('unsupported');
+  it('NFC-03 (ADR 0013 §5): o papel do NFC — Android com HCE emite e lê; iPhone só lê; sem o módulo ou sem NFC, nenhum', () => {
+    expect(nfcRoleOf(READY_NFC_CAPABILITIES)).toBe('emitter');
+    // Desligado continua "emitter": a tela mostra "Ligar NFC".
+    expect(nfcRoleOf({ ...READY_NFC_CAPABILITIES, enabled: false })).toBe('emitter');
+    expect(nfcRoleOf(IPHONE_NFC_CAPABILITIES)).toBe('reader');
+    expect(nfcRoleOf(UNAVAILABLE_NFC_CAPABILITIES)).toBe('none');
+    expect(nfcRoleOf({ ...READY_NFC_CAPABILITIES, supported: false })).toBe('none');
+    expect(nfcRoleOf({ ...READY_NFC_CAPABILITIES, available: false })).toBe('none');
+    expect(nfcRoleOf({ ...READY_NFC_CAPABILITIES, canRead: false, canEmit: false })).toBe('none');
   });
 
-  it('T43, T44 e T45 (aprovados pelo PO em 2026-10-30): a redação exata', () => {
-    expect(COPY.privacyNote).toBe(
-      'Seu nome e sua foto só aparecem quando os dois celulares percebem o encosto, e você vê a outra pessoa na mesma hora.',
-    );
-    expect(COPY.btExplainText).toBe(
-      'O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa. Seu nome e sua foto não passam pelo Bluetooth, e nada é transmitido com o app fechado.',
-    );
-    expect(COPY.acceptFailed('Helena')).toBe(
-      'Não foi possível confirmar agora. Leia o código de Helena de novo.',
-    );
-  });
-
-  it('PROX-70: T47 e T48 (propostos, a aprovar pelo PO, A3-PO-2) — a redação exata da ux.md §11.9', () => {
-    expect(COPY.lateCardText('Caio')).toBe(
-      'O tempo para conectar acabou. Para tentar de novo, toque em Voltar e encoste o seu celular no de Caio.',
-    );
-    expect(COPY.noConnectCardText('Caio')).toBe(
-      'Para conectar, toque em Voltar e encoste de novo o seu celular no de Caio.',
-    );
-  });
-
-  it('T1 a T48: textos sem jargão (sinal, distância, NFC, token, varredura, proximidade)', () => {
+  it('NFC-08: textos novos sem jargão (token, varredura, proximidade, Bluetooth, sinal)', () => {
     const visible = [
       COPY.intro,
-      COPY.modeTouch,
-      COPY.readyTitle,
-      COPY.readyText,
-      COPY.privacyNote,
-      COPY.approachingTitle,
-      COPY.approachingText,
-      COPY.confirmingTitle,
-      COPY.confirmingText,
-      COPY.touchFailed,
-      COPY.nobodyTitle,
-      COPY.nobodyText,
+      COPY.modeShow,
+      COPY.modeRead,
+      COPY.qrHint,
+      COPY.emitHint,
+      COPY.waitingEmitHint('Caio'),
+      COPY.nfcOffTitle,
+      COPY.nfcOffText,
+      COPY.readNfcTitle,
+      COPY.readNfcText,
+      COPY.readIphoneText,
+      COPY.nfcReadFailed,
       COPY.cardCheck,
       COPY.cardExpired('Caio'),
-      COPY.notConfirmedText('ble'),
-      COPY.pausedText,
-      COPY.btExplainText,
-      COPY.btExplainLegacy,
-      COPY.btDeniedText,
-      COPY.btOffText,
-      COPY.locationOffText,
-      COPY.btUnavailableTitle,
-      COPY.unsupportedBanner,
-      COPY.qrExplain,
-      COPY.qrHint,
-      COPY.notSeen('Helena'),
-      COPY.acceptFailed('Helena'),
-      COPY.lateCardText('Caio'),
-      COPY.noConnectCardText('Caio'),
+      COPY.notConfirmedText,
+      COPY.notTheirCode('Helena'),
+      COPY.acceptRead('Helena'),
+      COPY.acceptReadNfc('Helena'),
+      COPY.turnOnNfcHint,
     ];
     for (const text of visible) {
-      expect(text).not.toMatch(/sinal|dist[âa]ncia|NFC|token|varredura|proximidade|an[úu]ncio/i);
+      expect(text).not.toMatch(/sinal|dist[âa]ncia|token|varredura|proximidade|bluetooth/i);
     }
+    // Textos revisados pelo `ux-ui` e aprovados pelo PO (ux.md §11.19, N6 a N24).
+    expect(COPY.emitHint).toBe(
+      'Ou a outra pessoa toca em Ler código e encosta o celular nas costas deste.',
+    );
+    expect(COPY.waitingEmitHint('Caio')).toBe(
+      'Ou Caio toca em Aceitar e encosta o celular nas costas deste.',
+    );
+    expect(COPY.nfcOffText).toBe(
+      'Ligue o NFC para trocar o código encostando os celulares, ou use o QR code.',
+    );
+    expect(COPY.readNfcTitle).toBe('Encoste este celular no outro, costas com costas');
+    expect(COPY.readNfcText).toBe(
+      'O outro celular precisa estar mostrando o código na tela Conectar. Se ele for iPhone, use a câmera.',
+    );
+    expect(COPY.readIphoneText).toBe(
+      'Se o outro celular for Android, toque em Aproximar do outro celular e encoste o topo do seu iPhone nas costas dele. Se for iPhone, use a câmera.',
+    );
+    expect(COPY.readIphoneText).toContain(COPY.nfcTap);
+    expect(COPY.turnOnNfc).toBe('Ligar NFC');
+    expect(COPY.turnOnNfcHint).toBe('Abre os ajustes do celular');
+    expect(COPY.nfcOffTitle).toBe('O NFC está desligado');
+    expect(COPY.nfcTap).toBe('Aproximar do outro celular');
+    expect(COPY.useCamera).toBe('Usar a câmera');
+    expect(COPY.nfcReadFailed).toBe('Não deu para ler o código. Tente de novo ou use a câmera.');
+    expect(COPY.cardExpired('Caio')).toBe('O código de Caio venceu. Leia o código de novo.');
+    expect(COPY.notTheirCode('Helena')).toBe(
+      'Este código não é de Helena ou já venceu. Leia o código na tela de Helena.',
+    );
+    expect(COPY.acceptReadNfc('Helena')).toBe(
+      'Ou encoste este celular no de Helena, costas com costas. Com iPhone, só a câmera funciona.',
+    );
     expect(COPY.connectWith('Caio')).toBe('Conectar com Caio');
     expect(COPY.connectWithLabel('Caio Ribeiro', 'caio.r')).toBe(
       'Conectar com Caio Ribeiro, @caio.r',
     );
-    expect(COPY.readTheirCode).toBe('Ler o código da outra pessoa');
   });
 
-  it('4.11 CA3: as simulações e a calibração só no build de desenvolvimento em modo dev', () => {
+  it('4.11 CA3: as simulações só no build de desenvolvimento em modo dev', () => {
     expect(isSimulationEnabled(true, 'development')).toBe(true);
     expect(isSimulationEnabled(true, 'preview')).toBe(false);
     expect(isSimulationEnabled(true, 'production')).toBe(false);
@@ -256,24 +139,5 @@ describe('Conectar: funções auxiliares', () => {
     savePendingQrToken('CaioTokenBBBBBB1', 1_000);
     expect(takePendingQrToken(1_000 + connectTiming.pendingLinkTtlMs + 1)).toBeNull();
     expect(takePendingQrToken(1_000)).toBeNull();
-  });
-
-  it('calibração (dev): token local bem formado e a linha CSV do Metro', () => {
-    expect(ProximityTokenValueSchema.safeParse(localCalibrationToken()).success).toBe(true);
-    expect(localCalibrationToken(() => 0)).toBe('AAAAAAAAAAAAAAAA');
-    expect(
-      csvLine(
-        1000,
-        { platform: 'android', model: 'Pixel 9' },
-        {
-          token: 'CaioTokenBBBBBB1',
-          state: 'touched',
-          rssi: -30,
-          loss: 30,
-          median: 30.5,
-          samples: 7,
-        },
-      ),
-    ).toBe('prox-csv,1000,android,Pixel 9,CaioTo,-30,30.0,30.5,touched');
   });
 });

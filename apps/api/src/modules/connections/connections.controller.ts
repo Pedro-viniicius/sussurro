@@ -70,7 +70,7 @@ export class ConnectionRequestsController {
     return this.connections.get(auth, id);
   }
 
-  /** `ble`: sem token (ignorado se vier); `qr`: o `qrToken` lido do QR de quem pediu (ADR 0012). */
+  /** `observedToken` obrigatório: o token de quem pediu, lido por QR ou NFC (D7, ADR 0013). */
   @Post(':id/accept')
   @HttpCode(200)
   @RequireAccountType('personal')

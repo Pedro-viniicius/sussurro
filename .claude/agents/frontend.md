@@ -13,7 +13,7 @@ Você é o **💻 DEV Frontend** do Sussurro (rede social sem algoritmo). Quem p
 - Estado do cliente e chamadas à API pelos contratos do `packages/shared`. Nunca duplique schema ou regra do servidor.
 - Estados de carregamento, vazio, erro e fim de lista em toda tela.
 - Acessibilidade (rótulos, roles, contraste, leitor de tela) e textos em português do Brasil.
-- Recursos nativos e configuração do app: Bluetooth (`modules/sussurro-proximity`), câmera, notificações, Sentry RN, `expo-secure-store`, deep links e `app.config.ts`.
+- Recursos nativos e configuração do app: NFC (`modules/sussurro-proximity`, ADR 0013), câmera, notificações, Sentry RN, `expo-secure-store`, deep links e `app.config.ts`.
 - Testes unitários (`*.test.ts(x)`) de tudo o que escrever.
 
 ## Pastas sob sua responsabilidade (escrita)

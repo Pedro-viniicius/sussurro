@@ -174,7 +174,7 @@ describe('ApiClient: prazo da chamada (ADR 0012, A3-3 item 1)', () => {
         fetch,
         tokens: createMemorySessionStore(),
       });
-      const call = client.request('/v1/proximity/touches', {
+      const call = client.request('/v1/proximity/resolve', {
         method: 'POST',
         body: { tokens: ['CaioTokenBBBBBB1'] },
         schema: NoContentSchema,
@@ -219,8 +219,8 @@ describe('ApiClient: prazo da chamada (ADR 0012, A3-3 item 1)', () => {
       await new Promise((resolve) => setTimeout(resolve, 5000));
       return { status: 200, body: fresh };
     });
-    api.on('POST /v1/proximity/touches', unauthorized);
-    const call = client.request('/v1/proximity/touches', {
+    api.on('POST /v1/proximity/resolve', unauthorized);
+    const call = client.request('/v1/proximity/resolve', {
       method: 'POST',
       body: { tokens: ['CaioTokenBBBBBB1'] },
       schema: NoContentSchema,
@@ -230,7 +230,7 @@ describe('ApiClient: prazo da chamada (ADR 0012, A3-3 item 1)', () => {
     await jest.advanceTimersByTimeAsync(4000);
     await rejected;
     await jest.advanceTimersByTimeAsync(2000);
-    expect(api.callsTo('POST /v1/proximity/touches')).toHaveLength(1);
+    expect(api.callsTo('POST /v1/proximity/resolve')).toHaveLength(1);
     await expect(store.getRefreshToken()).resolves.toBe(fresh.refreshToken);
   });
 });

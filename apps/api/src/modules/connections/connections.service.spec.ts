@@ -15,15 +15,11 @@ import { FakeClock } from '../../testing/fake-clock.js';
 import { testEnv } from '../../testing/test-env.js';
 import type { MediaService } from '../media/media.service.js';
 import type { NotificationsService } from '../notifications/notifications.service.js';
-import { type AccessPolicyService, touchRevealParties } from '../policies/access-policy.service.js';
+import type { AccessPolicyService } from '../policies/access-policy.service.js';
 import { hashProximityToken } from '../proximity/proximity-token.js';
-import type {
-  NearbyRow,
-  ProximityRepository,
-  TouchPairRow,
-} from '../proximity/proximity.repository.js';
+import type { NearbyRow, ProximityRepository } from '../proximity/proximity.repository.js';
 import { ProximityService } from '../proximity/proximity.service.js';
-import { MemoryProximityStore, proximityKeys } from '../proximity/proximity.store.js';
+import { MemoryProximityStore } from '../proximity/proximity.store.js';
 import type { ProfileRow } from '../users/profile.mapper.js';
 import type { UsersService } from '../users/users.service.js';
 
@@ -53,8 +49,8 @@ function profile(id: string): ProfileRow {
 }
 
 /**
- * O serviço de conexões com o `ProximityService` de verdade sobre o store em memória (canal, par e
- * validades no `FakeClock`) e o banco dublado: os pedidos ficam num `Map`.
+ * O serviço de conexões com o `ProximityService` de verdade sobre o store em memória (validades
+ * no `FakeClock`) e o banco dublado: os pedidos ficam num `Map`.
  */
 function setup() {
   const clock = new FakeClock();
@@ -72,25 +68,9 @@ function setup() {
         })),
       ),
     ),
-    // (ADR 0012, A3-1) O encosto: as duas contas, pessoais, ativas e sem bloqueio.
-    findTouchPair: vi.fn((viewerId: string, ownerId: string) =>
-      Promise.resolve(
-        [viewerId, ownerId].map((id): TouchPairRow => ({
-          id,
-          handle: HANDLES[id]!,
-          name: HANDLES[id]!,
-          avatarKey: null,
-          personal: true,
-          active: true,
-          connected: false,
-          blocked: false,
-        })),
-      ),
-    ),
   };
   const policy = {
     hideBlockedFor: vi.fn(() => 'filtro-de-bloqueio'),
-    touchRevealParties: vi.fn(touchRevealParties),
     connectionRequestState: vi.fn(() => Promise.resolve('allowed' as const)),
   };
   const media = { signUrl: vi.fn(() => Promise.resolve(null)) };
@@ -120,7 +100,13 @@ function setup() {
     insertPending: vi.fn(
       (
         _tx: unknown,
-        input: { fromId: string; toId: string; method: 'ble' | 'qr'; now: Date; expiresAt: Date },
+        input: {
+          fromId: string;
+          toId: string;
+          method: ConnectionRequestRow['method'];
+          now: Date;
+          expiresAt: Date;
+        },
       ) => {
         sequence += 1;
         const row: ConnectionRequestRow = {
@@ -200,12 +186,10 @@ async function codeOf(promise: Promise<unknown>): Promise<string> {
   return 'ok';
 }
 
-/** A e B com a tela aberta e o encosto mútuo: o par vale 60 s. Devolve os tokens dos dois. */
-async function touched({ proximity }: Setup) {
+/** A e B com a tela aberta. Devolve os tokens dos dois. */
+async function opened({ proximity }: Setup) {
   const a = await proximity.issueToken(viewer(A));
   const b = await proximity.issueToken(viewer(B));
-  await proximity.touches(viewer(A), [b.bleToken]);
-  await proximity.touches(viewer(B), [a.bleToken]);
   return { a, b };
 }
 
@@ -213,302 +197,210 @@ function create(t: Setup, who: string, input: CreateConnectionRequest) {
   return t.service.createRequest(viewer(who), input);
 }
 
-describe('ConnectionsService: pedido por encostar (ADR 0012 §4)', () => {
-  it('[PROX-06] com o par encostado e o bleToken de B: 201 pending, method ble', async () => {
-    const t = setup();
-    const { b } = await touched(t);
-    const result = await create(t, A, { targetToken: b.bleToken, method: 'ble' });
-    expect(result.created).toBe(true);
-    expect(result.request).toMatchObject({
-      direction: 'outgoing',
-      status: 'pending',
-      method: 'ble',
-    });
-    expect(t.failures).not.toHaveBeenCalled();
-  });
+const METHODS = ['qr', 'nfc'] as const;
 
-  it('[PROX-32] sem o par (o bleToken lido do ar, sem encosto mútuo): 400 genérico, contado como falha', async () => {
+describe('ConnectionsService: pedido por QR ou NFC (ADR 0013 §2: as mesmas regras)', () => {
+  it.each(METHODS)(
+    '[PROX-06] [PROX-22] %s: com o token válido de B, 201 pending e o método gravado',
+    async (method) => {
+      const t = setup();
+      const { b } = await opened(t);
+      const result = await create(t, A, { targetToken: b.token, method });
+      expect(result.created).toBe(true);
+      expect(result.request).toMatchObject({ status: 'pending', method, direction: 'outgoing' });
+      expect(t.repository.insertPending).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ method }),
+      );
+    },
+  );
+
+  it.each(METHODS)('[PROX-02] %s: o token só vale até 30 s para pedir', async (method) => {
     const t = setup();
-    await t.proximity.issueToken(viewer(A));
     const b = await t.proximity.issueToken(viewer(B));
-    // Só A relatou: não há par.
-    await t.proximity.touches(viewer(A), [b.bleToken]);
-    expect(await codeOf(create(t, A, { targetToken: b.bleToken, method: 'ble' }))).toBe(
-      ErrorCode.PROXIMITY_TOKEN_INVALID,
-    );
-    expect(t.failures).toHaveBeenCalledTimes(1);
-    expect(t.repository.insertPending).not.toHaveBeenCalled();
-  });
-
-  it('[PROX-39] o token "recente" basta enquanto o par vale (o app só conhece o token do casamento)', async () => {
-    const t = setup();
-    const { b } = await touched(t);
-    t.clock.advance(45_000);
-    await t.proximity.issueToken(viewer(A)); // a tela de A continua aberta
-    expect(await t.proximity.ownerOfValidToken(b.bleToken, 'ble')).toBeNull();
-    const result = await create(t, A, { targetToken: b.bleToken, method: 'ble' });
-    expect(result.request.status).toBe('pending');
-  });
-
-  it('[PROX-39] o par vencido (60 s) devolve o mesmo 400 genérico, contado como falha', async () => {
-    const t = setup();
-    const { b } = await touched(t);
-    t.clock.advance(60_000);
+    t.clock.advance(30_000);
     await t.proximity.issueToken(viewer(A));
-    expect(await codeOf(create(t, A, { targetToken: b.bleToken, method: 'ble' }))).toBe(
+    expect(await codeOf(create(t, A, { targetToken: b.token, method }))).toBe(
       ErrorCode.PROXIMITY_TOKEN_INVALID,
     );
     expect(t.failures).toHaveBeenCalledTimes(1);
   });
 
-  it('[PROX-39] token de outra pessoa (C), com o par A–B valendo: 400 genérico (o par é do dono do token)', async () => {
-    const t = setup();
-    await touched(t);
-    const c = await t.proximity.issueToken(viewer(C));
-    expect(await codeOf(create(t, A, { targetToken: c.bleToken, method: 'ble' }))).toBe(
-      ErrorCode.PROXIMITY_TOKEN_INVALID,
-    );
-    expect(t.failures).toHaveBeenCalledTimes(1);
-  });
-
-  it('[PROX-39] [PROX-40] canal trocado: o qrToken no pedido ble e o bleToken no pedido qr dão 400 genérico, contado como falha', async () => {
-    const t = setup();
-    const { b } = await touched(t);
-    expect(await codeOf(create(t, A, { targetToken: b.qrToken, method: 'ble' }))).toBe(
-      ErrorCode.PROXIMITY_TOKEN_INVALID,
-    );
-    expect(await codeOf(create(t, A, { targetToken: b.bleToken, method: 'qr' }))).toBe(
-      ErrorCode.PROXIMITY_TOKEN_INVALID,
-    );
-    expect(t.failures).toHaveBeenCalledTimes(2);
-    expect(t.repository.insertPending).not.toHaveBeenCalled();
-  });
-
-  it('[PROX-07] o próprio token no canal certo: CANNOT_CONNECT_SELF; no canal trocado, o 400 genérico', async () => {
-    const t = setup();
-    const { a } = await touched(t);
-    expect(await codeOf(create(t, A, { targetToken: a.bleToken, method: 'ble' }))).toBe(
-      ErrorCode.CANNOT_CONNECT_SELF,
-    );
-    expect(await codeOf(create(t, A, { targetToken: a.qrToken, method: 'qr' }))).toBe(
-      ErrorCode.CANNOT_CONNECT_SELF,
-    );
-    expect(await codeOf(create(t, A, { targetToken: a.qrToken, method: 'ble' }))).toBe(
-      ErrorCode.PROXIMITY_TOKEN_INVALID,
-    );
-    expect(t.failures).toHaveBeenCalledTimes(1);
-  });
+  it.each(METHODS)(
+    '[PROX-07] %s: o próprio token → CANNOT_CONNECT_SELF; inexistente → 400 genérico',
+    async (method) => {
+      const t = setup();
+      const { a } = await opened(t);
+      expect(await codeOf(create(t, A, { targetToken: a.token, method }))).toBe(
+        ErrorCode.CANNOT_CONNECT_SELF,
+      );
+      expect(await codeOf(create(t, A, { targetToken: UNKNOWN, method }))).toBe(
+        ErrorCode.PROXIMITY_TOKEN_INVALID,
+      );
+    },
+  );
 
   it('[PROX-04] pedido sem a tela aberta de quem pede: 409', async () => {
     const t = setup();
-    const { b } = await touched(t);
-    t.clock.advance(30_000);
-    expect(await codeOf(create(t, A, { targetToken: b.bleToken, method: 'ble' }))).toBe(
+    const b = await t.proximity.issueToken(viewer(B));
+    expect(await codeOf(create(t, A, { targetToken: b.token, method: 'nfc' }))).toBe(
       ErrorCode.PROXIMITY_SCREEN_CLOSED,
     );
   });
 
-  it('[PROX-13] os dois tocam em Conectar: o segundo pedido vira conexão na hora (P5)', async () => {
+  it('[PROX-13] os dois tocam em Conectar: o segundo pedido vira conexão na hora, com o método do primeiro', async () => {
     const t = setup();
-    const { a, b } = await touched(t);
-    await create(t, A, { targetToken: b.bleToken, method: 'ble' });
-    const second = await create(t, B, { targetToken: a.bleToken, method: 'ble' });
-    expect(second.created).toBe(false);
-    expect(second.request).toMatchObject({ status: 'accepted', method: 'ble' });
-    expect(t.repository.insertConnection).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('ConnectionsService: pedido por QR (D7, ADR 0012 §5)', () => {
-  it('[PROX-06] com o qrToken válido de B (sem par): 201 pending, method qr', async () => {
-    const t = setup();
-    await t.proximity.issueToken(viewer(A));
-    const b = await t.proximity.issueToken(viewer(B));
-    const result = await create(t, A, { targetToken: b.qrToken, method: 'qr' });
-    expect(result.request).toMatchObject({ status: 'pending', method: 'qr' });
-  });
-
-  it('[PROX-02] o qrToken só vale até 30 s para pedir', async () => {
-    const t = setup();
-    const b = await t.proximity.issueToken(viewer(B));
-    t.clock.advance(30_000);
-    await t.proximity.issueToken(viewer(A));
-    expect(await codeOf(create(t, A, { targetToken: b.qrToken, method: 'qr' }))).toBe(
-      ErrorCode.PROXIMITY_TOKEN_INVALID,
+    const { a, b } = await opened(t);
+    await create(t, A, { targetToken: b.token, method: 'nfc' });
+    const second = await create(t, B, { targetToken: a.token, method: 'qr' });
+    expect(second.request).toMatchObject({ status: 'accepted', method: 'nfc' });
+    expect(t.repository.insertConnection).toHaveBeenCalledWith(
+      expect.anything(),
+      B,
+      A,
+      expect.objectContaining({ method: 'nfc' }),
     );
   });
 });
 
-describe('ConnectionsService: aceite por método (ADR 0012 §4)', () => {
-  async function pending(t: Setup, method: 'ble' | 'qr') {
-    const { a, b } = await touched(t);
-    const { request } = await create(t, A, {
-      targetToken: method === 'ble' ? b.bleToken : b.qrToken,
-      method,
-    });
+describe('ConnectionsService: aceite com leitura cruzada nos dois métodos (D7, ADR 0013 §2)', () => {
+  async function pending(t: Setup, method: 'qr' | 'nfc') {
+    const { a, b } = await opened(t);
+    const { request } = await create(t, A, { targetToken: b.token, method });
     return { a, b, id: request.id };
   }
 
-  it('[PROX-09] ble: B aceita sem token e fica conectado', async () => {
+  it.each(METHODS)('[PROX-09] %s: com o token de A lido por B → conectado', async (method) => {
     const t = setup();
-    const { id } = await pending(t, 'ble');
-    const accepted = await t.service.accept(viewer(B), id, undefined);
-    expect(accepted).toMatchObject({ direction: 'incoming', status: 'accepted', method: 'ble' });
-    expect(t.repository.insertConnection).toHaveBeenCalledTimes(1);
+    const { a, id } = await pending(t, method);
+    const accepted = await t.service.accept(viewer(B), id, a.token);
+    expect(accepted).toMatchObject({ direction: 'incoming', status: 'accepted', method });
+    expect(t.repository.insertConnection).toHaveBeenCalledWith(
+      expect.anything(),
+      A,
+      B,
+      expect.objectContaining({ method }),
+    );
   });
 
-  it('[PROX-09] ble: o observedToken, se vier, é ignorado (nem conta como falha)', async () => {
-    const t = setup();
-    const { id } = await pending(t, 'ble');
-    const accepted = await t.service.accept(viewer(B), id, UNKNOWN);
-    expect(accepted.status).toBe('accepted');
-    expect(t.failures).not.toHaveBeenCalled();
-  });
+  it.each(METHODS)(
+    '[PROX-41] %s: token de outra pessoa (C) ou inexistente → 400 genérico, contado como falha; o pedido segue pendente',
+    async (method) => {
+      const t = setup();
+      const { a, id } = await pending(t, method);
+      const c = await t.proximity.issueToken(viewer(C));
+      await t.proximity.issueToken(viewer(B));
+      for (const wrong of [c.token, UNKNOWN]) {
+        expect(await codeOf(t.service.accept(viewer(B), id, wrong))).toBe(
+          ErrorCode.PROXIMITY_TOKEN_INVALID,
+        );
+      }
+      expect(t.failures).toHaveBeenCalledTimes(2);
+      expect(t.requests.get(id)?.status).toBe('pending');
+      expect(t.repository.insertConnection).not.toHaveBeenCalled();
+      expect((await t.service.accept(viewer(B), id, a.token)).status).toBe('accepted');
+    },
+  );
 
-  it('[PROX-10] ble: o aceite continua exigindo a tela aberta de B', async () => {
+  it.each(METHODS)(
+    '[PROX-03] %s: o token de A ainda confirma até 120 s depois de emitido; depois, 400 genérico',
+    async (method) => {
+      const t = setup();
+      const { a, id } = await pending(t, method);
+      t.clock.advance(100_000);
+      await t.proximity.issueToken(viewer(B));
+      expect((await t.service.accept(viewer(B), id, a.token)).status).toBe('accepted');
+
+      // O token de A foi emitido 20 s antes do pedido: vence (120 s) antes do pedido (140 s).
+      const late = setup();
+      const old = await late.proximity.issueToken(viewer(A));
+      late.clock.advance(20_000);
+      await late.proximity.issueToken(viewer(A));
+      const b = await late.proximity.issueToken(viewer(B));
+      const { request } = await create(late, A, { targetToken: b.token, method });
+      late.clock.advance(99_000);
+      await late.proximity.issueToken(viewer(B));
+      late.clock.advance(1_000);
+      expect(await codeOf(late.service.accept(viewer(B), request.id, old.token))).toBe(
+        ErrorCode.PROXIMITY_TOKEN_INVALID,
+      );
+      expect(late.requests.get(request.id)?.status).toBe('pending');
+    },
+  );
+
+  it('[PROX-10] o aceite exige a tela aberta de B', async () => {
     const t = setup();
-    const { id } = await pending(t, 'ble');
+    const { a, id } = await pending(t, 'nfc');
     t.clock.advance(30_000);
-    expect(await codeOf(t.service.accept(viewer(B), id, undefined))).toBe(
+    expect(await codeOf(t.service.accept(viewer(B), id, a.token))).toBe(
       ErrorCode.PROXIMITY_SCREEN_CLOSED,
     );
   });
 
-  it('[PROX-41] ble: o aceite não depende do par (P4): com o par vencido, ainda aceita dentro dos 120 s do pedido', async () => {
+  it('[PROX-12] terceiro ou quem pediu aceitando: o 404 de inexistente', async () => {
     const t = setup();
-    const { id } = await pending(t, 'ble');
-    t.clock.advance(90_000);
-    await t.proximity.issueToken(viewer(B));
-    expect(await t.proximity.hasTouchPair(A, B)).toBe(false);
-    expect((await t.service.accept(viewer(B), id, undefined)).status).toBe('accepted');
-  });
-
-  it('[PROX-09] qr: sem observedToken → 400 VALIDATION_ERROR, sem contar falha, e o pedido segue pendente', async () => {
-    const t = setup();
-    const { id } = await pending(t, 'qr');
-    expect(await codeOf(t.service.accept(viewer(B), id, undefined))).toBe(
-      ErrorCode.VALIDATION_ERROR,
-    );
-    expect(t.failures).not.toHaveBeenCalled();
-    expect(t.requests.get(id)?.status).toBe('pending');
-  });
-
-  it('[PROX-09] qr: com o qrToken de A lido do QR → conectado', async () => {
-    const t = setup();
-    const { a, id } = await pending(t, 'qr');
-    expect((await t.service.accept(viewer(B), id, a.qrToken)).status).toBe('accepted');
-  });
-
-  it('[PROX-03] qr: o qrToken de A ainda confirma até 120 s; depois, 400 genérico', async () => {
-    const t = setup();
-    const { a, id } = await pending(t, 'qr');
-    t.clock.advance(100_000);
-    await t.proximity.issueToken(viewer(B));
-    expect((await t.service.accept(viewer(B), id, a.qrToken)).status).toBe('accepted');
-
-    // O token de A foi emitido 20 s antes do pedido: vence (120 s) antes do pedido (140 s).
-    const late = setup();
-    const old = await late.proximity.issueToken(viewer(A));
-    late.clock.advance(20_000);
-    await late.proximity.issueToken(viewer(A));
-    const b = await late.proximity.issueToken(viewer(B));
-    const { request } = await create(late, A, { targetToken: b.qrToken, method: 'qr' });
-    late.clock.advance(99_000);
-    await late.proximity.issueToken(viewer(B));
-    late.clock.advance(1_000);
-    expect(await codeOf(late.service.accept(viewer(B), request.id, old.qrToken))).toBe(
-      ErrorCode.PROXIMITY_TOKEN_INVALID,
-    );
-    expect(late.requests.get(request.id)?.status).toBe('pending');
-  });
-
-  it('[PROX-41] qr: o bleToken de A (canal trocado) ou o qrToken de C → 400 genérico, contado como falha; o pedido segue pendente', async () => {
-    const t = setup();
-    const { a, id } = await pending(t, 'qr');
-    const c = await t.proximity.issueToken(viewer(C));
-    expect(await codeOf(t.service.accept(viewer(B), id, a.bleToken))).toBe(
-      ErrorCode.PROXIMITY_TOKEN_INVALID,
-    );
-    expect(await codeOf(t.service.accept(viewer(B), id, c.qrToken))).toBe(
-      ErrorCode.PROXIMITY_TOKEN_INVALID,
-    );
-    expect(t.failures).toHaveBeenCalledTimes(2);
-    expect(t.requests.get(id)?.status).toBe('pending');
-    expect(t.repository.insertConnection).not.toHaveBeenCalled();
-    expect((await t.service.accept(viewer(B), id, a.qrToken)).status).toBe('accepted');
-  });
-
-  it('[PROX-12] terceiro aceitando um pedido qr sem token: o 404 de inexistente (não descobre o método)', async () => {
-    const t = setup();
-    const { id } = await pending(t, 'qr');
+    const { a, id } = await pending(t, 'nfc');
     await t.proximity.issueToken(viewer(C));
-    expect(await codeOf(t.service.accept(viewer(C), id, undefined))).toBe(ErrorCode.NOT_FOUND);
-    // E quem pediu também não aceita o próprio pedido.
-    expect(await codeOf(t.service.accept(viewer(A), id, undefined))).toBe(ErrorCode.NOT_FOUND);
+    expect(await codeOf(t.service.accept(viewer(C), id, a.token))).toBe(ErrorCode.NOT_FOUND);
+    expect(await codeOf(t.service.accept(viewer(A), id, a.token))).toBe(ErrorCode.NOT_FOUND);
   });
 
-  it('[PROX-11] aceitar de novo devolve o mesmo resultado (ble sem token)', async () => {
+  it('[PROX-11] aceitar de novo devolve o mesmo resultado', async () => {
     const t = setup();
-    const { id } = await pending(t, 'ble');
-    const first = await t.service.accept(viewer(B), id, undefined);
-    expect(await t.service.accept(viewer(B), id, undefined)).toEqual(first);
+    const { a, id } = await pending(t, 'qr');
+    const first = await t.service.accept(viewer(B), id, a.token);
+    expect(await t.service.accept(viewer(B), id, a.token)).toEqual(first);
     expect(t.repository.insertConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it('[PROX-22] pedido antigo `ble` (ADR 0012, histórico): sai como `nfc`, exige o token e a conexão nasce `nfc`', async () => {
+    const t = setup();
+    const { a, id } = await pending(t, 'qr');
+    t.requests.get(id)!.method = 'ble';
+    expect((await t.service.get(viewer(B), id)).method).toBe('nfc');
+    const accepted = await t.service.accept(viewer(B), id, a.token);
+    expect(accepted.method).toBe('nfc');
+    expect(t.repository.insertConnection).toHaveBeenCalledWith(
+      expect.anything(),
+      A,
+      B,
+      expect.objectContaining({ method: 'nfc' }),
+    );
   });
 });
 
-describe('ConnectionsService: simulação em desenvolvimento (D15, ADR 0012 §7)', () => {
-  it('[PROX-30] [PROX-42] simulate-request ble: grava o par da persona e devolve o qrToken dela', async () => {
+describe('ConnectionsService: simulação em desenvolvimento (D15)', () => {
+  it('[PROX-30] [PROX-42] simulate-request sem método: `qr`, e devolve o token da persona, que aceita o pedido', async () => {
     const t = setup();
     await t.proximity.issueToken(viewer(A));
     const result = await t.service.simulateIncoming(viewer(A), 'lucasf', undefined);
     expect(result.request).toMatchObject({
       direction: 'incoming',
-      method: 'ble',
+      method: 'qr',
       status: 'pending',
     });
     expect(ProximityTokenValueSchema.safeParse(result.observedToken).success).toBe(true);
     expect(await t.store.findValid([hashProximityToken(result.observedToken)])).toEqual([
-      expect.objectContaining({ userId: B, channel: 'qr' }),
+      expect.objectContaining({ userId: B }),
     ]);
-    expect(await t.proximity.hasTouchPair(A, B)).toBe(true);
-    // O aceite ble dispensa o token.
-    expect((await t.service.accept(viewer(A), result.request.id, undefined)).status).toBe(
-      'accepted',
-    );
-  });
-
-  it('[PROX-30] simulate-request qr: sem par; o qrToken devolvido aceita o pedido', async () => {
-    const t = setup();
-    await t.proximity.issueToken(viewer(A));
-    const result = await t.service.simulateIncoming(viewer(A), 'lucasf', 'qr');
-    expect(result.request.method).toBe('qr');
-    expect(await t.proximity.hasTouchPair(A, B)).toBe(false);
     expect(
       (await t.service.accept(viewer(A), result.request.id, result.observedToken)).status,
     ).toBe('accepted');
   });
 
-  it('[PROX-42] simulate-touch: grava a observação da persona e devolve o bleToken; o relato da conta fecha o casamento', async () => {
+  it('[PROX-30] simulate-request nfc: o pedido sai com o método nfc', async () => {
     const t = setup();
     await t.proximity.issueToken(viewer(A));
-    const { bleToken } = await t.service.simulateTouch(viewer(A), '@lucasf');
-    expect(await t.store.findValid([hashProximityToken(bleToken)])).toEqual([
-      expect.objectContaining({ userId: B, channel: 'ble' }),
-    ]);
-    expect(t.store.entries().map((entry) => entry.key)).toContain(proximityKeys.touch(B, A));
-    const card = await t.proximity.touches(viewer(A), [bleToken]);
-    expect(card.items).toEqual([expect.objectContaining({ token: bleToken, handle: 'lucasf' })]);
-    // Com o par, a conta pode tocar em "Conectar" com a persona.
-    const request = await create(t, A, { targetToken: bleToken, method: 'ble' });
-    expect(request.request.status).toBe('pending');
+    const result = await t.service.simulateIncoming(viewer(A), 'lucasf', 'nfc');
+    expect(result.request.method).toBe('nfc');
   });
 
-  it('[PROX-42] simulate-touch: persona fora da lista → 400; a própria conta → CANNOT_CONNECT_SELF', async () => {
+  it('[PROX-42] simulate-request: persona fora da lista → 400; a própria conta → CANNOT_CONNECT_SELF', async () => {
     const t = setup();
-    expect(await codeOf(t.service.simulateTouch(viewer(A), 'caio'))).toBe(
+    expect(await codeOf(t.service.simulateIncoming(viewer(A), 'caio', undefined))).toBe(
       ErrorCode.VALIDATION_ERROR,
     );
-    expect(await codeOf(t.service.simulateTouch(viewer(B), undefined))).toBe(
+    expect(await codeOf(t.service.simulateIncoming(viewer(B), undefined, undefined))).toBe(
       ErrorCode.CANNOT_CONNECT_SELF,
     );
   });

@@ -76,7 +76,7 @@ O `.editorconfig` leva `end_of_line = lf`, e o Prettier, `endOfLine: "lf"`. Moti
 |---|---|---|
 | Instalação | Nenhuma. Instala o APK pelo link ou QR do EAS. | ~10 a 15 GB (SDK, imagens, Gradle) e configuração de JDK e `ANDROID_HOME`. |
 | RAM | Zero no PC. | O emulador sozinho usa 2 a 4 GB. **Com 7,7 GB de RAM, junto com Docker, Metro e VS Code, fica inviável.** |
-| BLE (Fase 4) | Funciona. | **Não funciona** (emulador não tem BLE real). |
+| NFC do Conectar (Fase 4e, ADR 0013; antes BLE) | Funciona (reader mode e HCE). | **Não funciona** (emulador não tem NFC real). |
 | Câmera/QR, push | Real. | Câmera simulada. Push só com imagem Google Play. |
 | Ciclo | Novo build só quando muda código nativo (~10 a 30 min na fila Free). Mudanças em JS chegam na hora pelo Metro. | Build local mais rápido, mas exige toda a toolchain nativa. |
 | Custo | Consome 1 dos 15 builds Android grátis por mês. | Grátis. |
@@ -395,7 +395,7 @@ Notas:
 
 Excedente: Android US$ 1 a 2 e iOS US$ 2 a 4 por build. No Free, ao fim da cota, os builds param até o dia 1º do mês seguinte.
 
-Consumo previsto: a Fase 0 usa ~2 iOS + ~2 Android. Fases sem código nativo novo quase não consomem, porque o JS vem do Metro. **A Fase 4 (módulo BLE próprio em Swift/Kotlin) pode passar de 15 builds por plataforma:** aí vale o Starter por um ou dois meses. `eas build --local` não roda no Windows. Para Android, roda dentro do WSL/Ubuntu, mas isso exige SDK e JDK no Linux e só compensa se a cota apertar.
+Consumo previsto: a Fase 0 usa ~2 iOS + ~2 Android. Fases sem código nativo novo quase não consomem, porque o JS vem do Metro. **A Fase 4 (módulo nativo próprio em Swift/Kotlin: BLE na origem, NFC desde a Fase 4e, ADR 0013) pode passar de 15 builds por plataforma:** aí vale o Starter por um ou dois meses. `eas build --local` não roda no Windows. Para Android, roda dentro do WSL/Ubuntu, mas isso exige SDK e JDK no Linux e só compensa se a cota apertar.
 
 ### 5.4 Como o celular alcança a API local
 
@@ -692,7 +692,7 @@ Outros cortes possíveis, não recomendados: tirar o ElastiCache (o Redis é cen
 | I1 | **7,7 GB de RAM** na máquina de dev (Docker + Metro + VS Code + navegador) | `.wslconfig` com 3 GB. Emuladores leves (opção B). Sem emulador Android. |
 | I2 | Imagem do EAS ainda não suportar o Node 26 | Smoke test da Fase 0. Fallback para o Node 24 (ADR 0001). |
 | I3 | Emuladores (ElasticMQ/SeaweedFS) divergirem da AWS em presign ou headers | Spike da Fase 0 com os mesmos testes. Plano B: LocalStack Base. Teste de fumaça contra a AWS real só depois do apply. |
-| I4 | Cota Free do EAS estourar na Fase 4 (BLE nativo) | Starter (US$ 19) por 1 ou 2 meses, ou build local Android no WSL. |
+| I4 | Cota Free do EAS estourar na Fase 4 (módulo nativo de proximidade: NFC desde a Fase 4e) | Starter (US$ 19) por 1 ou 2 meses, ou build local Android no WSL. |
 | I5 | Celular sem acesso à API local (isolamento de rede, IP mudando, ATS) | Reserva DHCP, regras de firewall e túnel HTTPS como plano B. |
 | I6 | Custo do CDN com vídeo | Plano flat-rate, limites de reel, budget específico. |
 | I7 | Repositório privado no GitHub Free sem branch protection | Pro (US$ 4) ou repositório público. Veja a pergunta P2. |

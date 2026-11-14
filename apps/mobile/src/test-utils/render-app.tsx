@@ -5,9 +5,9 @@ import { renderRouter } from 'expo-router/testing-library';
 import { BASE_URL, createFakeApi, type FakeApi, tokenPair } from './fake-api';
 import { createFakeMedia, type FakeMedia } from './fake-media';
 import { createFakePush, type FakePush } from './fake-push';
-import { createFakeRadio, type FakeRadio } from '../../modules/sussurro-proximity/src/fake-radio';
+import { createFakeNfc, type FakeNfc } from '../../modules/sussurro-proximity/src/fake-nfc';
 import { AuthProvider } from '../features/auth/AuthProvider';
-import { RadioProvider } from '../features/connect/RadioProvider';
+import { NfcProvider } from '../features/connect/NfcProvider';
 import { RootNavigator } from '../features/navigation/RootNavigator';
 import { ApiClient } from '../lib/api/client';
 import { MediaProvider } from '../lib/media/MediaProvider';
@@ -22,8 +22,8 @@ export interface RenderAppOptions {
   configure?: (api: FakeApi) => void;
   /** Seletor de fotos e S3 falsos (padrão: um novo, vazio). */
   media?: FakeMedia;
-  /** Rádio BLE falso (padrão: um novo, com Bluetooth ligado e permitido). */
-  radio?: FakeRadio;
+  /** NFC falso (padrão: um Android com o NFC ligado, que emite e lê). */
+  nfc?: FakeNfc;
   /** Notificações do aparelho falsas (padrão: permissão ainda não pedida, nada guardado). */
   push?: FakePush;
 }
@@ -43,7 +43,7 @@ export async function renderApp({
   signedInAs,
   configure,
   media = createFakeMedia(),
-  radio = createFakeRadio(),
+  nfc = createFakeNfc(),
   push = createFakePush(),
 }: RenderAppOptions = {}) {
   const api = createFakeApi();
@@ -72,13 +72,13 @@ export async function renderApp({
       <UiPreferencesProvider reduceMotion>
         <ToastProvider>
           <MediaProvider value={media.ports}>
-            <RadioProvider value={radio}>
+            <NfcProvider value={nfc}>
               <PushProvider value={push.ports}>
                 <AuthProvider api={client} store={store}>
                   <RootNavigator />
                 </AuthProvider>
               </PushProvider>
-            </RadioProvider>
+            </NfcProvider>
           </MediaProvider>
         </ToastProvider>
       </UiPreferencesProvider>
@@ -89,5 +89,5 @@ export async function renderApp({
     { appDir: APP_DIR, overrides: { _layout: TestRoot } },
     { initialUrl },
   );
-  return { ...result, api, client, store, media, radio, push };
+  return { ...result, api, client, store, media, nfc, push };
 }

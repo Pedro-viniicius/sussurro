@@ -20,15 +20,14 @@ export function haltReasonFor(error: unknown): HaltReason | null {
 }
 
 /**
- * Falha repetível (ADR 0012, A3-3 item 2): sem resposta (`NetworkError`, inclusive o prazo do relato)
- * ou 5xx (o 503 do Valkey fora, inclusive). O relato do encosto e a renovação dos tokens tentam de
- * novo antes de parar a tela. O resto (429, 403, 400…) para na hora, como antes.
+ * Falha repetível: sem resposta (`NetworkError`) ou 5xx (o 503 do Valkey fora, inclusive). A
+ * renovação do token tenta de novo antes de parar a tela. O resto (429, 403, 400…) para na hora.
  */
 export function isRepeatableFailure(error: unknown): boolean {
   return error instanceof NetworkError || (error instanceof ApiError && error.status >= 500);
 }
 
-/** Código de erro do módulo nativo (`ERR_BLUETOOTH_UNAVAILABLE`, …), se houver. */
+/** Código de erro do módulo nativo (`ERR_NFC_DISABLED`, …), se houver. */
 export function nativeErrorCode(error: unknown): string | null {
   if (
     typeof error === 'object' &&

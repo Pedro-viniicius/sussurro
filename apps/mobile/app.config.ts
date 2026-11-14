@@ -19,9 +19,8 @@ const BRAND_BLUE = '#0066FF';
  * Texto do pedido de acesso às fotos (iOS). O app usa o seletor do sistema (PHPicker / Photo Picker),
  * também para os vídeos dos reels (Fase 5), que não pede acesso à biblioteca inteira; a chave fica no
  * Info.plist porque o módulo a referencia.
- * O microfone não é usado: os plugins removem a chave e bloqueiam a permissão no Android. A
- * localização só existe no Android ≤ 11, exigida pelo sistema para a varredura de Bluetooth (ver o
- * plugin do sussurro-proximity); as fotos saem sem GPS (MID-05).
+ * O microfone não é usado: os plugins removem a chave e bloqueiam a permissão no Android. O app não
+ * pede localização (o Conectar usa NFC e QR code, ADR 0013); as fotos saem sem GPS (MID-05).
  */
 export const PHOTOS_PERMISSION_TEXT =
   'O Sussurro abre as fotos e os vídeos que você escolher para publicar ou usar como foto de perfil. A localização das fotos é removida antes de publicar.';
@@ -42,7 +41,7 @@ export const VIDEO_PLUGIN_OPTIONS = {
   supportsPictureInPicture: false,
 } as const;
 
-/** Config plugin do módulo local de Bluetooth (permissões, 4.3 CA5). */
+/** Config plugin do módulo local de NFC (ADR 0013 §4: HCE, leitura NDEF e o deep link da tag). */
 export const PROXIMITY_PLUGIN = './modules/sussurro-proximity/app.plugin.js';
 
 /**

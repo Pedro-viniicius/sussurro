@@ -9,8 +9,7 @@ import { createMemorySessionStore } from '../../lib/session/secure-session-store
 import {
   apiError,
   configureConnect,
-  MY_BLE_TOKENS,
-  MY_QR_TOKENS,
+  MY_TOKENS,
   proximityToken,
 } from '../../test-utils/connect-fixtures';
 import { BASE_URL, createFakeApi, type FakeApi, type FakeReply } from '../../test-utils/fake-api';
@@ -64,8 +63,8 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-describe('tokens de proximidade (4.2, ADR 0012 §1)', () => {
-  it('4.2 CA3: pede os dois tokens ao abrir e renova a cada 20 s (renewInS), sem esperar vencer', async () => {
+describe('token de proximidade (4.2, ADR 0013 §1)', () => {
+  it('4.2 CA3: pede o token ao abrir e renova a cada 20 s (renewInS), sem esperar vencer', async () => {
     const api = createFakeApi();
     configureConnect(api);
     const onError = jest.fn();
@@ -73,26 +72,20 @@ describe('tokens de proximidade (4.2, ADR 0012 §1)', () => {
     const { result } = await renderHook(() => useProximityToken(http, true, onError));
     await advance(0);
     expect(api.callsTo('POST /v1/proximity/tokens')).toHaveLength(1);
-    // Um por canal: o bleToken vai no anúncio; o qrToken, no QR.
-    expect(result.current.tokens).toEqual({
-      bleToken: MY_BLE_TOKENS[0],
-      qrToken: MY_QR_TOKENS[0],
-    });
+    // Um token só: o mesmo no QR e no NFC.
+    expect(result.current.token).toBe(MY_TOKENS[0]);
 
     await advance(19_999);
     expect(api.callsTo('POST /v1/proximity/tokens')).toHaveLength(1);
     // Os anteriores continuam até os novos chegarem (o QR e o anúncio nunca ficam vazios).
-    expect(result.current.tokens?.bleToken).toBe(MY_BLE_TOKENS[0]);
+    expect(result.current.token).toBe(MY_TOKENS[0]);
 
     await advance(1);
     expect(api.callsTo('POST /v1/proximity/tokens')).toHaveLength(2);
-    expect(result.current.tokens).toEqual({
-      bleToken: MY_BLE_TOKENS[1],
-      qrToken: MY_QR_TOKENS[1],
-    });
+    expect(result.current.token).toBe(MY_TOKENS[1]);
 
     await advance(20_000);
-    expect(result.current.tokens?.qrToken).toBe(MY_QR_TOKENS[2]);
+    expect(result.current.token).toBe(MY_TOKENS[2]);
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -145,9 +138,9 @@ describe('tokens de proximidade (4.2, ADR 0012 §1)', () => {
       const { result } = await renderHook(() => useProximityToken(http, true, onError));
       await advance(0);
       await advance(20_000);
-      // A renovação dos 20 s falhou: os tokens de antes continuam (valem até os 30 s).
+      // A renovação dos 20 s falhou: o token de antes continua (valem até os 30 s).
       expect(calls).toBe(2);
-      expect(result.current.tokens?.bleToken).toBe(MY_BLE_TOKENS[0]);
+      expect(result.current.token).toBe(MY_TOKENS[0]);
       await advance(3000);
       expect(calls).toBe(3);
       await advance(3000);
@@ -179,7 +172,7 @@ describe('tokens de proximidade (4.2, ADR 0012 §1)', () => {
     await advance(0);
     await advance(26_000);
     expect(calls).toBe(4);
-    expect(result.current.tokens?.bleToken).toBe(MY_BLE_TOKENS[2]);
+    expect(result.current.token).toBe(MY_TOKENS[2]);
     await advance(40_000);
     expect(calls).toBe(6);
     await advance(20_000 + 9000 - 1);
@@ -294,7 +287,7 @@ describe('tokens de proximidade (4.2, ADR 0012 §1)', () => {
 
   it.each([
     ['429 na renovação', 2, apiError(429, 'RATE_LIMITED')],
-    ['sem rede no 1º pedido da visita (sem tokens ainda)', 1, 'offline'],
+    ['sem rede no 1º pedido da visita (sem token ainda)', 1, 'offline'],
     ['503 no 1º pedido da visita', 1, apiError(503, 'PROXIMITY_UNAVAILABLE')],
   ] as const)('PROX-68: %s para na hora, sem tentar de novo', async (_case, failingCall, reply) => {
     const api = createFakeApi();
@@ -314,7 +307,7 @@ describe('tokens de proximidade (4.2, ADR 0012 §1)', () => {
     expect(calls).toBe(failingCall);
   });
 
-  it('refresh: pede os tokens fora do ciclo (depois de um 409 de tela fechada)', async () => {
+  it('refresh: pede o token fora do ciclo (depois de um 409 de tela fechada)', async () => {
     const api = createFakeApi();
     configureConnect(api);
     const http = client(api);
@@ -324,6 +317,6 @@ describe('tokens de proximidade (4.2, ADR 0012 §1)', () => {
       await result.current.refresh();
     });
     expect(api.callsTo('POST /v1/proximity/tokens')).toHaveLength(2);
-    expect(result.current.tokens?.bleToken).toBe(MY_BLE_TOKENS[1]);
+    expect(result.current.token).toBe(MY_TOKENS[1]);
   });
 });

@@ -1,378 +1,180 @@
-import CoreBluetooth
+import CoreNFC
 import ExpoModulesCore
-import UIKit
 
-// Módulo `sussurro-proximity` (ADR 0002; ADR 0012, "Conectar encostando"): anuncia um único UUID
-// de serviço de 128 bits (prefixo "SUSS" + 12 bytes do bleToken efêmero) e varre os UUIDs com o
-// mesmo prefixo. Sem nome local, sem conexão GATT e só com o app em primeiro plano: ao ir para o
-// background, para tudo. A conversão token <-> UUID fica no TypeScript (`@sussurro/shared`), e os
-// limiares do encosto ficam no app (`touch-calibration.ts`). O iOS não deixa escolher a potência
-// nem pôr o campo TX Power no anúncio (o `CBPeripheralManager` só aceita `LocalName` e
-// `ServiceUUIDs`): a potência chega e é ignorada. ADR 0012, adendo A1: a varredura também não lê o
-// campo TX Power (o evento é só `uuid` e `rssi`): é um número que o emissor escreve e o receptor
-// não tem como conferir.
+// Módulo `sussurro-proximity` (ADR 0013 §4): o código de conexão `sussurro://c/{token}` por NFC.
+// O iPhone não emite (sem HCE para apps): só lê, pela folha do sistema (`NFCNDEFReaderSession`),
+// que fecha sozinha depois da 1ª tag. Sem Bluetooth e sem localização.
 
-let sightingEvent = "onSighting"
-let stateEvent = "onStateChange"
-let errorEvent = "onError"
+let nfcReadEvent = "onNfcRead"
+let nfcReadErrorEvent = "onNfcReadError"
+let nfcStateEvent = "onNfcStateChange"
 
-internal final class InvalidServiceUuidException: GenericException<String>, @unchecked Sendable {
+/// O app só aceita códigos com este prefixo (ADR 0013 §6, N2).
+let sussurroUriPrefix = "sussurro://c/"
+
+/// Tamanho do token do código (ADR 0013 §1).
+let sussurroTokenLength = 16
+
+/// Só `sussurro://c/` + 16 caracteres [A-Za-z0-9_-], com o tamanho exato, chega ao JS.
+func isSussurroUri(_ uri: String) -> Bool {
+  guard uri.utf8.count == sussurroUriPrefix.utf8.count + sussurroTokenLength,
+    uri.hasPrefix(sussurroUriPrefix)
+  else {
+    return false
+  }
+  let token = uri.utf8.dropFirst(sussurroUriPrefix.utf8.count)
+  return token.allSatisfy { byte in
+    (byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A)
+      || (byte >= 0x30 && byte <= 0x39) || byte == 0x5F || byte == 0x2D
+  }
+}
+
+internal final class NfcUnsupportedException: Exception, @unchecked Sendable {
   override var reason: String {
-    "UUID de serviço inválido: \(param)"
+    "Este aparelho não lê NFC."
   }
 }
 
 public final class SussurroProximityModule: Module {
-  private lazy var radio = ProximityRadio { [weak self] name, body in
+  private lazy var reader = SussurroNfcReader { [weak self] name, body in
     self?.sendEvent(name, body)
   }
 
   public func definition() -> ModuleDefinition {
     Name("SussurroProximity")
 
-    Events(sightingEvent, stateEvent, errorEvent)
+    Events(nfcReadEvent, nfcReadErrorEvent, nfcStateEvent)
 
-    AsyncFunction("getCapabilitiesAsync") { (promise: Promise) in
-      self.radio.capabilities(prompt: false) { result in
-        promise.resolve(result)
-      }
-    }.runOnQueue(.main)
-
-    AsyncFunction("requestPermissionAsync") { (promise: Promise) in
-      self.radio.capabilities(prompt: true) { result in
-        promise.resolve(result)
-      }
-    }.runOnQueue(.main)
-
-    // O 2º argumento (`txPower`) existe só pela API ser a mesma do Android: o iOS não deixa
-    // escolher a potência e o ignora.
-    AsyncFunction("startAdvertisingAsync") { (serviceUuid: String, _: String) in
-      try self.radio.startAdvertising(serviceUuid: serviceUuid)
-    }.runOnQueue(.main)
-
-    AsyncFunction("stopAdvertisingAsync") {
-      self.radio.stopAdvertising()
-    }.runOnQueue(.main)
-
-    AsyncFunction("startScanAsync") { (prefix: String, minIntervalMs: Int) in
-      self.radio.startScan(prefix: prefix, minIntervalMs: minIntervalMs)
-    }.runOnQueue(.main)
-
-    AsyncFunction("stopScanAsync") {
-      self.radio.stopScan()
-    }.runOnQueue(.main)
-
-    AsyncFunction("requestEnableBluetoothAsync") { () -> Bool in
-      // O iOS não deixa o app ligar o Bluetooth: a tela oferece "Abrir Ajustes".
-      return false
+    AsyncFunction("getNfcCapabilities") { () -> [String: Bool] in
+      let supported = NFCNDEFReaderSession.readingAvailable
+      return [
+        "supported": supported,
+        // O iOS não deixa desligar o NFC: com leitura, está sempre "ligado".
+        "enabled": supported,
+        // Apps de iPhone não emulam tag (sem HCE): só leem.
+        "canEmit": false,
+        "canRead": supported,
+      ]
     }
 
-    AsyncFunction("setKeepScreenOnAsync") { (enabled: Bool) in
-      self.radio.setKeepScreenOn(enabled)
+    // Sem HCE no iPhone: existe só para a API ser a mesma do Android.
+    Function("setEmittedPayload") { (_: String?) in
+    }
+
+    AsyncFunction("startReading") {
+      try self.reader.start()
     }.runOnQueue(.main)
 
-    // Em background o anúncio e a varredura param (PROX-28); o JS recomeça ao voltar.
+    Function("stopReading") {
+      let reader = self.reader
+      DispatchQueue.main.async {
+        reader.stop()
+      }
+    }
+
+    // O iOS não tem Ajustes de NFC.
+    Function("openNfcSettings") {
+    }
+
     OnAppEntersBackground {
-      if Thread.isMainThread {
-        self.radio.stopAll()
-      } else {
-        DispatchQueue.main.sync {
-          self.radio.stopAll()
-        }
+      let reader = self.reader
+      DispatchQueue.main.async {
+        reader.stop()
       }
     }
 
     OnDestroy {
-      let radio = self.radio
+      let reader = self.reader
       DispatchQueue.main.async {
-        radio.stopAll()
+        reader.stop()
       }
     }
   }
 }
 
-/// Estado do CoreBluetooth. Tudo roda na fila principal (os gerenciadores usam `queue: .main`).
-final class ProximityRadio: NSObject, CBCentralManagerDelegate, CBPeripheralManagerDelegate {
+/// A folha de leitura do sistema. Tudo roda na fila principal (`queue: .main`).
+final class SussurroNfcReader: NSObject, NFCNDEFReaderSessionDelegate {
   typealias Emit = (String, [String: Any?]) -> Void
 
-  /// Intervalo padrão entre eventos do mesmo UUID, se o JS não mandar outro (ADR 0012 §2).
-  private static let defaultSightingInterval: TimeInterval = 0.2
-
   private let emit: Emit
-  private var central: CBCentralManager?
-  private var peripheral: CBPeripheralManager?
-  private var stateWaiters: [(CBManagerState) -> Void] = []
-  private var advertisedUuid: CBUUID?
-  private var scanPrefix: String?
-  private var sightingInterval: TimeInterval = ProximityRadio.defaultSightingInterval
-  private var lastEmission: [String: TimeInterval] = [:]
+  private var session: NFCNDEFReaderSession?
+  /// A sessão leu um código do Sussurro: o encerramento que vem depois não é erro.
+  private var delivered = false
 
   init(emit: @escaping Emit) {
     self.emit = emit
     super.init()
   }
 
-  // MARK: - Capacidades e permissão
+  func start() throws {
+    guard NFCNDEFReaderSession.readingAvailable else {
+      throw NfcUnsupportedException()
+    }
+    if session != nil {
+      return
+    }
+    let newSession = NFCNDEFReaderSession(delegate: self, queue: .main, invalidateAfterFirstRead: true)
+    newSession.alertMessage = "Aproxime o topo do iPhone das costas do outro celular."
+    delivered = false
+    session = newSession
+    newSession.begin()
+  }
 
-  /// Sem `prompt`, nunca abre o pedido do sistema: se a permissão ainda não foi pedida, devolve
-  /// "undetermined" sem criar o `CBCentralManager` (criar já dispara o pedido).
-  func capabilities(prompt: Bool, completion: @escaping ([String: Any]) -> Void) {
-    let authorization = CBManager.authorization
-    if authorization == .notDetermined && !prompt {
-      completion(Self.payload(authorization: authorization, state: nil))
+  /// Fecha a folha sem emitir erro (quem pediu para parar foi o app).
+  func stop() {
+    guard let current = session else {
       return
     }
-    if authorization == .denied || authorization == .restricted {
-      completion(Self.payload(authorization: authorization, state: .unauthorized))
+    session = nil
+    current.invalidate()
+  }
+
+  func readerSession(_ session: NFCNDEFReaderSession, didDetectNDEFs messages: [NFCNDEFMessage]) {
+    guard session === self.session else {
       return
     }
-    let manager = ensureCentral()
-    if manager.state != .unknown && manager.state != .resetting {
-      completion(Self.payload(authorization: CBManager.authorization, state: manager.state))
-      return
-    }
-    var finished = false
-    let finish: (CBManagerState?) -> Void = { state in
-      if finished {
-        return
-      }
-      finished = true
-      completion(Self.payload(authorization: CBManager.authorization, state: state))
-    }
-    stateWaiters.append { state in
-      finish(state)
-    }
-    // Sem resposta do sistema (pedido aberto por muito tempo): devolve o que houver.
-    DispatchQueue.main.asyncAfter(deadline: .now() + (prompt ? 120 : 3)) {
-      finish(nil)
+    delivered = true
+    // O 1º registro URI lido; só segue se for um código do Sussurro, no formato exato.
+    let uri = messages
+      .flatMap { $0.records }
+      .compactMap { $0.wellKnownTypeURIPayload()?.absoluteString }
+      .first
+    if let uri, isSussurroUri(uri) {
+      emit(nfcReadEvent, ["uri": uri])
+    } else {
+      // Tag lida, mas sem um código do Sussurro (com `invalidateAfterFirstRead`, a folha fecha).
+      emit(nfcReadErrorEvent, ["code": "read_failed"])
     }
   }
 
-  private static func payload(
-    authorization: CBManagerAuthorization,
-    state: CBManagerState?
-  ) -> [String: Any] {
-    let permission: String
-    switch authorization {
-    case .allowedAlways:
-      permission = "granted"
-    case .notDetermined:
-      permission = "undetermined"
-    default:
-      permission = "denied"
+  func readerSession(_ session: NFCNDEFReaderSession, didInvalidateWithError error: Error) {
+    guard session === self.session else {
+      // Encerrada pelo `stop()`: o app já sabe.
+      return
     }
-    let supported = state != .unsupported
-    return [
-      "bleSupported": supported,
-      "bluetooth": state.map { Self.bluetoothName($0) } ?? "unknown",
-      "permission": permission,
-      "canAskAgain": authorization == .notDetermined,
-      "canAdvertise": supported,
-      // O iOS não exige a localização para varrer (ADR 0012 §2).
-      "locationServices": "not_required",
-      // Só para a correção de calibração no próprio aparelho (nunca vai para a API).
-      "deviceModel": Self.deviceModel(),
-    ]
+    self.session = nil
+    if delivered {
+      return
+    }
+    emit(nfcReadErrorEvent, ["code": Self.errorCode(error)])
   }
 
-  /// O identificador do modelo (ex.: `iPhone15,2`); o `UIDevice.model` só diz "iPhone".
-  static func deviceModel() -> String {
-    var systemInfo = utsname()
-    uname(&systemInfo)
-    let mirror = Mirror(reflecting: systemInfo.machine)
-    return mirror.children.reduce(into: "") { identifier, element in
-      guard let value = element.value as? Int8, value != 0 else {
-        return
-      }
-      identifier.append(Character(UnicodeScalar(UInt8(bitPattern: value))))
+  static func errorCode(_ error: Error) -> String {
+    guard let nfcError = error as? NFCReaderError else {
+      return "read_failed"
     }
-  }
-
-  static func bluetoothName(_ state: CBManagerState) -> String {
-    switch state {
-    case .poweredOn:
-      return "on"
-    case .poweredOff:
-      return "off"
-    case .unauthorized:
-      return "unauthorized"
-    case .unsupported:
+    switch nfcError.code {
+    case .readerSessionInvalidationErrorUserCanceled:
+      return "cancelled"
+    case .readerSessionInvalidationErrorSessionTimeout:
+      return "timeout"
+    case .readerErrorUnsupportedFeature:
       return "unsupported"
+    case .readerErrorSecurityViolation, .readerSessionInvalidationErrorSystemIsBusy:
+      // Sem o entitlement ou com o sistema ocupado: a leitura nem começou.
+      return "disabled"
     default:
-      return "unknown"
+      return "read_failed"
     }
-  }
-
-  private func ensureCentral() -> CBCentralManager {
-    if let central {
-      return central
-    }
-    let manager = CBCentralManager(
-      delegate: self,
-      queue: .main,
-      options: [CBCentralManagerOptionShowPowerAlertKey: false]
-    )
-    central = manager
-    return manager
-  }
-
-  private func ensurePeripheral() -> CBPeripheralManager {
-    if let peripheral {
-      return peripheral
-    }
-    let manager = CBPeripheralManager(
-      delegate: self,
-      queue: .main,
-      options: [CBPeripheralManagerOptionShowPowerAlertKey: false]
-    )
-    peripheral = manager
-    return manager
-  }
-
-  // MARK: - Anúncio
-
-  func startAdvertising(serviceUuid: String) throws {
-    guard let uuid = UUID(uuidString: serviceUuid) else {
-      throw InvalidServiceUuidException(serviceUuid)
-    }
-    advertisedUuid = CBUUID(nsuuid: uuid)
-    let manager = ensurePeripheral()
-    if manager.state == .poweredOn {
-      applyAdvertisement(manager)
-    }
-  }
-
-  func stopAdvertising() {
-    advertisedUuid = nil
-    peripheral?.stopAdvertising()
-  }
-
-  private func applyAdvertisement(_ manager: CBPeripheralManager) {
-    if manager.isAdvertising {
-      manager.stopAdvertising()
-    }
-    guard let uuid = advertisedUuid else {
-      return
-    }
-    // Só o UUID de serviço: sem `CBAdvertisementDataLocalNameKey`, o anúncio não leva nome.
-    // Nenhum serviço GATT é publicado.
-    manager.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [uuid]])
-  }
-
-  func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
-    if peripheral.state == .poweredOn {
-      applyAdvertisement(peripheral)
-    }
-  }
-
-  func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
-    if error != nil {
-      emit(errorEvent, ["operation": "advertise", "code": "advertise_failed"])
-    }
-  }
-
-  // MARK: - Varredura
-
-  /// Uma sessão contínua por visita à tela (ADR 0012 §2): com a varredura já ligada no mesmo
-  /// prefixo, só troca o intervalo entre eventos, sem reiniciar.
-  func startScan(prefix: String, minIntervalMs: Int) {
-    sightingInterval =
-      minIntervalMs >= 0 ? TimeInterval(minIntervalMs) / 1000 : Self.defaultSightingInterval
-    let normalized = prefix.uppercased()
-    if scanPrefix == normalized, let central, central.isScanning {
-      return
-    }
-    scanPrefix = normalized
-    lastEmission.removeAll()
-    let manager = ensureCentral()
-    if manager.state == .poweredOn {
-      beginScan(manager)
-    }
-  }
-
-  func stopScan() {
-    scanPrefix = nil
-    lastEmission.removeAll()
-    if let central, central.isScanning {
-      central.stopScan()
-    }
-  }
-
-  private func beginScan(_ manager: CBCentralManager) {
-    guard scanPrefix != nil else {
-      return
-    }
-    if manager.isScanning {
-      manager.stopScan()
-    }
-    // Em primeiro plano, sem filtro de serviço (o prefixo é parcial): o filtro é feito abaixo.
-    // Duplicados ligados para acompanhar o RSSI.
-    manager.scanForPeripherals(
-      withServices: nil,
-      options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
-    )
-  }
-
-  func centralManagerDidUpdateState(_ central: CBCentralManager) {
-    let state = central.state
-    if state != .unknown && state != .resetting {
-      let waiters = stateWaiters
-      stateWaiters.removeAll()
-      for waiter in waiters {
-        waiter(state)
-      }
-    }
-    emit(stateEvent, ["bluetooth": Self.bluetoothName(state)])
-    if state == .poweredOn {
-      beginScan(central)
-    }
-  }
-
-  func centralManager(
-    _ central: CBCentralManager,
-    didDiscover peripheral: CBPeripheral,
-    advertisementData: [String: Any],
-    rssi RSSI: NSNumber
-  ) {
-    // Nunca conecta nem guarda o periférico: só lê os UUIDs anunciados e o RSSI medido aqui. O
-    // campo TX Power não é lido, venha ou não no anúncio (ADR 0012, adendo A1).
-    guard let prefix = scanPrefix else {
-      return
-    }
-    let rssi = RSSI.intValue
-    guard rssi < 0 else {
-      return
-    }
-    var uuids: [CBUUID] = []
-    if let list = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] {
-      uuids.append(contentsOf: list)
-    }
-    if let list = advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] {
-      uuids.append(contentsOf: list)
-    }
-    let now = Date().timeIntervalSince1970
-    for uuid in uuids {
-      let value = uuid.uuidString
-      guard value.count == 36, value.hasPrefix(prefix) else {
-        continue
-      }
-      if let last = lastEmission[value], now - last < sightingInterval {
-        continue
-      }
-      lastEmission[value] = now
-      emit(sightingEvent, ["uuid": value, "rssi": rssi])
-    }
-  }
-
-  // MARK: - Tela acesa e parada geral
-
-  func setKeepScreenOn(_ enabled: Bool) {
-    UIApplication.shared.isIdleTimerDisabled = enabled
-  }
-
-  func stopAll() {
-    stopAdvertising()
-    stopScan()
-    UIApplication.shared.isIdleTimerDisabled = false
   }
 }

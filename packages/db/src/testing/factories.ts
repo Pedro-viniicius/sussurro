@@ -81,13 +81,13 @@ export async function connect(
   db: DbExecutor,
   first: Pick<UserRow, 'id'>,
   second: Pick<UserRow, 'id'>,
-  options: { method?: 'ble' | 'qr'; createdAt?: Date } = {},
+  options: { method?: 'qr' | 'nfc'; createdAt?: Date } = {},
 ): Promise<void> {
   const [userAId, userBId] = first.id < second.id ? [first.id, second.id] : [second.id, first.id];
   await db.insert(connections).values({
     userAId,
     userBId,
-    method: options.method ?? 'ble',
+    method: options.method ?? 'qr',
     createdAt: options.createdAt ?? new Date(),
   });
 }

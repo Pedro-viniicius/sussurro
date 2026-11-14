@@ -5,8 +5,6 @@ import {
   type NearbyPerson,
   type ProximityResolveResult,
   type ProximityToken,
-  type ProximityTouchItem,
-  type ProximityTouchResult,
 } from '@sussurro/shared';
 
 import {
@@ -16,14 +14,7 @@ import {
   PROXIMITY_LOCK_MS,
 } from './proximity-token.js';
 import { type NearbyRow, ProximityRepository } from './proximity.repository.js';
-import {
-  type BlockSignalRole,
-  type DeliveredOwedCard,
-  type ProximityChannel,
-  ProximityStore,
-  type ProximityTtls,
-  type TouchCard,
-} from './proximity.store.js';
+import { ProximityStore, type ProximityTtls } from './proximity.store.js';
 import { withTimeout } from '../../common/async/with-timeout.js';
 import type { AuthContext } from '../../common/auth/auth-context.js';
 import { Clock } from '../../common/clock/clock.js';
@@ -71,57 +62,23 @@ function tooManyAttempts(retryAfterMs: number): DomainError {
   });
 }
 
-/** Os dois tokens de uma emissão (ADR 0012 §1): um para o anúncio, outro para o QR. */
-export interface IssuedTokens {
-  bleToken: string;
-  qrToken: string;
+/** O token de uma emissão (ADR 0013 §1): o mesmo no QR e no NFC. */
+export interface IssuedToken {
+  token: string;
   issuedAt: Date;
 }
 
 /** O token mais recente de cada dono entre os enviados, com a ordem do primeiro token dele. */
 type NewestByOwner = Map<string, { token: string; issuedAt: number; order: number }>;
 
-/** O papel de uma conta no sinal de abuso do encostar (ADR 0012, A2-3). */
-export type ProximityAbuseRole = BlockSignalRole;
-
 /**
- * Uma conta que chegou a exatamente 3 bloqueios (como quem bloqueou ou como quem foi bloqueada)
- * até 60 s depois de um encosto, em 7 dias: vira um e-mail para a moderação (A2-3).
- */
-export interface ProximityAbuseFlag {
-  userId: string;
-  role: ProximityAbuseRole;
-}
-
-/**
- * A resposta de `touches` sem cartão: a mesma para não mútuo, recusa pela política, teto, ocupado e
- * janela vencida.
- */
-const NO_CARD: ProximityTouchResult = { items: [] };
-
-/**
- * Degrau do `pairExpiresInS` (PROX-64): o prazo do par sai arredondado para baixo em múltiplos de
- * 5 s, para o casamento na hora e o cartão devido darem o mesmo valor (PROX-37). (ADR 0012, A3-5)
- * Também o teto: nunca acima de `validade − degrau` (55).
- */
-export const PAIR_EXPIRES_STEP_S = 5;
-
-/** Código da linha de log quando o teto barra um par novo (A2-1): sem ids e sem tokens. */
-export const PROXIMITY_TOUCH_CAPPED = 'PROXIMITY_TOUCH_CAPPED';
-
-/**
- * Tokens de proximidade (ADR 0003, história 4.2; ADR 0012), o relato do encosto (`touches`) e o
- * `resolve` do QR. Também valida, para o módulo `connections`, os tokens de quem pede e de quem
- * aceita (com o canal), o par encostado, a tela aberta e os limites de abuso. Tudo que toca o Redis
- * falha **fechado**: sem Redis, 503 `PROXIMITY_UNAVAILABLE`, e login, feed e perfil seguem normais
- * (PROX-21).
+ * Tokens de proximidade (ADR 0003, história 4.2; ADR 0013) e o `resolve` do código lido (QR ou
+ * NFC). Também valida, para o módulo `connections`, os tokens de quem pede e de quem aceita, a tela
+ * aberta e os limites de abuso. Tudo que toca o Redis falha **fechado**: sem Redis, 503
+ * `PROXIMITY_UNAVAILABLE`, e login, feed e perfil seguem normais (PROX-21).
  *
- * Privacidade (ADR 0012): nenhuma rota recebe dado de sinal (RSSI, potência, modelo); um token BLE
- * só vira pessoa no encosto mútuo, e o encosto vive só no Redis, por até 60 s, sem ir para o
- * Postgres nem para o log. (A2) O cartão devido (@, nome, chave da foto, `alreadyConnected`) também
- * vive só no Redis, até 60 s, e (A3-2) depois da primeira entrega fica mais até 10 s, para a
- * reentrega à mesma pessoa; os contadores do teto e do sinal de abuso guardam só números, sem a
- * outra parte.
+ * Privacidade: nenhuma rota recebe dado do aparelho; o Redis guarda só o hash do token, por até
+ * 120 s, sem ir para o Postgres nem para o log.
  */
 @Injectable()
 export class ProximityService {
@@ -129,16 +86,6 @@ export class ProximityService {
   private readonly ttls: ProximityTtls;
   /** O app renova a cada 20 s com o TTL padrão de 30 s (2/3 da validade). */
   private readonly renewInS: number;
-  /** Janela do casamento, contada do primeiro relato do outro (`prox:o`, 5 s; A2-2). */
-  private readonly touchWindowMs: number;
-  /** Validade do par encostado (`prox:m`) e do cartão devido (`prox:v`), 60 s. */
-  private readonly touchPairTtlMs: number;
-  private readonly touchPairTtlS: number;
-  /** Quanto tempo quem recebe um cartão fica ocupado (`prox:c`, `2 × janela` = 10 s; A2-2). */
-  private readonly touchBusyMs: number;
-  /** Teto de pessoas novas por conta (A2-1): 10 por hora e 30 por dia. */
-  private readonly touchPairsPerHour: number;
-  private readonly touchPairsPerDay: number;
 
   constructor(
     private readonly store: ProximityStore,
@@ -154,12 +101,6 @@ export class ProximityService {
       screenMs: config.env.PROX_SCREEN_TTL_S * 1000,
     };
     this.renewInS = Math.max(1, Math.round((config.env.PROX_TOKEN_TTL_S * 2) / 3));
-    this.touchWindowMs = config.env.PROX_TOUCH_WINDOW_S * 1000;
-    this.touchPairTtlS = config.env.PROX_TOUCH_PAIR_TTL_S;
-    this.touchPairTtlMs = this.touchPairTtlS * 1000;
-    this.touchBusyMs = 2 * this.touchWindowMs;
-    this.touchPairsPerHour = config.env.PROX_TOUCH_PAIRS_PER_HOUR;
-    this.touchPairsPerDay = config.env.PROX_TOUCH_PAIRS_PER_DAY;
   }
 
   /** Uma operação no store com prazo: erro ou demora viram 503 (fail-closed). */
@@ -197,42 +138,19 @@ export class ProximityService {
     }
   }
 
-  /**
-   * Dono do token se ele ainda é **válido** (até 30 s) **e** do canal pedido: o que o pedido `qr`
-   * exige. Token do outro canal = inexistente (ADR 0012).
-   */
-  async ownerOfValidToken(token: string, channel: ProximityChannel): Promise<string | null> {
+  /** Dono do token se ele ainda é **válido** (até 30 s): o que o pedido exige (ADR 0013 §2). */
+  async ownerOfValidToken(token: string): Promise<string | null> {
     const [record] = await this.guarded(() => this.store.findValid([hashProximityToken(token)]));
-    return record?.channel === channel ? record.userId : null;
+    return record?.userId ?? null;
   }
 
   /**
-   * Dono do token se ele é válido **ou recente** (até 120 s) **e** do canal pedido: o que o aceite
-   * `qr` (PROX-03) e o pedido `ble` com o par exigem. Token do outro canal = inexistente.
+   * Dono do token se ele é válido **ou recente** (até 120 s): o que o aceite exige (D7, PROX-03),
+   * nos dois métodos.
    */
-  async ownerOfRecentToken(token: string, channel: ProximityChannel): Promise<string | null> {
+  async ownerOfRecentToken(token: string): Promise<string | null> {
     const record = await this.guarded(() => this.store.findRecent(hashProximityToken(token)));
-    return record?.channel === channel ? record.userId : null;
-  }
-
-  /**
-   * O par encostado das duas contas ainda vale (ADR 0012 §4: o pedido `ble` só nasce com ele). Os
-   * 60 s contam do último casamento no servidor.
-   */
-  hasTouchPair(first: string, second: string): Promise<boolean> {
-    return this.guarded(() => this.store.hasTouchPair(first, second));
-  }
-
-  /**
-   * (ADR 0012, A2 rev. 1, R1-5) O fato que a política usa para bloquear e denunciar pelo cartão: o
-   * leitor e `otherId` têm par encostado vivo (até 60 s depois do último casamento). Só lê o par
-   * (`EXISTS`), nunca o consome. Sem conta (`otherId` ausente: @ inexistente, excluído ou
-   * inválido), consulta uma chave que nunca existe (o próprio id nos dois lados), para o tempo e a
-   * falha não revelarem se a conta existe. Fail-closed: Valkey fora ou lento → 503
-   * `PROXIMITY_UNAVAILABLE`, igual para qualquer @.
-   */
-  hasLiveTouchPair(viewerId: string, otherId: string | undefined): Promise<boolean> {
-    return this.guarded(() => this.store.hasTouchPair(viewerId, otherId ?? viewerId));
+    return record?.userId ?? null;
   }
 
   /**
@@ -250,86 +168,54 @@ export class ProximityService {
   }
 
   /**
-   * Emite e grava os dois tokens da conta, um por canal, com a mesma emissão e a mesma validade
-   * (ADR 0012 §1). O servidor guarda só os hashes, com o canal no registro.
+   * Emite e grava o token da conta (ADR 0013 §1: um só, o mesmo no QR e no NFC). O servidor guarda
+   * só o hash.
    */
-  private async issueFor(userId: string): Promise<IssuedTokens> {
+  private async issueFor(userId: string): Promise<IssuedToken> {
     const issuedAt = this.clock.now();
-    const bleToken = generateProximityToken();
-    const qrToken = generateProximityToken();
-    for (const [token, channel] of [
-      [bleToken, 'ble'],
-      [qrToken, 'qr'],
-    ] as const) {
-      await this.guarded(() =>
-        this.store.issue(
-          hashProximityToken(token),
-          { userId, issuedAt: issuedAt.getTime(), channel },
-          this.ttls,
-        ),
-      );
-    }
-    return { bleToken, qrToken, issuedAt };
+    const token = generateProximityToken();
+    await this.guarded(() =>
+      this.store.issue(
+        hashProximityToken(token),
+        { userId, issuedAt: issuedAt.getTime() },
+        this.ttls,
+      ),
+    );
+    return { token, issuedAt };
   }
 
   /**
-   * `POST /proximity/tokens` (4.2): os dois tokens novos (`bleToken` para o anúncio, `qrToken` para
-   * o QR), válidos por 30 s, e a tela marcada como aberta. O app pede outros a cada `renewInS`
-   * (20 s) enquanto a tela está em primeiro plano. O limite de 6 por minuto conta a emissão.
+   * `POST /proximity/tokens` (4.2): o token novo, válido por 30 s, e a tela marcada como aberta. O
+   * app pede outro a cada `renewInS` (20 s) enquanto a tela está em primeiro plano. O limite de 6
+   * por minuto conta a emissão.
    */
   async issueToken(viewer: AuthContext): Promise<ProximityToken> {
     await this.assertNotLocked(viewer);
     await this.consume(PROXIMITY_LIMITS.tokens, viewer);
-    const { bleToken, qrToken, issuedAt } = await this.issueFor(viewer.userId);
+    const { token, issuedAt } = await this.issueFor(viewer.userId);
     return {
-      bleToken,
-      qrToken,
+      token,
       expiresAt: new Date(issuedAt.getTime() + this.ttls.validMs).toISOString(),
       renewInS: this.renewInS,
     };
   }
 
   /**
-   * Tokens para uma persona do seed (só as rotas de simulação em desenvolvimento, 4.11): sem
-   * limite, mas com a mesma gravação e a mesma validade.
+   * Token para uma persona do seed (só a rota de simulação em desenvolvimento, 4.11): sem limite,
+   * mas com a mesma gravação e a mesma validade.
    */
-  issueForSimulation(personaId: string): Promise<IssuedTokens> {
+  issueForSimulation(personaId: string): Promise<IssuedToken> {
     return this.issueFor(personaId);
   }
 
   /**
-   * Simulação em desenvolvimento (ADR 0012 §7, A2-2 §7): a persona relata o encosto com a conta,
-   * como se o celular dela tivesse visto o da conta encostado (um hash aleatório no lugar do token
-   * que ela "viu"). A conta completa o casamento relatando o `bleToken` da persona em `touches`
-   * dentro da janela (5 s). A persona nunca relata, então o cartão devido a ela nunca sairia e a
-   * deixaria ocupada por 60 s: antes, a simulação apaga o cartão devido e a marca de ocupado dela.
-   */
-  async simulateTouchFrom(personaId: string, viewerId: string): Promise<void> {
-    await this.guarded(() => this.store.forgetTouchState(personaId));
-    const seen = hashProximityToken(generateProximityToken());
-    const at = this.clock.now().getTime();
-    await this.guarded(() =>
-      this.store.recordTouch(personaId, viewerId, seen, at, this.touchWindowMs),
-    );
-  }
-
-  /** Simulação em desenvolvimento: grava o par encostado da persona com a conta (pedido `ble`). */
-  async simulateTouchPair(personaId: string, viewerId: string): Promise<void> {
-    const at = this.clock.now().getTime();
-    await this.guarded(() =>
-      this.store.markTouchPair(personaId, viewerId, this.touchPairTtlMs, at),
-    );
-  }
-
-  /**
-   * Os tokens **válidos** (até 30 s) do canal pedido, agrupados por dono: fica o mais recente de
-   * cada pessoa, na ordem do primeiro token dela no pedido (PROX-25). Ficam de fora, sem aviso, os
-   * repetidos, os inexistentes ou vencidos, os do outro canal e os do próprio chamador.
+   * Os tokens **válidos** (até 30 s), agrupados por dono: fica o mais recente de cada pessoa, na
+   * ordem do primeiro token dela no pedido (PROX-25). Ficam de fora, sem aviso, os repetidos, os
+   * inexistentes ou vencidos e os do próprio chamador.
    */
   private async newestByOwner(
     viewer: AuthContext,
     tokens: readonly string[],
-    channel: ProximityChannel,
   ): Promise<NewestByOwner> {
     const unique = [...new Set(tokens)];
     const records = await this.guarded(() =>
@@ -338,8 +224,8 @@ export class ProximityService {
     const newest: NewestByOwner = new Map();
     unique.forEach((token, order) => {
       const record = records[order];
-      // Sem registro (inexistente ou vencido), do outro canal ou do próprio chamador: ignorado.
-      if (record?.channel !== channel || record.userId === viewer.userId) {
+      // Sem registro (inexistente ou vencido) ou do próprio chamador: ignorado.
+      if (record === null || record === undefined || record.userId === viewer.userId) {
         return;
       }
       const current = newest.get(record.userId);
@@ -373,10 +259,9 @@ export class ProximityService {
   }
 
   /**
-   * `POST /proximity/resolve` (4.4; ADR 0012: **só o QR**): cada `qrToken` **válido** vira o cartão
-   * da pessoa que mostrou o QR. Ficam de fora, sem aviso e com a mesma resposta de token
-   * inexistente, os tokens inválidos ou vencidos, os do Bluetooth (`bleToken`, PROX-05), os do
-   * próprio chamador, os de conta excluída ou de criador e os de quem tem bloqueio com ele em
+   * `POST /proximity/resolve` (4.4; ADR 0013): cada token **válido** lido (QR ou NFC) vira o cartão
+   * da pessoa que mostrou o código. Ficam de fora, sem aviso e com a mesma resposta de token
+   * inexistente (PROX-05), os tokens inválidos ou vencidos, os do próprio chamador, os de conta excluída ou de criador e os de quem tem bloqueio com ele em
    * qualquer sentido. Exige a tela aberta de quem chama (PROX-04).
    *
    * Tokens que não resolvem **não** contam como falha. O limite de 30 chamadas por minuto, com até
@@ -387,247 +272,13 @@ export class ProximityService {
     await this.consume(PROXIMITY_LIMITS.resolve, viewer);
     await this.assertScreenOpen(viewer);
 
-    const newest = await this.newestByOwner(viewer, tokens, 'qr');
+    const newest = await this.newestByOwner(viewer, tokens);
     const rows = await this.repository.findNearby(
       viewer.userId,
       [...newest.keys()],
       this.policy.hideBlockedFor(viewer, users.id),
     );
     return { items: await this.cards(rows, newest) };
-  }
-
-  /**
-   * `POST /proximity/touches` (ADR 0012 §3 e Adendo A2): quem chama afirma que o celular encostou no
-   * do dono do `bleToken` `t` (exatamente 1 por chamada; o schema garante, e só o primeiro conta).
-   * Os guards e o schema vêm antes (conta pessoal, e-mail confirmado, 1 token). Depois:
-   * 1. **o cartão devido** (A2-2): se alguém casou com quem chama e deixou o próprio cartão, ele é
-   *    entregue agora, sem passar de novo pela política (a decisão foi no casamento), e o relato para
-   *    aqui. É o que garante a revelação simétrica mesmo que o outro bloqueie, exclua a conta ou saia
-   *    logo depois. (A2 rev. 1, R1-4) A **primeira entrega** sai **antes de qualquer recusa**: não
-   *    consome o limite, não exige a tela aberta e sai mesmo com a proximidade bloqueada. (ADR 0012,
-   *    A3-2) Depois dela, o mesmo cartão é **entregue de novo** por até 10 s, se a resposta se perder
-   *    na rede; a reentrega passa só pelo limite de 60 por minuto (429 acima dele, sem mexer em chave
-   *    nenhuma). O rótulo e o `pairExpiresInS` são recalculados em cada entrega (o rótulo da
-   *    reentrega só confere o hash guardado; ver `owedCardLabel`). Fail-closed: sem o Redis, 503, e
-   *    o cartão continua guardado;
-   * 2. sem cartão devido: sem bloqueio de proximidade (429), 60 por minuto (429) e a tela aberta
-   *    (409, PROX-04);
-   * 3. `t` precisa ser **válido** (até 30 s), do canal `ble` e de outra conta, O; senão, ignorado em
-   *    silêncio, sem contar como falha (o caminho que depende só do token, não da relação);
-   * 4. (A3-1, R22) daqui em diante, **sempre as mesmas idas, na mesma ordem**, e o resultado de cada
-   *    passo só decide a resposta no fim:
-   *    a. atômico: grava a observação de quem chama sobre O (o horário do primeiro relato não muda; o
-   *       prazo desliza a cada relato, R1-1). O booleano da janela que a porta devolve não decide
-   *       nada aqui: o script do casamento confere a janela de novo;
-   *    b. a política, numa consulta só (`findTouchPair`, as duas linhas sempre que as contas
-   *       existem, com os fatos em colunas): O e quem chama, pessoais, ativos e sem bloqueio em
-   *       nenhum sentido (`touchRevealParties`, a mesma regra do `findNearby` do `resolve`); a linha
-   *       de quem chama vira o cartão dele;
-   *    c. o casamento (`claimTouchPair`): janela (`gone`), recusa da política (`refused`, com o
-   *       cartão nulo), ocupado, teto de pessoas novas, par, cartão devido a O e quem chama ocupado,
-   *       num script só;
-   * 5. responde sempre 200 `{items}`, com no máximo um cartão. Não mútuo, vencido, inexistente, do
-   *    QR, próprio, de criador, de conta excluída, com bloqueio, no teto, ocupado ou com a janela
-   *    vencida são indistinguíveis no corpo (PROX-32, PROX-36, PROX-46) e, com token válido de outra
-   *    conta, também nas idas ao Valkey e ao Postgres e nas linhas que o Postgres devolve (R22).
-   *
-   * Nenhum dado de sinal chega aqui (PROX-43).
-   */
-  async touches(viewer: AuthContext, tokens: readonly string[]): Promise<ProximityTouchResult> {
-    const token = tokens[0];
-    // R1-4: com um cartão esperando, qualquer recusa entre quem chama e o cartão (429, 409, bloqueio
-    // da proximidade) quebraria o invariante da revelação simétrica. Cada conta só retira o cartão
-    // devido a ela mesma, então isto não abre força bruta.
-    const owed = await this.guarded(() => this.store.takeOwedCard(viewer.userId, this.touchBusyMs));
-    if (owed !== null) {
-      if (owed.redelivered) {
-        // A3-2: a reentrega conta no limite (sem isso, um cliente modificado chamaria sem limite por
-        // 10 s a cada casamento). O 429 não perde nada: a reentrega não mexeu em chave nenhuma.
-        await this.consume(PROXIMITY_LIMITS.touches, viewer);
-      }
-      return { items: [await this.owedCard(owed, token)] };
-    }
-
-    await this.assertNotLocked(viewer);
-    await this.consume(PROXIMITY_LIMITS.touches, viewer);
-    await this.assertScreenOpen(viewer);
-    if (token === undefined) {
-      return NO_CARD;
-    }
-
-    const newest = await this.newestByOwner(viewer, [token], 'ble');
-    const [ownerId] = newest.keys();
-    if (ownerId === undefined) {
-      return NO_CARD;
-    }
-    // A3-1 (R22): com token válido de outra conta, a observação, a política e o casamento rodam
-    // sempre, uma vez cada, nesta ordem. Nenhum retorno antes do casamento.
-    const at = this.clock.now().getTime();
-    await this.guarded(() =>
-      this.store.recordTouch(
-        viewer.userId,
-        ownerId,
-        hashProximityToken(token),
-        at,
-        this.touchWindowMs,
-      ),
-    );
-    // As duas linhas voltam sempre que as duas contas existem, com bloqueio, exclusão ou criador
-    // (o número de linhas e o plano não revelam a recusa). Elas trazem o @, o nome e a foto até de
-    // conta recusada: só o retorno da política (as duas linhas, ou `null`) chega ao cartão, ao
-    // script e à resposta; `rows` não vai para log, erro nem Valkey.
-    const rows = await this.repository.findTouchPair(viewer.userId, ownerId);
-    const parties = this.policy.touchRevealParties(viewer, ownerId, rows);
-    // Recusa da política: o cartão nulo, e o script volta `refused` (ou `gone`).
-    const callerCard: TouchCard | null =
-      parties === null
-        ? null
-        : {
-            subjectId: parties.caller.id,
-            atMs: at,
-            handle: parties.caller.handle,
-            name: parties.caller.name,
-            avatarKey: parties.caller.avatarKey,
-            // A conexão é do par: o mesmo `connected` nas duas linhas.
-            connected: parties.owner.connected,
-          };
-    const outcome = await this.guarded(() =>
-      this.store.claimTouchPair({
-        callerId: viewer.userId,
-        otherId: ownerId,
-        atMs: at,
-        pairTtlMs: this.touchPairTtlMs,
-        windowMs: this.touchWindowMs,
-        busyMs: this.touchBusyMs,
-        perHour: this.touchPairsPerHour,
-        perDay: this.touchPairsPerDay,
-        callerCard,
-      }),
-    );
-    if (outcome === 'capped') {
-      // Para calibrar o teto: sem ids e sem tokens (A2-1).
-      this.logger.warn(`${PROXIMITY_TOUCH_CAPPED}: teto de pessoas novas, encosto não confirmado`);
-    }
-    // `created` e `renewed` só saem com o cartão de quem chama (a política aceitou); a conferência
-    // aqui é a defesa, depois de todas as idas.
-    if ((outcome !== 'created' && outcome !== 'renewed') || parties === null) {
-      return NO_CARD;
-    }
-    // A mesma conta do cartão devido, a partir do horário deste casamento (PROX-37, PROX-64).
-    const people = await this.cards([parties.owner], newest);
-    return {
-      items: people.map((person) => ({ ...person, pairExpiresInS: this.pairExpiresInS(at) })),
-    };
-  }
-
-  /**
-   * Quanto falta para o par do casamento feito em `marriedAtMs` vencer (PROX-64), arredondado para
-   * baixo num múltiplo de 5 s e limitado a [0, validade do par − 5 s] (A3-5: 55 com a validade de
-   * 60 s): `5 × floor(max(0, restante − 1) / 5000)`. A mesma conta vale para o casamento na hora, o
-   * cartão devido e a reentrega dele: sem o degrau de 5 s, 60 contra 59 diria a quem recebe quem
-   * casou primeiro (PROX-37); sem o teto, o 60 da instância com o relógio atrasado em relação à que
-   * casou denunciaria o cartão devido. O cartão pode vencer até 5 s antes no app, que já desconta
-   * essa margem. O par e o cartão devido foram gravados no mesmo script, com a mesma validade, a
-   * partir desse horário.
-   */
-  private pairExpiresInS(marriedAtMs: number): number {
-    const remainingMs = marriedAtMs + this.touchPairTtlMs - this.clock.now().getTime();
-    const stepped =
-      PAIR_EXPIRES_STEP_S * Math.floor(Math.max(0, remainingMs - 1) / (PAIR_EXPIRES_STEP_S * 1000));
-    return Math.min(Math.max(0, this.touchPairTtlS - PAIR_EXPIRES_STEP_S), Math.max(0, stepped));
-  }
-
-  /**
-   * O cartão devido como `ProximityTouchItem` (A2-2 passo 2), indistinguível do cartão do
-   * casamento, na primeira entrega e na reentrega (A3-2). A foto é assinada agora (se o objeto já
-   * foi apagado, a imagem só não carrega). O `token` segue a regra do rótulo (`owedCardLabel`).
-   * (A2 rev. 1) `pairExpiresInS` conta do horário do casamento guardado no cartão: o cartão que
-   * chega tarde mostra o prazo que sobra.
-   */
-  private async owedCard(
-    owed: DeliveredOwedCard,
-    token: string | undefined,
-  ): Promise<ProximityTouchItem> {
-    return {
-      token: await this.owedCardLabel(owed, token),
-      handle: owed.handle,
-      name: owed.name,
-      avatarUrl: await this.media.signUrl(owed.avatarKey),
-      alreadyConnected: owed.connected,
-      pairExpiresInS: this.pairExpiresInS(owed.atMs),
-    };
-  }
-
-  /**
-   * O rótulo do cartão devido: o `t` relatado só quando se sabe que ele é do dono do cartão; em
-   * qualquer outro caso (`t` revogado, vencido, inexistente, de **outra** pessoa ou sem resposta do
-   * Redis), um token novo que nunca foi emitido nem gravado. Assim o "Conectar" desse cartão dá o
-   * 400 genérico e nunca pede conexão a outra pessoa com quem a conta tenha par.
-   * - **Primeira entrega:** `t` serve quando o hash é o guardado no casamento ou quando o
-   *   `findRecent` diz que `t` é do dono (válido ou recente, até 120 s: o dono girou o token).
-   * - **Reentrega** (A3-2): `t` serve **só** quando o hash é o guardado; senão, o token nunca
-   *   emitido, **sem** o `findRecent`. Com ele, em cada reentrega (até 60 por minuto, por 10 s) quem
-   *   chama poderia testar um token qualquer de até 120 s e descobrir quais eram do dono do cartão.
-   *   O custo, raro: o dono girou o token entre a primeira entrega (cuja resposta se perdeu) e a
-   *   reentrega, e quem chama relata o token novo; o cartão chega com o token nunca emitido, e o
-   *   app mostra o estado 22 do `ux.md` (cartão sem Conectar, com Denunciar e Bloquear).
-   */
-  private async owedCardLabel(owed: DeliveredOwedCard, token: string | undefined): Promise<string> {
-    if (token === undefined) {
-      return generateProximityToken();
-    }
-    const hash = hashProximityToken(token);
-    if (hash === owed.tokenHash) {
-      return token;
-    }
-    if (owed.redelivered) {
-      return generateProximityToken();
-    }
-    try {
-      // O cartão já foi retirado: sem o Redis aqui, ele sai com o token que nunca existiu, em vez
-      // de se perder num 503.
-      const record = await withTimeout(this.store.findRecent(hash), PROXIMITY_STORE_TIMEOUT_MS);
-      if (record?.userId === owed.subjectId) {
-        return token;
-      }
-    } catch (error) {
-      this.logger.warn(`Rótulo do cartão devido sem o Redis: ${describeError(error)}`);
-    }
-    return generateProximityToken();
-  }
-
-  /**
-   * Sinal de abuso (ADR 0012, A2-3): depois de um bloqueio gravado, se as duas contas têm par
-   * encostado vivo (até 60 s depois do último casamento), soma 1 para quem bloqueou e 1 para quem
-   * foi bloqueado (`rl:prox-block-after-touch:{blocker|blocked}:{uid}`, 7 dias). (A2 rev. 1, R1-6)
-   * Um script só (`countBlockSignal`) conta **no máximo uma vez por casamento e por sentido**, com a
-   * marca no valor do par: N bloqueios simultâneos, ou bloquear, desbloquear e bloquear de novo,
-   * somam 1. Devolve os papéis que chegaram a **exatamente** 3 (o e-mail não se repete na janela).
-   * **Falha aberta e nunca lança:** o bloqueio não pode depender do Redis; erro ou demora acima de
-   * 500 ms → nenhum sinal, só o log (sem ids).
-   */
-  async noteBlockAfterTouch(blockerId: string, blockedId: string): Promise<ProximityAbuseFlag[]> {
-    const rule = PROXIMITY_LIMITS.blockAfterTouch;
-    try {
-      const counts = await withTimeout(
-        this.store.countBlockSignal(blockerId, blockedId, rule.windowMs),
-        PROXIMITY_STORE_TIMEOUT_MS,
-      );
-      if (counts === null) {
-        return [];
-      }
-      const flags: ProximityAbuseFlag[] = [];
-      if (counts.blocker === rule.limit) {
-        flags.push({ userId: blockerId, role: 'blocker' });
-      }
-      if (counts.blocked === rule.limit) {
-        flags.push({ userId: blockedId, role: 'blocked' });
-      }
-      return flags;
-    } catch (error) {
-      this.logger.warn(`Sinal de bloqueio depois do encosto não contado: ${describeError(error)}`);
-      return [];
-    }
   }
 
   /**

@@ -101,11 +101,8 @@ function fakeRedis() {
 }
 
 /**
- * (ADR 0012, A3-1, PROX-66) O repositório de produção (as mesmas consultas) que anota cada
- * `findTouchPair` (a política do `touches`, BAIXO 1 do `seguranca`) e cada `findNearby` (o
- * `resolve` do QR) no `calls` do fake da proximidade, na mesma lista das idas ao Valkey: é assim
- * que o e2e confere a sequência de idas do `touches` sem medir a rede. O `findNearby` continua
- * anotado para uma volta acidental dele ao `touches` aparecer na sequência.
+ * O repositório de produção (as mesmas consultas) que anota cada `findNearby` (o `resolve`) no
+ * `calls` do fake da proximidade, na mesma lista das idas ao Valkey.
  */
 function recordingProximityRepository(
   handle: TestDatabase['handle'],
@@ -115,11 +112,6 @@ function recordingProximityRepository(
     override findNearby(...args: Parameters<ProximityRepository['findNearby']>) {
       proximity.noteCall('findNearby');
       return super.findNearby(...args);
-    }
-
-    override findTouchPair(...args: Parameters<ProximityRepository['findTouchPair']>) {
-      proximity.noteCall('findTouchPair');
-      return super.findTouchPair(...args);
     }
   }
   return new RecordingProximityRepository(handle);

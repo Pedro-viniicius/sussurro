@@ -45,7 +45,7 @@ describe('connections e follows: tipo de conta no banco (ADR 0008)', () => {
     const creator = await createUser(testDb.db, { accountType: 'creator' });
     const [a, b] = [person.id, creator.id].sort();
     const error = await pgErrorOf(() =>
-      testDb.db.insert(connections).values({ userAId: a!, userBId: b!, method: 'ble' }),
+      testDb.db.insert(connections).values({ userAId: a!, userBId: b!, method: 'nfc' }),
     );
     expect(error?.code).toBe(PgErrorCode.FOREIGN_KEY_VIOLATION);
   });

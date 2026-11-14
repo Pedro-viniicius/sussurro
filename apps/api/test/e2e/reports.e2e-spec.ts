@@ -1,11 +1,12 @@
 // E2E das denúncias e da fila de moderação mínima por e-mail (X.1, D5).
-import { reports } from '@sussurro/db';
+import { connectionRequests, reports } from '@sussurro/db';
 import { addComment, block, connect, createPost, createUser } from '@sussurro/db/testing';
-import { ErrorResponseSchema } from '@sussurro/shared';
+import { CONNECTION_REQUEST_MODERATION_WINDOW_S, ErrorResponseSchema } from '@sussurro/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { DEV_MODERATION_EMAIL } from '../../src/modules/reports/reports.service.js';
 import { directUser } from '../support/auth.js';
+import { pendingRequest, person, renewSession } from '../support/proximity.js';
 import { createTestApp, type TestApp } from '../support/test-app.js';
 
 let t: TestApp;
@@ -87,7 +88,7 @@ describe('POST /reports (X.1)', () => {
     }
   });
 
-  it('X.1 CA1: o que a pessoa não vê, sem par encostado → 404 idêntico ao de inexistente; nada gravado nem enviado (a conta com o par vivo, PROX-62)', async () => {
+  it('X.1 CA1: o que a pessoa não vê → 404 idêntico ao de inexistente; nada gravado nem enviado', async () => {
     const reporter = await account();
     const stranger = await createUser(t.database.db, { handle: 'desconhecida' });
     const strangerPost = await createPost(t.database.db, stranger);
@@ -207,6 +208,148 @@ describe('POST /reports (X.1)', () => {
     });
     expect(limited.status).toBe(429);
     expect(ErrorResponseSchema.parse(limited.body).code).toBe('RATE_LIMITED');
+  });
+});
+
+describe('denunciar a conta de quem você bloqueou (R1-PO-1, aprovada pelo PO em 2026-10-30)', () => {
+  it('[PROX-65] [X.1] V bloqueou M → 202 e gravada, também com o Valkey fora (a denúncia não depende dele, ADR 0013); bloqueio nos dois sentidos também', async () => {
+    const v = await account({ handle: 'vera' });
+    const m = await account({ handle: 'mauro' });
+    await connect(t.database.db, v.user, m.user);
+    await t.http.post('/v1/me/blocks').set(v.headers).send({ handle: 'mauro' }).expect(204);
+    await t.http.get('/v1/users/mauro').set(v.headers).expect(404);
+    await block(t.database.db, m.user, v.user);
+    t.proximity.down = true;
+    const response = await report(v.headers, {
+      target: { type: 'account', handle: 'mauro' },
+      reason: 'harassment',
+    });
+    expect(response.status).toBe(202);
+    const rows = await t.database.db.select().from(reports);
+    expect(rows.map((row) => [row.reporterId, row.targetUserId, row.targetType])).toEqual([
+      [v.user.id, m.user.id, 'account'],
+    ]);
+  });
+
+  it('[PROX-65] [X.1 CA1] só M bloqueou V, ou depois do desbloqueio → o 404 idêntico ao de @ inexistente, nada gravado; Valkey fora não muda (sem 503)', async () => {
+    const v = await account({ handle: 'vera' });
+    const m = await createUser(t.database.db, { handle: 'mauro' });
+    const n = await createUser(t.database.db, { handle: 'nina' });
+    await block(t.database.db, m, v.user);
+    // V bloqueou N e desbloqueou: a regra R1-PO-1 não vale mais.
+    await block(t.database.db, v.user, n);
+    await t.http.delete('/v1/me/blocks/nina').set(v.headers).expect(204);
+    t.proximity.down = true;
+    for (const handle of ['mauro', 'nina']) {
+      const response = await report(v.headers, {
+        target: { type: 'account', handle },
+        reason: 'spam',
+      });
+      const missing = await report(v.headers, {
+        target: { type: 'account', handle: 'naoexiste' },
+        reason: 'spam',
+      });
+      expect({ handle, status: response.status, body: response.body as unknown }).toEqual({
+        handle,
+        status: 404,
+        body: missing.body as unknown,
+      });
+    }
+    expect(await t.database.db.select().from(reports)).toHaveLength(0);
+  });
+
+  it('[PROX-65] [PERM-14] post de M, que V bloqueou, não ganha a regra: o 404 de inexistente', async () => {
+    const v = await account({ handle: 'vera' });
+    const m = await account({ handle: 'mauro' });
+    await connect(t.database.db, v.user, m.user);
+    const post = await createPost(t.database.db, m.user);
+    await t.http.post('/v1/me/blocks').set(v.headers).send({ handle: 'mauro' }).expect(204);
+    const response = await report(v.headers, {
+      target: { type: 'post', id: post.id },
+      reason: 'spam',
+    });
+    expect(response.status).toBe(404);
+    expect(await t.database.db.select().from(reports)).toHaveLength(0);
+  });
+});
+
+describe('denunciar a outra pessoa de um pedido de conexão das últimas 24 h (ADR 0013)', () => {
+  const WINDOW_MS = CONNECTION_REQUEST_MODERATION_WINDOW_S * 1000;
+
+  function reportAccount(headers: Record<string, string>, handle: string) {
+    return report(headers, { target: { type: 'account', handle }, reason: 'harassment' });
+  }
+
+  async function reportPairs() {
+    const rows = await t.database.db.select().from(reports);
+    return rows.map((row) => [row.reporterId, row.targetUserId, row.targetType]);
+  }
+
+  it('[NFC-MOD-20] A pede para B: B denuncia A e A denuncia B (202, gravadas, sem depender do Valkey); o terceiro C recebe o 404 de @ inexistente', async () => {
+    const helena = await person(t, 'helena');
+    const caio = await person(t, 'caio.r');
+    const marina = await person(t, 'marina');
+    await pendingRequest(t, helena, caio);
+    t.proximity.down = true;
+
+    const missing = await reportAccount(marina.headers, 'naoexiste');
+    expect(missing.status).toBe(404);
+    for (const handle of ['helena', 'caio.r']) {
+      const response = await reportAccount(marina.headers, handle);
+      expect({ handle, status: response.status, body: response.body as unknown }).toEqual({
+        handle,
+        status: 404,
+        body: missing.body as unknown,
+      });
+    }
+    expect(await reportPairs()).toEqual([]);
+
+    expect((await reportAccount(caio.headers, 'helena')).status).toBe(202);
+    expect((await reportAccount(helena.headers, 'caio.r')).status).toBe(202);
+    expect((await reportPairs()).sort()).toEqual(
+      [
+        [caio.user.id, helena.user.id, 'account'],
+        [helena.user.id, caio.user.id, 'account'],
+      ].sort(),
+    );
+  });
+
+  it('[NFC-MOD-21] B bloqueia A pelo pedido e depois denuncia: as duas ações gravam', async () => {
+    const helena = await person(t, 'helena');
+    const caio = await person(t, 'caio.r');
+    await pendingRequest(t, helena, caio);
+    await t.http.post('/v1/me/blocks').set(caio.headers).send({ handle: 'helena' }).expect(204);
+    expect((await reportAccount(caio.headers, 'helena')).status).toBe(202);
+    expect(await reportPairs()).toEqual([[caio.user.id, helena.user.id, 'account']]);
+  });
+
+  it('[NFC-MOD-22] pedido de 24 h ou mais (gravado no banco ou envelhecido pelo relógio): o 404 de @ inexistente, nada gravado', async () => {
+    const v = await account({ handle: 'vera' });
+    const old = await createUser(t.database.db, { handle: 'antiga' });
+    const createdAt = new Date(t.clock.now().getTime() - WINDOW_MS - 1_000);
+    await t.database.db.insert(connectionRequests).values({
+      fromId: old.id,
+      toId: v.user.id,
+      method: 'nfc',
+      status: 'expired',
+      createdAt,
+      expiresAt: new Date(createdAt.getTime() + 120_000),
+      respondedAt: new Date(createdAt.getTime() + 120_000),
+    });
+    const missing = await reportAccount(v.headers, 'naoexiste');
+    const response = await reportAccount(v.headers, 'antiga');
+    expect({ status: response.status, body: response.body as unknown }).toEqual({
+      status: 404,
+      body: missing.body as unknown,
+    });
+
+    const helena = await person(t, 'helena');
+    const caio = await person(t, 'caio.r');
+    await pendingRequest(t, helena, caio);
+    t.clock.advance(WINDOW_MS);
+    await renewSession(t, caio);
+    expect((await reportAccount(caio.headers, 'helena')).status).toBe(404);
+    expect(await reportPairs()).toEqual([]);
   });
 });
 

@@ -13,7 +13,6 @@ import { EmailSender } from '../../infra/email/email-sender.js';
 import { CommentsService } from '../comments/comments.service.js';
 import { AccessPolicyService } from '../policies/access-policy.service.js';
 import { PostsService } from '../posts/posts.service.js';
-import { ProximityService } from '../proximity/proximity.service.js';
 import { profileNotFound, UsersService } from '../users/users.service.js';
 
 /** Fora de produção, sem `MODERATION_EMAIL`: o e-mail só aparece no log (`EMAIL_SENDER=log`). */
@@ -35,13 +34,13 @@ interface ResolvedTarget extends ReportedTarget {
  * Denúncias (X.1, D5). Só se denuncia o que se vê: post, comentário ou perfil que a pessoa não vê
  * (ou que não existe) → o mesmo 404 de inexistente, pelas mesmas regras do `AccessPolicyService`.
  * A conta tem duas exceções (`AccessPolicyService.canReportAccount`), mesmo sem ver o perfil:
- * - (R1-PO-1, aprovada pelo PO em 2026-10-30) quem denuncia bloqueou a conta: sem prazo e sem
- *   consultar o Valkey. Só nesse sentido: ter sido bloqueado por ela não conta;
- * - (ADR 0012, A2 rev. 1, R1-5) quem denuncia encostou nela há até 60 s (o par encostado vivo; o
- *   cartão do encosto já mostrou o @).
- * Fora a conta visível e a que a pessoa bloqueou, a regra consulta o par no Valkey sempre: fora do
- * ar, 503 `PROXIMITY_UNAVAILABLE`, igual para qualquer @, e nada é gravado nem enviado. Post e
- * comentário não têm exceção.
+ * - (R1-PO-1, aprovada pelo PO em 2026-10-30) quem denuncia bloqueou a conta: sem prazo. Só nesse
+ *   sentido: ter sido bloqueado por ela não conta;
+ * - (ADR 0013, no lugar da R1-5 do encosto) há pedido de conexão entre os dois, em qualquer direção
+ *   e status, criado nas últimas 24 h (`CONNECTION_REQUEST_MODERATION_WINDOW_S`): quem recebeu o
+ *   pedido de um desconhecido já viu o @ no cartão.
+ * As duas consultas ficam no Postgres (sem Valkey). Fora delas, o mesmo 404 de @ inexistente. Post
+ * e comentário não têm exceção.
  * A pessoa denunciada nunca é avisada. Repetir a denúncia do mesmo alvo devolve o mesmo 202, sem
  * linha nova nem outro e-mail. Cada denúncia nova manda um e-mail para a moderação.
  */
@@ -56,7 +55,6 @@ export class ReportsService {
     private readonly comments: CommentsService,
     private readonly users: UsersService,
     private readonly policy: AccessPolicyService,
-    private readonly proximity: ProximityService,
     private readonly sender: EmailSender,
     private readonly rateLimiter: RateLimiterService,
     private readonly clock: Clock,
@@ -121,12 +119,10 @@ export class ReportsService {
         };
       }
       case 'account': {
-        // Perfil visível, conta que quem denuncia bloqueou (R1-PO-1) ou par encostado vivo (R1-5);
-        // senão, o mesmo 404 de @ inexistente.
+        // Perfil visível, pedido entre os dois nas últimas 24 h ou conta que quem denuncia bloqueou
+        // (R1-PO-1); senão, o mesmo 404 de @ inexistente.
         const account = await this.users.findActiveAccount(target.handle);
-        const allowed = await this.policy.canReportAccount(viewer, account, (targetId) =>
-          this.proximity.hasLiveTouchPair(viewer.userId, targetId),
-        );
+        const allowed = await this.policy.canReportAccount(viewer, account);
         if (account === undefined || !allowed) {
           throw profileNotFound();
         }

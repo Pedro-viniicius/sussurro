@@ -1,5 +1,17 @@
 import type { ConnectionRequestRow } from '@sussurro/db';
-import type { ConnectionRequest, ConnectionRequestStatus } from '@sussurro/shared';
+import type {
+  ConnectionMethod,
+  ConnectionRequest,
+  ConnectionRequestStatus,
+} from '@sussurro/shared';
+
+/**
+ * O método como sai da API e como entra em escrita nova (ADR 0013 §2): o `ble` antigo (ADR 0012),
+ * que fica no tipo do Postgres só como histórico, vira `nfc`, o encosto mais próximo.
+ */
+export function publicConnectionMethod(method: ConnectionRequestRow['method']): ConnectionMethod {
+  return method === 'ble' ? 'nfc' : method;
+}
 
 /** Estado efetivo: um pendente que passou do prazo já é `expired` (expiração preguiçosa). */
 export function effectiveStatus(
@@ -42,7 +54,7 @@ export function toConnectionRequestView(
     id: request.id,
     direction: request.fromId === viewerId ? 'outgoing' : 'incoming',
     status,
-    method: request.method,
+    method: publicConnectionMethod(request.method),
     other,
     createdAt: request.createdAt.toISOString(),
     expiresAt: request.expiresAt.toISOString(),
