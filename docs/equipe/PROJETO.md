@@ -8,11 +8,13 @@
 > - LongPathsEnabled;
 > - conta Apple e credenciais de push (dev builds EAS). (atualizado em 2026-10-31) GitHub e Expo resolvidos: o CI roda desde o PR #1, e o PO criou o projeto do EAS em 2026-10-30;
 > - aparelhos físicos.
+>
+> **(atualizado em 2026-11-19)** O Conectar passou de Bluetooth para **NFC + QR code** (ADR 0013, PR #12 na `main`). As seções 1, 3, 6 e 7 foram alinhadas, e os próximos passos estão na §9.1. Também entraram o job `native` do CI (módulo NFC e manifesto de release) e o `expo` 58.0.26 (PR #13).
 
 ## 1. Resumo
 
 O Sussurro é uma rede social **sem algoritmo**. O feed mostra só quem a pessoa segue ou com quem se conectou, em ordem cronológica, nas últimas 72 h, e termina em "Você está em dia". Há dois tipos de conta, com regras aplicadas no servidor:
-- **Pessoal**: conecta-se com outra pessoa **só presencialmente**, com confirmação mútua (BLE, com QR como plano B), e segue criadores à distância.
+- **Pessoal**: conecta-se com outra pessoa **só presencialmente**, com confirmação mútua (NFC ou QR code; desde 2026-11-14, ADR 0013, no lugar do BLE), e segue criadores à distância.
 - **Criador**: só publica e pode ser seguido.
 
 As listas de conexões e de seguidos **nunca saem pela API** para ninguém além do dono.
@@ -38,7 +40,7 @@ Em caso de conflito, vale este arquivo, depois o documento do especialista respo
 
 - **Volume do 1º ano**: ~50 mil cadastrados, ~5 mil ativos/dia e ~50 req/s de pico. Região `sa-east-1` (D12, a confirmar).
 - **Máquina de dev**: Windows 11 Home com 7,7 GB de RAM, Node 26.13.0 LTS e pnpm 12.13.0 instalado à parte (o Node 26 não traz o corepack). Docker Desktop sobre WSL2, com WSL limitado a 3 GB. Sem Mac e sem Android Studio.
-- **iOS**: sai só pelo EAS Build, com conta Apple Developer paga (US$ 99/ano) e iPhone físico. **BLE não funciona em simulador**: a Fase 4 exige aparelhos físicos (2 iPhones + 2 Androids para a matriz completa).
+- **iOS**: sai só pelo EAS Build, com conta Apple Developer paga (US$ 99/ano) e iPhone físico. **NFC não funciona em simulador** (o BLE, que ele substituiu, também não): a Fase 4 exige aparelhos físicos. (atualizado em 2026-11-19) Mínimo proposto para a 4e: 2 Androids com HCE + 1 iPhone (`testes.md` 8.1), aguardando o PO.
 - **Android**: dev build pelo EAS em aparelho físico. O emulador não é recomendado com 7,7 GB de RAM.
 - **Ambientes**: local, CI e produção. Staging fica fora da v1.
 - **AWS**: custo zero até o fim da Fase 7 (só código, **nunca `terraform apply`**).
@@ -78,7 +80,7 @@ Parar ao fim de cada fase para revisão do PO. Os pontos vêm de `backlog.md` (1
 | 1 | Auth por e-mail e senha (JWT + refresh rotativo), cadastro com tipo de conta, perfil próprio, edição, exclusão de conta | 39 | D6, D14; `DELETE /me` com senha (A-15) |
 | 2 | Fotos (1 a 4) e textos (280), upload S3, feed cronológico de 72 h, curtidas e comentários | 56 | D9, D11, A-06, A-08, A-09 |
 | 3 | Busca de criadores, seguir, perfil de criador, canário de privacidade | 32 | A-04, D5 (se bloquear entrar, entra aqui) |
-| 4 | Conexão presencial: tokens efêmeros, módulo BLE próprio, QR, confirmação mútua | 63 | D1, D3, D7, D8, D13; aparelhos (A-03); **iOS obrigatório** |
+| 4 | Conexão presencial: tokens efêmeros, módulo nativo próprio (BLE até 2026-11-14; **NFC + QR** desde a ADR 0013), confirmação mútua | 63 | D1, D3, D7, D8, D13; aparelhos (A-03); **iOS obrigatório** |
 | 5 | Reels: upload, `VideoProcessor`, grade e visualizador | 30 | D10, A-21 |
 | 6 | Notificações no app, push (Expo) e Sentry completo | 27 | conta Sentry, APNs via EAS |
 | 7 | Terraform (só código) e documentação de deploy | 36 | D12 |
@@ -88,7 +90,7 @@ Parar ao fim de cada fase para revisão do PO. Os pontos vêm de `backlog.md` (1
 
 | # | Risco | Mitigação | Origem |
 |---|---|---|---|
-| R1 | O módulo BLE próprio (Swift/Kotlin) é código nativo novo e o comportamento varia por fabricante Android | Spike no início da Fase 4 com 4 aparelhos; lógica de bytes em TS testável; QR como plano B | ADR 0002, A-20 |
+| R1 | O módulo nativo próprio (Swift/Kotlin) é código novo, e o NFC/HCE varia por fabricante Android; o iPhone só lê (não emite) | (atualizado em 2026-11-19, ADR 0013) QR sempre disponível; Kotlin com testes de JVM (NFC-10 a 17) no job `native` do CI; manifesto de release conferido no CI; roteiros MAN-NFC-01 a 04 em aparelho. O Swift ainda não foi compilado (sem Mac; sai pelo EAS) | ADR 0002, A-20 |
 | R2 | Node 26 (LTS desde 28/10), Expo SDK 58 e React 19.3 são recentes | Portão de smoke test no início da Fase 0; fallback Node 24 / SDK 57 | ADR 0001 |
 | R3 | O pnpm isolado pode quebrar o Metro ou o autolinking | Fallback `nodeLinker: hoisted` | `fase-0-plano.md` §9 |
 | R4 | Não há conta Apple nem aparelhos confirmados | Fases 0 a 3 com "pendência iOS" se o PO aceitar; a Fase 4 não fecha sem iOS | A-02, A-03 |
@@ -97,7 +99,7 @@ Parar ao fim de cada fase para revisão do PO. Os pontos vêm de `backlog.md` (1
 | R7 | Os emuladores S3/SQS não reproduzem expiração de presign nem `Content-Length` | Verificar no spike da Fase 0 (F0-DC-07); senão, a verificação real fica para depois do `apply` | A-22 |
 | R8 | Pouca RAM (7,7 GB) para Docker + Metro + IDE | WSL limitado a 3 GB, sem emulador Android, ElasticMQ + SeaweedFS (leves) | `infra.md` |
 | R9 | Custo de vídeo (MediaConvert + entrega) | Limites de 90 s / 200 MB, rate limit, budget alarm, CloudFront de preço fixo | ADR 0006, `infra.md` §9 |
-| R10 | Rate limit do `resolve` estoura em lugares cheios | `resolve` em lote; medir no MAN-BLE-04 | A-17 |
+| R10 | Rate limit do `resolve` estoura em lugares cheios | `resolve` em lote. (atualizado em 2026-11-19) Com NFC e QR, cada leitura é deliberada (um código por vez), e o risco cai bastante; o MAN-BLE-04 ficou obsoleto | A-17 |
 
 Lista completa: `arquitetura.md` §16, `infra.md` §10 e `testes.md` §11.
 
@@ -132,7 +134,7 @@ Lista completa: `arquitetura.md` §16, `infra.md` §10 e `testes.md` §11.
 | A-04 | Busca pelo @ de conta pessoal | Dica genérica sempre que não houver criador (não confirma que a conta existe) | Fase 3 |
 | D5 | Denunciar e bloquear | Incluir; bloquear até a Fase 3 | Fase 3 |
 | D3 | Seletor "NFC / Bluetooth" | **"Bluetooth / QR code"**: rotular "NFC" o que não usa NFC engana o usuário, e o QR precisa de lugar na tela. **Revisado pelo PO em 2026-10-30:** "encostar os celulares" (Bluetooth de curtíssimo alcance, só com a tela Conectar aberta nos dois), com o QR de reserva. O NFC foi descartado porque o iPhone não deixa um app social emular cartão NFC (iPhone ↔ iPhone não funcionaria). Motivo: quem está a alguns metros não deve nem enxergar a pessoa. Desenho aprovado pelo PO em 2026-10-30, com todas as recomendações: ADR 0012 (observação mútua no servidor, tokens separados para Bluetooth e QR, QR de reserva) e `ux.md` §11 (D-UX21 a D-UX24, textos T1 a T42, `expo-haptics` sujeito ao aval do `seguranca`, remoção do `Radar`). O gesto sai do spike 4.1-B em aparelho, por causa do NameDrop. O PO vai criar a conta Apple Developer para o build de iOS **Revisado de novo pelo PO em 2026-11-14:** sem Bluetooth; **NFC + QR code** (ADR 0013). O Android emite e lê por NFC, o iPhone só lê, e o QR fica sempre disponível. | Fase 4 (revisão pós-MVP) |
-| D1 | BLE: `react-native-ble-plx` não anuncia | Módulo Expo próprio, com token num UUID de 128 bits | Fase 4 |
+| D1 | BLE: `react-native-ble-plx` não anuncia | Módulo Expo próprio, com token num UUID de 128 bits. **Histórico:** o BLE saiu na ADR 0013 (2026-11-14); o módulo próprio agora faz NFC | Fase 4 |
 | D7 | QR cruzado | B lê o QR de A (garante presença) | Fase 4 |
 | D8 | Desfazer conexão | Permitido | Fase 4 |
 | D13 | "a ~1 m" | Faixas: "bem perto" / "por perto". **Substituído pela revisão do D3 (2026-10-30):** só aparece quem está com o celular encostado | Fase 4 |
@@ -161,6 +163,18 @@ Divergências visuais do protótipo, com recomendação do UX (`ux.md` §9):
 - [ ] Firewall: liberar as portas 3000, 8081 e 8333 na rede Privada e marcar o Wi-Fi de casa como Privada (para o celular alcançar o PC).
 - [ ] Contas: **Apple Developer** (US$ 99/ano; pode demorar dias para aprovar). O Sentry pode esperar (D4). (atualizado em 2026-10-31) **GitHub** e **Expo** feitos: o CI roda desde o PR #1, e o projeto do EAS existe desde 2026-10-30.
 - [ ] Informar os aparelhos disponíveis (iPhones e Androids, com versões de SO).
+
+### 9.1 Próximos passos (atualizado em 2026-11-19)
+
+Em ordem. Todos dependem do PO (contas, aparelhos, site); o código e o CI já estão prontos na `main`.
+
+| # | Passo | Por quê | Quem | Referência |
+|---|---|---|---|---|
+| 1 | Publicar no site a Política de Privacidade nova (NFC + QR, sem Bluetooth nem localização) | A página publicada ainda descreve o Bluetooth; política divergente do app é motivo de rejeição nas lojas | PO (repositório do site) | `docs/deploy/politica-privacidade-nfc.md` |
+| 2 | Dev build EAS novo (Android e iOS) | O módulo nativo mudou; o Swift nunca foi compilado | PO (`eas build`, conta Apple) | README, Fase 4e |
+| 3 | Roteiros MAN-NFC-01 a 04 em aparelho, mais MAN-QR-01 e MAN-CON-01 | Validar o NFC de verdade (HCE por fabricante, gesto do iPhone, VoiceOver) | PO + `testes` | `testes.md` §8; matriz mínima na §3 |
+| 4 | Conferir o AAB final (`bundletool dump manifest`) | O CI confere o manifesto do prebuild; o AAB do EAS tem a configuração e os segredos de produção | PO + `devops` | `lojas.md`, "Permissões" |
+| 5 | Fechar a Fase 4 e criar a tag `fase-4` | Depois dos passos 2 a 4 verdes | PO | `CLAUDE.md`, convenções |
 
 ## 10. Definition of Ready e Definition of Done
 
