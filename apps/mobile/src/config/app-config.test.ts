@@ -1,5 +1,6 @@
 import {
   ANDROID_BLOCKED_PERMISSIONS,
+  ANDROID_RELEASE_BLOCKED_PERMISSIONS,
   type AppVariant,
   buildAppConfig,
   CAMERA_PERMISSION_TEXT,
@@ -168,12 +169,21 @@ describe('app.config', () => {
     });
     for (const variant of ['preview', 'production'] as const) {
       expect(plugin(variant, 'expo-notifications')).toMatchObject({ mode: 'production' });
-      // Só o RECEIVE_BOOT_COMPLETED do expo-notifications sai (o app não agenda notificações).
+      // O RECEIVE_BOOT_COMPLETED do expo-notifications sai (o app não agenda notificações) e, fora
+      // do dev build, o SYSTEM_ALERT_WINDOW do template (job "native" do CI, lojas.md).
       expect(buildAppConfig(variant).android?.blockedPermissions).toEqual(
-        ANDROID_BLOCKED_PERMISSIONS,
+        ANDROID_RELEASE_BLOCKED_PERMISSIONS,
       );
     }
     expect(ANDROID_BLOCKED_PERMISSIONS).toEqual(['android.permission.RECEIVE_BOOT_COMPLETED']);
+    expect(ANDROID_RELEASE_BLOCKED_PERMISSIONS).toEqual([
+      'android.permission.RECEIVE_BOOT_COMPLETED',
+      'android.permission.SYSTEM_ALERT_WINDOW',
+    ]);
+    // O dev build mantém a sobreposição para o monitor de desempenho do React Native.
+    expect(buildAppConfig('development').android?.blockedPermissions).toEqual(
+      ANDROID_BLOCKED_PERMISSIONS,
+    );
     // Nenhum modo de background no iOS (nem remote-notification).
     expect(JSON.stringify(buildAppConfig('production'))).not.toMatch(/UIBackgroundModes/);
   });

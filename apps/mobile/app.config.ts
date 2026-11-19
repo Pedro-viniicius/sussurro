@@ -96,6 +96,17 @@ export function notificationsPluginOptions(variant: AppVariant): Record<string, 
  */
 export const ANDROID_BLOCKED_PERMISSIONS = ['android.permission.RECEIVE_BOOT_COMPLETED'];
 
+/**
+ * Preview e produção também tiram o `SYSTEM_ALERT_WINDOW` (sobreposição de tela), que o template do
+ * prebuild põe no manifesto principal. O app não desenha sobre outros apps: só as ferramentas de
+ * desenvolvimento do React Native (o monitor de desempenho) usam, e elas ficam no dev build. O job
+ * `native` do CI pegou a permissão no manifesto de release (docs/deploy/lojas.md).
+ */
+export const ANDROID_RELEASE_BLOCKED_PERMISSIONS = [
+  ...ANDROID_BLOCKED_PERMISSIONS,
+  'android.permission.SYSTEM_ALERT_WINDOW',
+];
+
 export function resolveVariant(value: string | undefined): AppVariant {
   if (value === undefined || value === '') {
     return 'development';
@@ -145,7 +156,7 @@ export function buildAppConfig(
     },
     android: {
       package: id,
-      blockedPermissions: ANDROID_BLOCKED_PERMISSIONS,
+      blockedPermissions: isDev ? ANDROID_BLOCKED_PERMISSIONS : ANDROID_RELEASE_BLOCKED_PERMISSIONS,
       ...(googleServicesFile === undefined ? {} : { googleServicesFile }),
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',
