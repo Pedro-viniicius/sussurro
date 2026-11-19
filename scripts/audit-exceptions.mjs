@@ -16,18 +16,9 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
-const EXCEPTIONS = [
-  {
-    // zod: estouro de memória na validação de arrays grandes (alta, só disponibilidade). Vem só pelo
-    // @expo/cli 58.1.17 (CLI de desenvolvimento do Expo; não entra no app nem nas imagens). Não há
-    // 3.x corrigido; o @expo/cli 58.1.18 (expo 58.0.22, de 2026-10-31) não depende mais do zod.
-    ghsa: 'GHSA-mrhx-c7xc-m3w5',
-    pkg: 'zod',
-    fixedIn: '4.6.6',
-    allowedParents: ['@expo/cli'],
-    reviewBy: '2026-11-30',
-  },
-];
+// (2026-11-19) Vazia: a exceção do zod (GHSA-mrhx-c7xc-m3w5, pelo @expo/cli 58.1.17) saiu com o
+// expo 58.0.26 (@expo/cli 58.1.21), que não traz mais zod vulnerável (infra.md §8.3).
+const EXCEPTIONS = [];
 
 /** Onde o pnpm lê configuração (as exceções só podem estar no pnpm-workspace.yaml). */
 const CONFIG_FILES = ['pnpm-workspace.yaml', 'package.json', '.npmrc'];
