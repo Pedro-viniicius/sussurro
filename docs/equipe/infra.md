@@ -622,6 +622,8 @@ Os outros avisos do `pnpm audit --prod` em 2026-10-31 estão abaixo do nível `h
 | GHSA-g3hv-75wg-m249 (DoS por amplificação de "globparts") | moderada | `minimatch` 10.2.6 | 11.0.1 | o `glob` 13.0.6 dos pacotes `@expo/*` no app; o `eslint` do `packages/config`; e, na API e no worker, `@sentry/nestjs` → `@sentry/node` → `@sentry/bundler-plugins` → `glob` |
 | GHSA-3g3m-2fjr-6pw4 (cancelamento por `AbortSignal` ignorado) | moderada | `glob` 13.0.6 | 14.0.2 | os mesmos caminhos do `minimatch`, menos o `eslint` |
 
+(atualizado em 2026-11-19) Hoje o `pnpm audit --prod` só mostra os dois moderados abaixo (`minimatch` e `glob`). O GitHub retirou ("Withdrawn") o aviso do `deepmerge`. As quatro GHSAs do `node-forge` ≤ 1.4.2, publicadas em 2026-11-10 (três moderadas e uma baixa; só pela CLI do Expo e pelo `@expo/code-signing-certificates`, fora do app e das imagens), saíram com o `node-forge` 1.4.3 no PR #13.
+
 Os dois moderados entram nas imagens pelo SDK do Sentry. O `@sentry/node` só usa o `@sentry/bundler-plugins` nas entradas `bundler-plugin/*` (plugins de esbuild, rollup e vite), que a API e o worker não importam. A correção vem do Sentry, e o grupo `sentry` do Dependabot a traz quando sair.
 
 ---
