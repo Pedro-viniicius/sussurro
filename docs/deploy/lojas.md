@@ -81,7 +81,7 @@ pnpm --filter @sussurro/mobile eas submit --platform android --profile productio
 - [ ] **Segurança dos dados** (Data safety): os mesmos dados do iOS (e-mail, conteúdo, id da conta, token de push; diagnóstico se o Sentry estiver ligado); criptografados em trânsito; a pessoa pode pedir a exclusão; **nenhum dado compartilhado** com terceiros para anúncios; localização **não coletada**.
 - [ ] Público-alvo e conteúdo: faixa etária conforme o L2; questionário IARC (interação entre usuários, conteúdo gerado por usuários); sem anúncios; não é app de governo, saúde, notícias nem para crianças.
 
-**Permissões** (conferir no AAB final: `bundletool dump manifest --bundle=app.aab` ou o Play Console → App bundle explorer)
+**Permissões** (o job `native` do CI confere o manifesto final de release a cada PR que mexe na parte nativa, com a lista de permitidas do `scripts/check-android-manifest.mjs`: permissão fora desta tabela falha o job, e aceitar uma nova exige mudar o script e esta tabela no mesmo PR; conferir também no AAB final: `bundletool dump manifest --bundle=app.aab` ou o Play Console → App bundle explorer)
 
 | Permissão | Por quê | Observação |
 |---|---|---|
@@ -92,9 +92,12 @@ pnpm --filter @sussurro/mobile eas submit --platform android --profile productio
 | `CAMERA` | Ler o QR code | Texto de propósito igual ao do iOS |
 | `POST_NOTIFICATIONS` | Push (Android 13+), pedido contextual | Canal "Notificações" |
 | `com.google.android.c2dm.permission.RECEIVE`, `WAKE_LOCK` | Do FCM (push remoto) | Vêm da biblioteca |
+| `READ_EXTERNAL_STORAGE` e `WRITE_EXTERNAL_STORAGE` com `maxSdkVersion="32"` | Legado: só valem até o Android 12L | Vêm do template do prebuild, do `expo-file-system`, do `expo-image` e do `expo-image-picker`. Não valem no Android 13+ e não são as `READ_MEDIA_*` que pedem declaração no Play Console. O job `native` do CI falha se aparecerem sem esse teto |
+| `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `VIBRATE`, `USE_BIOMETRIC`, `USE_FINGERPRINT`, `BIND_GET_INSTALL_REFERRER_SERVICE`, `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` do próprio app e as de badge de launcher (`READ_APP_BADGE`, `com.android.launcher.*`, Samsung, Huawei, HTC, Sony, Oppo e outros) | Rede, vibração (`expo-haptics`), biometria do `androidx.biometric` (`expo-secure-store`), install referrer, receiver interno do `androidx.core` e o número no ícone (ShortcutBadger, do `expo-notifications`) | Vêm das bibliotecas, sem pedido na tela. Estão na lista de permitidas do `scripts/check-android-manifest.mjs` |
+| `SYSTEM_ALERT_WINDOW`, `ACCESS_LOCAL_NETWORK`, `CHANGE_WIFI_MULTICAST_STATE` | Só no dev build (React Native e `expo-dev-launcher`, para o servidor de desenvolvimento) | **Não** estão na lista de permitidas: se aparecerem no manifesto de release, o job `native` falha |
 | `RECEIVE_BOOT_COMPLETED` | **Removida** (o app não agenda notificações locais) | `blockedPermissions` no `app.config.ts` |
 
-- [ ] **Fotos e vídeos**: o app usa o seletor do sistema (Photo Picker). Se o AAB final tiver `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO` ou `READ_EXTERNAL_STORAGE` (vindas de alguma biblioteca), o Google exige uma declaração e tende a recusar quem só escolhe mídia de vez em quando: nesse caso, bloquear essas permissões no `app.config.ts` (`android.blockedPermissions`) antes de enviar.
+- [ ] **Fotos e vídeos**: o app usa o seletor do sistema (Photo Picker). Se o AAB final tiver `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `ACCESS_MEDIA_LOCATION` ou `READ_EXTERNAL_STORAGE` sem `maxSdkVersion="32"` (vindas de alguma biblioteca; o job `native` do CI já falha nesses casos), o Google exige uma declaração e tende a recusar quem só escolhe mídia de vez em quando: nesse caso, bloquear essas permissões no `app.config.ts` (`android.blockedPermissions`) antes de enviar.
 - [ ] Sem `FOREGROUND_SERVICE`, sem `ACCESS_FINE_LOCATION`/`ACCESS_COARSE_LOCATION`/`ACCESS_BACKGROUND_LOCATION`, sem `BLUETOOTH*`, sem `RECORD_AUDIO` (o microfone é bloqueado pelos plugins). Sem localização, não há declaração de localização no Play Console.
 - [ ] Target API 36 (Expo SDK 58): atende ao requisito do Google.
 
