@@ -27,11 +27,6 @@ allowBuilds:
 overrides:
   typescript: 6.0.3
 
-# Exceções do "pnpm audit" (infra.md §8.3), com o aval do seguranca. Cada GHSA daqui precisa de um
-# registro em scripts/audit-exceptions.mjs (caminho permitido e data de revisão), conferido no job
-# "audit" do CI.
-audit:
-  ignore:
-    # zod < 4.6.6, só pelo @expo/cli 58.1.17 (CLI de dev, fora do app e das imagens). Sem 3.x
-    # corrigido; sai com o @expo/cli 58.1.18. Revisar até 2026-11-30.
-    - GHSA-mrhx-c7xc-m3w5
+# Exceções do "pnpm audit" (infra.md §8.3), com o aval do seguranca: vão em audit.ignore, e cada
+# uma precisa de um registro em scripts/audit-exceptions.mjs (caminho permitido e data de revisão),
+# conferido nos jobs "quality" e "audit" do CI. Nenhuma desde 2026-11-19.

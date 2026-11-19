@@ -298,7 +298,7 @@ Segunda rodada, também em 2026-11-14 (revisão de textos e de acessibilidade):
 
 Pendente:
 
-- **Dev build EAS novo** (o módulo nativo mudou): o Swift não foi compilado (sem Mac); o Kotlin compila aqui (ver acima). Faltam o `expo-doctor` (17 pacotes com versão minor atrás do SDK 58) e os roteiros em aparelho:
+- **Dev build EAS novo** (o módulo nativo mudou): o Swift não foi compilado (sem Mac); o Kotlin compila aqui (ver acima). O `expo-doctor` passa 20/20 desde 2026-11-19 (`expo` 58.0.26 e 16 pacotes do SDK alinhados). Faltam os roteiros em aparelho:
   - MAN-NFC-01: Android → Android, costas com costas;
   - MAN-NFC-02: Android → iPhone;
   - MAN-NFC-03: código apagado em background e depois de 30 s;
@@ -603,7 +603,7 @@ Pendente:
   - S3 do `ux-ui` (foco no T32 no QR; anterior ao PR);
   - exportar o limite de 6 tokens por minuto no `packages/shared`;
   - o 401 repetido com a sessão trocada no meio do voo (BAIXO anterior ao PR, `frontend`);
-  - ~~`pnpm audit` no `@expo/cli` (BAIXO anterior ao PR, `devops`);~~ (atualizado em 2026-10-31) Feito no PR #4: há uma exceção registrada para o GHSA-mrhx-c7xc-m3w5, cobrada no `quality` até 2026-11-30, porque o `@expo/cli` 58.1.18 já não usa o `zod`;
+  - ~~`pnpm audit` no `@expo/cli` (BAIXO anterior ao PR, `devops`);~~ (atualizado em 2026-10-31) Feito no PR #4: há uma exceção registrada para o GHSA-mrhx-c7xc-m3w5, cobrada no `quality` até 2026-11-30, porque o `@expo/cli` 58.1.18 já não usa o `zod`. (2026-11-19) A exceção saiu com o `expo` 58.0.26, junto com o alinhamento de 16 pacotes do SDK 58 pedido pelo `expo-doctor`;
   - ~~`CODEOWNERS` para o `.gitleaksignore` e o `.gitleaks.toml`, com a revisão do dono exigida na proteção da `main`, e o passo a passo do falso positivo no `infra.md` §8 (BAIXO anterior ao PR, `devops`).~~ (atualizado em 2026-10-31) Feito no PR #4 (`.github/CODEOWNERS` e `infra.md` §8.1 e §8.2). Para ter efeito, falta o PO decidir pelo GitHub Pro e pela proteção da `main`;
   - os riscos R24 e R25 (`arquitetura.md` §16).
 

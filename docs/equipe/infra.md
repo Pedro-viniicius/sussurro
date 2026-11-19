@@ -612,6 +612,8 @@ A conferência contra o próprio `pnpm audit --json` ficou de fora: no pnpm 12.1
 |---|---|---|---|---|
 | GHSA-mrhx-c7xc-m3w5 (CVE-2023-54404; alta, CVSS 4.0 8,2, só disponibilidade) | `zod` 3.25.76, só pelo `@expo/cli` 58.1.17 (`expo` 58.0.21), em 42 caminhos, todos do `apps/mobile` | Afeta todo `zod` anterior ao 4.6.6: a validação de um array sem limite de tamanho acumula um erro por elemento e pode estourar a memória. Não há 3.x corrigido (a última é a 3.25.76, de 2025-07-08), e um override para o 4.x quebraria o `@expo/cli`, que usa a API do zod 3. O `@expo/cli` é a CLI de desenvolvimento do Expo (`expo start`, `export`, `prebuild`): roda na máquina de dev e no EAS Build, com a configuração do próprio projeto, e não entra no bundle do app nem nas imagens. Nossos pacotes usam o `zod` 4.6.7 | O `@expo/cli` 58.1.18, publicado em 2026-10-31 com o `expo` 58.0.22, não depende mais do zod. Com o cooldown de 14 dias, o grupo `expo` do Dependabot deve propor a atualização a partir de 2026-11-14. Depois do merge, tire a GHSA do `audit.ignore` e o registro do script (o próprio script avisa) | 2026-11-30 |
 
+(atualizado em 2026-11-19) **A exceção acima saiu.** O `expo` 58.0.26 traz o `@expo/cli` 58.1.21, e o lockfile não tem mais `zod` anterior ao 4.6.6 (só o 4.6.7). O próprio `scripts/audit-exceptions.mjs` passou a falhar pedindo a remoção, como previsto. O `audit.ignore` e a lista `EXCEPTIONS` ficaram vazios.
+
 Os outros avisos do `pnpm audit --prod` em 2026-10-31 estão abaixo do nível `high` do CI e não falham o job:
 
 | GHSA | Severidade | Pacote | Corrigido em | De onde vem |
@@ -619,6 +621,8 @@ Os outros avisos do `pnpm audit --prod` em 2026-10-31 estão abaixo do nível `h
 | GHSA-gcqx-w48m-w2h4 (prototype poisoning no `mergeObject()`) | baixa | `deepmerge` 4.3.1 | sem correção | `@expo/config` (por `expo`, `@expo/cli`, `@expo/metro-config` e `@expo/prebuild-config`), só no `apps/mobile` |
 | GHSA-g3hv-75wg-m249 (DoS por amplificação de "globparts") | moderada | `minimatch` 10.2.6 | 11.0.1 | o `glob` 13.0.6 dos pacotes `@expo/*` no app; o `eslint` do `packages/config`; e, na API e no worker, `@sentry/nestjs` → `@sentry/node` → `@sentry/bundler-plugins` → `glob` |
 | GHSA-3g3m-2fjr-6pw4 (cancelamento por `AbortSignal` ignorado) | moderada | `glob` 13.0.6 | 14.0.2 | os mesmos caminhos do `minimatch`, menos o `eslint` |
+
+(atualizado em 2026-11-19) Hoje o `pnpm audit --prod` só mostra os dois moderados abaixo (`minimatch` e `glob`). O GitHub retirou ("Withdrawn") o aviso do `deepmerge`. As quatro GHSAs do `node-forge` ≤ 1.4.2, publicadas em 2026-11-10 (três moderadas e uma baixa; só pela CLI do Expo e pelo `@expo/code-signing-certificates`, fora do app e das imagens), saíram com o `node-forge` 1.4.3 no PR #13.
 
 Os dois moderados entram nas imagens pelo SDK do Sentry. O `@sentry/node` só usa o `@sentry/bundler-plugins` nas entradas `bundler-plugin/*` (plugins de esbuild, rollup e vite), que a API e o worker não importam. A correção vem do Sentry, e o grupo `sentry` do Dependabot a traz quando sair.
 
