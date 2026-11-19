@@ -1,8 +1,8 @@
 // E2E dos pedidos de conexão e de desfazer conexão (histórias 4.5, 4.6, 4.9 e 4.10; ADR 0003 e
-// ADR 0012; testes.md PROX-03, 06, 07, 09 a 20, 22, 23, 26, 27, PROX-39 a 41, CNT-03, FEED-11,
+// ADR 0013; testes.md PROX-03, 06, 07, 09 a 20, 22, 23, 26, 27, PROX-40 e 41, CNT-03, FEED-11,
 // PERM-13; X.2 CA2; D7 e D8). O tempo corre no relógio de teste (sem `sleep`) e os tokens ficam no
-// fake em memória do Redis. Desde a ADR 0012: o pedido `ble` exige o par encostado (`touch`) e o
-// `bleToken` de B; o pedido e o aceite `qr` usam o `qrToken` (o de `issueToken`).
+// fake em memória do Redis. Desde a ADR 0013: um token só por emissão (o mesmo no QR e no NFC); o
+// pedido `qr` e o `nfc` têm as mesmas regras, e o aceite exige o token de A nos dois (D7).
 import { connectionRequests, connections, eq, users } from '@sussurro/db';
 import {
   addComment,
@@ -21,10 +21,7 @@ import {
 } from '@sussurro/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import {
-  hashProximityToken,
-  PROXIMITY_LIMITS,
-} from '../../src/modules/proximity/proximity-token.js';
+import { PROXIMITY_LIMITS } from '../../src/modules/proximity/proximity-token.js';
 import { bearer, directSession, directUser, loginViaApi } from '../support/auth.js';
 import {
   acceptRequest,
@@ -35,11 +32,8 @@ import {
   type Person,
   person,
   renewSession,
-  reportTouch,
   requestConnection,
   resolveTokens,
-  touch,
-  touchItems,
   UNKNOWN_TOKEN,
 } from '../support/proximity.js';
 import { createTestApp, type TestApp } from '../support/test-app.js';
@@ -232,18 +226,18 @@ describe('pedido A → B (4.5)', () => {
     });
   });
 
-  it('[PROX-22] método fora do enum → 400; sem targetToken → 400', async () => {
+  it('[PROX-22] método fora do enum (inclusive o `ble` antigo, ADR 0013) → 400; sem targetToken → 400', async () => {
     const helena = await person(t);
     await issueToken(t, helena);
     await t.http
       .post('/v1/connections/requests')
       .set(helena.headers)
-      .send({ targetToken: UNKNOWN_TOKEN, method: 'nfc' })
+      .send({ targetToken: UNKNOWN_TOKEN, method: 'ble' })
       .expect(400);
     await t.http
       .post('/v1/connections/requests')
       .set(helena.headers)
-      .send({ method: 'ble' })
+      .send({ method: 'nfc' })
       .expect(400);
   });
 
@@ -253,7 +247,7 @@ describe('pedido A → B (4.5)', () => {
     const denied = await t.http
       .post('/v1/connections/requests')
       .set(unverified.headers)
-      .send({ targetToken: UNKNOWN_TOKEN, method: 'ble' })
+      .send({ targetToken: UNKNOWN_TOKEN, method: 'nfc' })
       .expect(403);
     expect(ErrorResponseSchema.parse(denied.body).code).toBe('EMAIL_NOT_VERIFIED');
 
@@ -263,7 +257,7 @@ describe('pedido A → B (4.5)', () => {
       .values({
         fromId: helena.user.id,
         toId: unverified.user.id,
-        method: 'ble',
+        method: 'nfc',
         createdAt: t.clock.now(),
         expiresAt: new Date(t.clock.now().getTime() + 120 * SECOND),
       })
@@ -280,25 +274,25 @@ describe('pedido A → B (4.5)', () => {
   });
 });
 
-describe('aceite (4.6; ADR 0012 §4: ble sem token, qr com os tokens cruzados do QR)', () => {
-  it('[PROX-09] [PROX-41] B aceita o pedido do encosto (ble, sem token): conexão com o método do pedido, nas listas, contadores e feed dos dois', async () => {
+describe('aceite (4.6; ADR 0013 §2: o token de A lido por B, nos dois métodos)', () => {
+  it('[PROX-09] [PROX-41] B aceita o pedido nfc com o token de A: conexão com o método do pedido, nas listas, contadores e feed dos dois', async () => {
     const helena = await person(t, 'helena');
     const caio = await person(t, 'caio.r');
     await createPost(t.database.db, helena.user, {
       text: 'Post da Helena.',
       createdAt: new Date(t.clock.now().getTime() - MINUTE),
     });
-    const { request } = await pendingRequest(t, helena, caio, 'ble');
-    const response = await acceptRequest(t, caio, request.id).expect(200);
+    const { request, fromToken } = await pendingRequest(t, helena, caio, 'nfc');
+    const response = await acceptRequest(t, caio, request.id, fromToken).expect(200);
     expect(parseRequest(response)).toMatchObject({
       id: request.id,
       direction: 'incoming',
       status: 'accepted',
-      method: 'ble',
+      method: 'nfc',
       expiresInS: 0,
     });
     const [row] = await connectionRows();
-    expect(row).toMatchObject({ method: 'ble', requestId: request.id });
+    expect(row).toMatchObject({ method: 'nfc', requestId: request.id });
     expect(parseRequest(await getRequest(helena, request.id).expect(200)).status).toBe('accepted');
     expect(await myConnections(helena)).toEqual(['caio.r']);
     expect(await myConnections(caio)).toEqual(['helena']);
@@ -310,25 +304,27 @@ describe('aceite (4.6; ADR 0012 §4: ble sem token, qr com os tokens cruzados do
     expect(await incoming(caio)).toEqual([]);
   });
 
-  it('[PROX-09] [PROX-41] qr: sem observedToken → 400 VALIDATION_ERROR; com o token de C (válido) ou o bleToken de A (canal trocado) → recusado e o pedido continua pendente', async () => {
-    const helena = await person(t);
-    const caio = await person(t);
-    const marina = await person(t);
-    const { request, fromTokens } = await pendingRequest(t, helena, caio, 'qr');
-    const missing = await acceptRequest(t, caio, request.id).expect(400);
-    expect(ErrorResponseSchema.parse(missing.body).code).toBe('VALIDATION_ERROR');
-    const marinaToken = await issueToken(t, marina);
-    const refused = await acceptRequest(t, caio, request.id, marinaToken).expect(400);
-    expect(refused.body).toEqual(GENERIC);
-    const swapped = await acceptRequest(t, caio, request.id, fromTokens.bleToken).expect(400);
-    expect(swapped.body).toEqual(GENERIC);
-    expect((await requestRows())[0]?.status).toBe('pending');
-    expect(await connectionRows()).toEqual([]);
-    // O 400 de token ausente não conta como falha; o de C e o do canal trocado, sim.
-    expect(await failuresOf(caio)).toBe(2);
-  });
+  for (const method of ['qr', 'nfc'] as const) {
+    it(`[PROX-09] [PROX-41] ${method}: sem observedToken → 400 VALIDATION_ERROR; com o token de C (válido) ou inexistente → recusado e o pedido continua pendente`, async () => {
+      const helena = await person(t);
+      const caio = await person(t);
+      const marina = await person(t);
+      const { request } = await pendingRequest(t, helena, caio, method);
+      const missing = await acceptRequest(t, caio, request.id).expect(400);
+      expect(ErrorResponseSchema.parse(missing.body).code).toBe('VALIDATION_ERROR');
+      const marinaToken = await issueToken(t, marina);
+      const refused = await acceptRequest(t, caio, request.id, marinaToken).expect(400);
+      expect(refused.body).toEqual(GENERIC);
+      const unknown = await acceptRequest(t, caio, request.id, UNKNOWN_TOKEN).expect(400);
+      expect(unknown.body).toEqual(GENERIC);
+      expect((await requestRows())[0]?.status).toBe('pending');
+      expect(await connectionRows()).toEqual([]);
+      // O 400 de token ausente não conta como falha; o de C e o inexistente, sim.
+      expect(await failuresOf(caio)).toBe(2);
+    });
+  }
 
-  it('[PROX-03] [PROX-26] qr: tA (qrToken) com 31 a 120 s ainda confirma; com mais de 120 s, não; o tA mais recente (lido há 15 s) confirma aos 110 s do pedido', async () => {
+  it('[PROX-03] [PROX-26] qr: tA (o código de A) com 31 a 120 s ainda confirma; com mais de 120 s, não; o tA mais recente (lido há 15 s) confirma aos 110 s do pedido', async () => {
     const helena = await person(t);
     const caio = await person(t);
     const oldToken = await issueToken(t, helena);
@@ -457,8 +453,8 @@ describe('aceite (4.6; ADR 0012 §4: ble sem token, qr com os tokens cruzados do
     const helena = await person(t);
     const caio = await person(t);
     const { request, fromToken, fromTokens } = await pendingRequest(t, helena, caio);
-    // B também toca em "Conectar" no cartão do encosto (P5): vira conexão na hora.
-    const cross = await requestConnection(t, caio, fromTokens.bleToken, 'ble').expect(200);
+    // B também toca em "Conectar" no cartão de A (P5): vira conexão na hora.
+    const cross = await requestConnection(t, caio, fromTokens.token, 'nfc').expect(200);
     expect(parseRequest(cross)).toMatchObject({ id: request.id, status: 'accepted' });
     await acceptRequest(t, caio, request.id, fromToken).expect(200);
     expect(await connectionRows()).toHaveLength(1);
@@ -471,11 +467,12 @@ describe('corrida A → B ∥ B → A (PROX-13)', () => {
     for (let round = 0; round < 50; round++) {
       const helena = await person(t);
       const caio = await person(t);
-      // Os dois encostam (par A–B) e mostram o QR: um pede pelo encosto, o outro pelo QR.
-      const { aTokens: helenaTokens, bTokens: caioTokens } = await touch(t, helena, caio);
+      // Os dois abrem a tela: um lê o código do outro por NFC, o outro pelo QR.
+      const helenaTokens = await issueTokens(t, helena);
+      const caioTokens = await issueTokens(t, caio);
       const [toCaio, toHelena] = await Promise.all([
-        requestConnection(t, helena, caioTokens.bleToken, 'ble'),
-        requestConnection(t, caio, helenaTokens.qrToken, 'qr'),
+        requestConnection(t, helena, caioTokens.token, 'nfc'),
+        requestConnection(t, caio, helenaTokens.token, 'qr'),
       ]);
       const pair = (await connectionRows()).filter(
         (row) =>
@@ -504,134 +501,67 @@ describe('corrida A → B ∥ B → A (PROX-13)', () => {
   });
 });
 
-describe('pedido e aceite por método (ADR 0012 §4)', () => {
-  it('[PROX-39] pedido ble sem o par (o bleToken lido do ar, sem encosto mútuo) → 400 genérico, contado como falha e nada gravado; depois do encosto mútuo, 201 com o cartão de B', async () => {
-    const helena = await person(t, 'helena');
-    const caio = await person(t, 'caio.r');
-    await issueTokens(t, helena);
-    const caioTokens = await issueTokens(t, caio);
-    // Helena leu o anúncio de Caio e até relatou o encosto, mas Caio não relatou Helena.
-    expect(touchItems(await reportTouch(t, helena, [caioTokens.bleToken]).expect(200))).toEqual([]);
-    const denied = await requestConnection(t, helena, caioTokens.bleToken, 'ble').expect(400);
-    expect(denied.body).toEqual(GENERIC);
-    expect(await requestRows()).toEqual([]);
-    expect(t.push.sent).toEqual([]);
+describe('pedido e aceite por método (ADR 0013 §2: qr e nfc com as mesmas regras)', () => {
+  for (const method of ['qr', 'nfc'] as const) {
+    it(`[PROX-40] [PROX-22] pedido ${method}: o token válido de B → 201 ${method}, gravado no pedido; com mais de 30 s ou inexistente → 400 genérico, contado como falha; o próprio → CANNOT_CONNECT_SELF`, async () => {
+      const helena = await person(t, 'helena');
+      const caio = await person(t, 'caio.r');
+      const marina = await person(t, 'marina');
+      const helenaToken = await issueToken(t, helena);
+      const caioToken = await issueToken(t, caio);
+      const created = await requestConnection(t, helena, caioToken, method).expect(201);
+      expect(parseRequest(created)).toMatchObject({ method, other: { handle: 'caio.r' } });
+      expect((await requestRows())[0]?.method).toBe(method);
 
-    const { cardOfB } = await touch(t, helena, caio);
-    expect(cardOfB).toMatchObject({ handle: 'caio.r' });
-    const created = await requestConnection(t, helena, cardOfB.token, 'ble').expect(201);
-    expect(parseRequest(created)).toMatchObject({
-      direction: 'outgoing',
-      status: 'pending',
-      method: 'ble',
-      other: { handle: 'caio.r', name: caio.user.name, avatarUrl: null },
+      const marinaToken = await issueToken(t, marina);
+      t.clock.advance(31 * SECOND);
+      await issueToken(t, helena);
+      const stale = await requestConnection(t, helena, marinaToken, method).expect(400);
+      expect(stale.body).toEqual(GENERIC);
+      const unknown = await requestConnection(t, helena, UNKNOWN_TOKEN, method).expect(400);
+      expect(unknown.body).toEqual(GENERIC);
+      const self = await requestConnection(t, helena, await issueToken(t, helena), method);
+      expect(self.status).toBe(400);
+      expect(ErrorResponseSchema.parse(self.body).code).toBe('CANNOT_CONNECT_SELF');
+      expect(helenaToken).not.toBe(caioToken);
+      expect(await requestRows()).toHaveLength(1);
     });
-    expect((await requestRows())[0]).toMatchObject({
-      fromId: helena.user.id,
-      toId: caio.user.id,
-      method: 'ble',
+
+    it(`[PROX-41] aceite ${method}: o token de A lido por B conecta com ${method}; um terceiro aceitando recebe o 404 de inexistente`, async () => {
+      const helena = await person(t);
+      const caio = await person(t);
+      const marina = await person(t);
+      const { request, fromToken } = await pendingRequest(t, helena, caio, method);
+      await issueToken(t, marina);
+      await acceptRequest(t, marina, request.id, fromToken).expect(404);
+      const accepted = await acceptRequest(t, caio, request.id, fromToken).expect(200);
+      expect(parseRequest(accepted)).toMatchObject({ status: 'accepted', method });
+      expect((await connectionRows()).map((row) => row.method)).toEqual([method]);
     });
-    expect(await failuresOf(helena)).toBe(1);
-  });
+  }
 
-  it('[PROX-39] com o par valendo, o bleToken de B só "recente" (31 a 120 s) ainda serve; com o par vencido (60 s), 400 genérico mesmo com o token recente', async () => {
+  it('[PROX-22] pedido antigo `ble` (ADR 0012, histórico no banco): sai como `nfc`, o aceite exige o token de A e a conexão nasce `nfc`', async () => {
     const helena = await person(t);
     const caio = await person(t);
-    const marina = await person(t);
-    const joana = await person(t);
-    const first = await touch(t, helena, caio);
-    // 59 s depois: o bleToken de Caio (o do casamento) passou dos 30 s, mas o par ainda vale.
-    t.clock.advance(59 * SECOND);
-    await issueToken(t, helena);
-    await requestConnection(t, helena, first.bTokens.bleToken, 'ble').expect(201);
-
-    const second = await touch(t, marina, joana);
-    // 60 s depois do casamento: o par venceu; o bleToken de Joana (60 s) ainda é "recente".
-    t.clock.advance(60 * SECOND);
-    await issueToken(t, marina);
-    expect(
-      await t.proximity.findRecent(hashProximityToken(second.bTokens.bleToken)),
-    ).not.toBeNull();
-    const expired = await requestConnection(t, marina, second.bTokens.bleToken, 'ble').expect(400);
-    expect(expired.body).toEqual(GENERIC);
-    expect(await requestRows()).toHaveLength(1);
-    expect(await failuresOf(marina)).toBe(1);
-  });
-
-  it('[PROX-39] o par é do dono do token: com o par A–B valendo, o bleToken de C → 400; o qrToken de B no pedido ble (canal trocado) → 400; o próprio bleToken → CANNOT_CONNECT_SELF', async () => {
-    const helena = await person(t);
-    const caio = await person(t);
-    const marina = await person(t);
-    const { aTokens, bTokens } = await touch(t, helena, caio);
-    const marinaTokens = await issueTokens(t, marina);
-    for (const token of [marinaTokens.bleToken, bTokens.qrToken, aTokens.qrToken]) {
-      expect((await requestConnection(t, helena, token, 'ble').expect(400)).body).toEqual(GENERIC);
-    }
-    const self = await requestConnection(t, helena, aTokens.bleToken, 'ble').expect(400);
-    expect(ErrorResponseSchema.parse(self.body).code).toBe('CANNOT_CONNECT_SELF');
-    expect(await requestRows()).toEqual([]);
-    expect(await failuresOf(helena)).toBe(3);
-  });
-
-  it('[PROX-40] pedido qr: o qrToken válido de B (sem par) → 201 qr; o bleToken de B no pedido qr → 400 genérico, mesmo com o par; o qrToken com mais de 30 s → 400', async () => {
-    const helena = await person(t);
-    const caio = await person(t);
-    const marina = await person(t, 'marinac');
-    await issueTokens(t, helena);
-    const caioTokens = await issueTokens(t, caio);
-    const created = await requestConnection(t, helena, caioTokens.qrToken, 'qr').expect(201);
-    expect(parseRequest(created)).toMatchObject({ status: 'pending', method: 'qr' });
-    expect(await t.proximity.hasTouchPair(helena.user.id, caio.user.id)).toBe(false);
-
-    const { bTokens: marinaTokens } = await touch(t, helena, marina);
-    const swapped = await requestConnection(t, helena, marinaTokens.bleToken, 'qr').expect(400);
-    expect(swapped.body).toEqual(GENERIC);
-
-    t.clock.advance(31 * SECOND);
-    await issueToken(t, helena);
-    const stale = await requestConnection(t, helena, marinaTokens.qrToken, 'qr').expect(400);
-    expect(stale.body).toEqual(GENERIC);
-    expect(await failuresOf(helena)).toBe(2);
-
-    // Controle: o QR novo de Marina vale.
-    const fresh = await requestConnection(t, helena, await issueToken(t, marina), 'qr').expect(201);
-    expect(parseRequest(fresh)).toMatchObject({ method: 'qr', other: { handle: 'marinac' } });
-  });
-
-  it('[PROX-41] aceite ble: um token qualquer é ignorado (nem conta falha); com o par já vencido, ainda aceita dentro dos 120 s do pedido; continua exigindo a tela aberta de B', async () => {
-    const helena = await person(t);
-    const caio = await person(t);
-    const marina = await person(t);
-    const joana = await person(t);
-    const first = await pendingRequest(t, helena, caio);
-    const accepted = await acceptRequest(t, caio, first.request.id, UNKNOWN_TOKEN).expect(200);
-    expect(parseRequest(accepted)).toMatchObject({ status: 'accepted', method: 'ble' });
-    expect(await failuresOf(caio)).toBe(0);
-
-    const second = await pendingRequest(t, marina, joana);
-    t.clock.advance(61 * SECOND);
-    expect(await t.proximity.hasTouchPair(marina.user.id, joana.user.id)).toBe(false);
-    // A tela de Joana fechou (31 s sem renovar): 409.
-    const closed = await acceptRequest(t, joana, second.request.id).expect(409);
-    expect(ErrorResponseSchema.parse(closed.body).code).toBe('PROXIMITY_SCREEN_CLOSED');
-    await issueToken(t, joana);
-    const late = await acceptRequest(t, joana, second.request.id).expect(200);
-    expect(parseRequest(late)).toMatchObject({ status: 'accepted', method: 'ble' });
-    expect((await connectionRows()).map((row) => row.method)).toEqual(['ble', 'ble']);
-  });
-
-  it('[PROX-41] aceite qr: o qrToken de A lido do QR conecta com qr; um terceiro aceitando sem token recebe o 404 de inexistente (não descobre o método)', async () => {
-    const helena = await person(t);
-    const caio = await person(t);
-    const marina = await person(t);
-    const { request, fromToken } = await pendingRequest(t, helena, caio, 'qr');
-    await issueToken(t, marina);
-    const missing = await acceptRequest(t, marina, MISSING_ID).expect(404);
-    const third = await acceptRequest(t, marina, request.id).expect(404);
-    expect(third.body).toEqual(missing.body);
-    const accepted = await acceptRequest(t, caio, request.id, fromToken).expect(200);
-    expect(parseRequest(accepted)).toMatchObject({ status: 'accepted', method: 'qr' });
-    expect((await connectionRows())[0]?.method).toBe('qr');
+    const fromToken = await issueToken(t, helena);
+    await issueToken(t, caio);
+    const [row] = await t.database.db
+      .insert(connectionRequests)
+      .values({
+        fromId: helena.user.id,
+        toId: caio.user.id,
+        method: 'ble',
+        createdAt: t.clock.now(),
+        expiresAt: new Date(t.clock.now().getTime() + 120 * SECOND),
+      })
+      .returning();
+    const seen = parseRequest(await getRequest(caio, row!.id).expect(200));
+    expect(seen.method).toBe('nfc');
+    expect((await incoming(caio)).map((item) => item.method)).toEqual(['nfc']);
+    await acceptRequest(t, caio, row!.id).expect(400);
+    const accepted = await acceptRequest(t, caio, row!.id, fromToken).expect(200);
+    expect(parseRequest(accepted).method).toBe('nfc');
+    expect((await connectionRows()).map((connection) => connection.method)).toEqual(['nfc']);
   });
 });
 
@@ -721,7 +651,7 @@ describe('recusa, cancelamento e limites', () => {
     await acceptRequest(t, joana, request.id, fromToken).expect(429);
   });
 
-  it('[PROX-20] [PROX-34] [4.7 CA7] 20 falhas de token em 10 min bloqueiam a proximidade por 15 min (tokens, resolve, touches, pedido e aceite); outra conta segue livre', async () => {
+  it('[PROX-20] [4.7 CA7] 20 falhas de token em 10 min bloqueiam a proximidade por 15 min (tokens, resolve, pedido e aceite); outra conta segue livre', async () => {
     const helena = await person(t);
     const caio = await person(t);
     const marina = await person(t);
@@ -740,7 +670,6 @@ describe('recusa, cancelamento e limites', () => {
     const blocked = [
       await t.http.post('/v1/proximity/tokens').set(helena.headers),
       await resolveTokens(t, helena, [UNKNOWN_TOKEN]),
-      await reportTouch(t, helena, [UNKNOWN_TOKEN]),
       await requestConnection(t, helena, await issueToken(t, caio), 'qr'),
       await acceptRequest(t, helena, request.id, fromToken),
     ];
@@ -761,7 +690,7 @@ describe('recusa, cancelamento e limites', () => {
     const helena = await person(t);
     const caio = await person(t);
     await issueToken(t, helena);
-    // A lê o QR de B: o qrToken (desde a ADR 0012, nunca o bleToken que B anuncia).
+    // A lê o QR de B.
     const caioQr = await issueToken(t, caio);
     const request = parseRequest(await requestConnection(t, helena, caioQr, 'qr').expect(201));
     // B tenta aceitar sem ter lido o QR de A (com o próprio token, por exemplo): recusado.
@@ -808,12 +737,11 @@ describe('bloqueio, logout e exclusão de conta', () => {
       .send({ commentId: comment.id })
       .expect(204);
     expect((await requestRows())[0]?.status).toBe('cancelled');
-    // O par do encosto ainda vale e o bleToken de Helena é o certo: quem barra é o bloqueio.
-    expect(await t.proximity.hasTouchPair(helena.user.id, caio.user.id)).toBe(true);
+    // O token de Helena ainda vale: quem barra é o bloqueio.
     const afterBlock = await t.http
       .post('/v1/connections/requests')
       .set(caio.headers)
-      .send({ targetToken: fromTokens.bleToken, method: 'ble' })
+      .send({ targetToken: fromTokens.token, method: 'nfc' })
       .expect(400);
     expect(afterBlock.body).toEqual(GENERIC);
     await acceptRequest(t, caio, request.id, fromToken).expect(404);

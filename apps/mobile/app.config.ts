@@ -19,9 +19,8 @@ const BRAND_BLUE = '#0066FF';
  * Texto do pedido de acesso às fotos (iOS). O app usa o seletor do sistema (PHPicker / Photo Picker),
  * também para os vídeos dos reels (Fase 5), que não pede acesso à biblioteca inteira; a chave fica no
  * Info.plist porque o módulo a referencia.
- * O microfone não é usado: os plugins removem a chave e bloqueiam a permissão no Android. A
- * localização só existe no Android ≤ 11, exigida pelo sistema para a varredura de Bluetooth (ver o
- * plugin do sussurro-proximity); as fotos saem sem GPS (MID-05).
+ * O microfone não é usado: os plugins removem a chave e bloqueiam a permissão no Android. O app não
+ * pede localização (o Conectar usa NFC e QR code, ADR 0013); as fotos saem sem GPS (MID-05).
  */
 export const PHOTOS_PERMISSION_TEXT =
   'O Sussurro abre as fotos e os vídeos que você escolher para publicar ou usar como foto de perfil. A localização das fotos é removida antes de publicar.';
@@ -42,7 +41,7 @@ export const VIDEO_PLUGIN_OPTIONS = {
   supportsPictureInPicture: false,
 } as const;
 
-/** Config plugin do módulo local de Bluetooth (permissões, 4.3 CA5). */
+/** Config plugin do módulo local de NFC (ADR 0013 §4: HCE, leitura NDEF e o deep link da tag). */
 export const PROXIMITY_PLUGIN = './modules/sussurro-proximity/app.plugin.js';
 
 /**
@@ -97,6 +96,17 @@ export function notificationsPluginOptions(variant: AppVariant): Record<string, 
  */
 export const ANDROID_BLOCKED_PERMISSIONS = ['android.permission.RECEIVE_BOOT_COMPLETED'];
 
+/**
+ * Preview e produção também tiram o `SYSTEM_ALERT_WINDOW` (sobreposição de tela), que o template do
+ * prebuild põe no manifesto principal. O app não desenha sobre outros apps: só as ferramentas de
+ * desenvolvimento do React Native (o monitor de desempenho) usam, e elas ficam no dev build. O job
+ * `native` do CI pegou a permissão no manifesto de release (docs/deploy/lojas.md).
+ */
+export const ANDROID_RELEASE_BLOCKED_PERMISSIONS = [
+  ...ANDROID_BLOCKED_PERMISSIONS,
+  'android.permission.SYSTEM_ALERT_WINDOW',
+];
+
 export function resolveVariant(value: string | undefined): AppVariant {
   if (value === undefined || value === '') {
     return 'development';
@@ -146,7 +156,7 @@ export function buildAppConfig(
     },
     android: {
       package: id,
-      blockedPermissions: ANDROID_BLOCKED_PERMISSIONS,
+      blockedPermissions: isDev ? ANDROID_BLOCKED_PERMISSIONS : ANDROID_RELEASE_BLOCKED_PERMISSIONS,
       ...(googleServicesFile === undefined ? {} : { googleServicesFile }),
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',

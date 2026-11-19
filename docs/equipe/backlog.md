@@ -392,6 +392,8 @@ Detalhes em `fase-0-plano.md`.
 
 ## E4: Conexão presencial (Fase 4)
 
+> **Revisado em 2026-11-14 (ADR 0013, Fase 4e):** o Conectar não usa mais Bluetooth. Funciona por **NFC + QR code**: o Android emite (HCE) e lê, o iPhone só lê e usa o QR, e o QR fica sempre disponível. As histórias 4.1, 4.3 e 4.4 e os critérios de BLE abaixo (`MAN-BLE-*`, radar, "Por perto agora", RSSI, permissões de Bluetooth) ficam **só como histórico** e não valem mais. Os casos que valem agora são NFC-01 a NFC-09, MAN-NFC-01 a 04, MAN-QR-01 e MAN-CON-01 (`testes.md`). A 4.7 (QR) continua, com `method: 'qr' | 'nfc'`, e o aceite exige o código lido de quem pediu (D7).
+
 | # | História | Tarefas técnicas | Esp. | Pts | Depende de | CA essencial |
 |---|---|---|---|---|---|---|
 | 4.1 | Como dev, quero validar o BLE em aparelhos reais antes de construir a tela, para reduzir o maior risco técnico 🔶 **PO: D1** | spike com 2 iPhones + Samsung + outro Android: anunciar UUID de 128 bits e varrer | F | 8 | E0, aparelhos | relatório com matriz de aparelhos e tempo de descoberta |

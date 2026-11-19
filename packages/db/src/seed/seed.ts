@@ -456,9 +456,11 @@ export async function seedDatabase(
   await db
     .insert(connections)
     .values(
-      SEED_CONNECTIONS.map(([first, second]) => {
+      // ADR 0013: as conexões do seed alternam entre `nfc` e `qr` (`ble` é só histórico).
+      SEED_CONNECTIONS.map(([first, second], index) => {
         const [userAId, userBId] = [id(first), id(second)].sort();
-        return { userAId: userAId ?? '', userBId: userBId ?? '', method: 'ble' as const };
+        const method = index % 2 === 0 ? ('nfc' as const) : ('qr' as const);
+        return { userAId: userAId ?? '', userBId: userBId ?? '', method };
       }),
     )
     .onConflictDoNothing();

@@ -1,10 +1,20 @@
 // E2E do bloqueio (X.2, D5; testes.md PERM-13, PERM-14, PERM-16; A-05). A regra de visibilidade
 // fica toda no AccessPolicyService: perfil, posts, comentários, busca e seguir, nos dois sentidos.
-import { and, blocks, comments, connections, eq, follows, posts } from '@sussurro/db';
+import {
+  and,
+  blocks,
+  comments,
+  connectionRequests,
+  connections,
+  eq,
+  follows,
+  posts,
+} from '@sussurro/db';
 import { addComment, connect, createPost, createUser, follow } from '@sussurro/db/testing';
 import {
   BlocksPageSchema,
   CommentsPageSchema,
+  CONNECTION_REQUEST_MODERATION_WINDOW_S,
   CreatorSearchResultSchema,
   ErrorResponseSchema,
   MeSchema,
@@ -13,6 +23,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { FOLLOWERS_CACHE_TTL_MS } from '../../src/modules/users/follower-counts.service.js';
 import { directUser } from '../support/auth.js';
+import {
+  pendingRequest,
+  person,
+  renewSession,
+  requestConnection,
+  resolveTokens,
+} from '../support/proximity.js';
 import { createTestApp, type TestApp } from '../support/test-app.js';
 
 let t: TestApp;
@@ -297,7 +314,7 @@ describe('X.2 CA3: o bloqueio desfaz conexão e follows e ajusta os contadores',
 });
 
 describe('X.2: bloquear não é oráculo de existência de @ pessoal', () => {
-  it('[A-05] [PROX-61] sem par encostado: @ inexistente, pessoal não visível, conta excluída e @ inválido → o mesmo 204 do sucesso, sem gravar nada (com o par vivo, PROX-61)', async () => {
+  it('[A-05] [PROX-61] fora de quem a pessoa vê e sem pedido de conexão nas últimas 24 h: @ inexistente, pessoal não visível, conta excluída e @ inválido → o mesmo 204 do sucesso, sem gravar nada', async () => {
     const owner = await account();
     const friend = await createUser(t.database.db, { handle: 'amiga' });
     await connect(t.database.db, owner.user, friend);
@@ -377,5 +394,100 @@ describe('X.2 CA4: a lista de bloqueados é só do dono', () => {
       nextCursor: null,
     });
     expect(await blockList(b.headers)).toEqual([]);
+  });
+});
+
+describe('bloquear a outra pessoa de um pedido de conexão das últimas 24 h (ADR 0013, Adendo B1)', () => {
+  const WINDOW_MS = CONNECTION_REQUEST_MODERATION_WINDOW_S * 1000;
+  const GENERIC = {
+    code: 'PROXIMITY_TOKEN_INVALID',
+    message: 'Não foi possível enviar o pedido agora. Tente mais tarde.',
+  };
+
+  async function blockPairs() {
+    const rows = await t.database.db.select().from(blocks);
+    return rows.map((row) => [row.blockerId, row.blockedId]);
+  }
+
+  /** Pedido gravado direto no banco, já fechado, com o `created_at` escolhido. */
+  async function closedRequest(fromId: string, toId: string, createdAt: Date) {
+    await t.database.db.insert(connectionRequests).values({
+      fromId,
+      toId,
+      method: 'qr',
+      status: 'declined',
+      createdAt,
+      expiresAt: new Date(createdAt.getTime() + 120_000),
+      respondedAt: new Date(createdAt.getTime() + 1_000),
+    });
+  }
+
+  it('[NFC-MOD-10] A pede para B (sem conexão, perfil invisível): B bloqueia A de verdade; depois A não pede de novo nem resolve o token de B; o terceiro C não ganha nada', async () => {
+    const helena = await person(t, 'helena');
+    const caio = await person(t, 'caio.r');
+    const marina = await person(t, 'marina');
+    const { toToken } = await pendingRequest(t, helena, caio);
+    await t.http.get('/v1/users/helena').set(caio.headers).expect(404);
+
+    // C, sem pedido com nenhum dos dois: o mesmo 204, nada gravado.
+    for (const handle of ['helena', 'caio.r']) {
+      expect((await blockVia(marina.headers, { handle })).status).toBe(204);
+    }
+    expect(await blockPairs()).toEqual([]);
+
+    expect((await blockVia(caio.headers, { handle: 'helena' })).status).toBe(204);
+    expect(await blockPairs()).toEqual([[caio.user.id, helena.user.id]]);
+    expect(await blockList(caio.headers)).toEqual(['helena']);
+    expect((await t.database.db.select().from(connectionRequests))[0]?.status).toBe('cancelled');
+
+    // O token de B ainda vale (sem avanço do relógio): quem barra é o bloqueio.
+    const again = await requestConnection(t, helena, toToken).expect(400);
+    expect(again.body).toEqual(GENERIC);
+    expect((await resolveTokens(t, helena, [toToken]).expect(200)).body).toEqual({ items: [] });
+  });
+
+  it('[NFC-MOD-11] qualquer direção e qualquer status: quem pediu também bloqueia quem recebeu (pedido recusado há 23 h)', async () => {
+    const helena = await person(t, 'helena');
+    const caio = await createUser(t.database.db, { handle: 'caio.r' });
+    await closedRequest(caio.id, helena.user.id, new Date(t.clock.now().getTime() - 23 * 3600_000));
+    expect((await blockVia(helena.headers, { handle: 'caio.r' })).status).toBe(204);
+    expect(await blockPairs()).toEqual([[helena.user.id, caio.id]]);
+  });
+
+  it('[NFC-MOD-12] sem pedido, ou com pedido de 24 h ou mais: o mesmo 204 do sucesso, sem gravar', async () => {
+    const owner = await account();
+    const friend = await createUser(t.database.db, { handle: 'amiga' });
+    await connect(t.database.db, owner.user, friend);
+    await createUser(t.database.db, { handle: 'desconhecida' });
+    const old = await createUser(t.database.db, { handle: 'antiga' });
+    const limit = await createUser(t.database.db, { handle: 'limite' });
+    const now = t.clock.now().getTime();
+    await closedRequest(old.id, owner.user.id, new Date(now - WINDOW_MS - 1_000));
+    await closedRequest(owner.user.id, limit.id, new Date(now - WINDOW_MS));
+
+    const success = await blockVia(owner.headers, { handle: 'amiga' });
+    expect(success.status).toBe(204);
+    for (const handle of ['desconhecida', 'antiga', 'limite', 'naoexiste']) {
+      const response = await blockVia(owner.headers, { handle });
+      expect({ handle, status: response.status, text: response.text }).toEqual({
+        handle,
+        status: success.status,
+        text: success.text,
+      });
+      expect(withoutDate(response.headers as Record<string, string>)).toEqual(
+        withoutDate(success.headers as Record<string, string>),
+      );
+    }
+    expect(await blockList(owner.headers)).toEqual(['amiga']);
+  });
+
+  it('[NFC-MOD-13] a janela anda com o relógio: o pedido feito pela API deixa de valer 24 h depois', async () => {
+    const helena = await person(t, 'helena');
+    const caio = await person(t, 'caio.r');
+    await pendingRequest(t, helena, caio);
+    t.clock.advance(WINDOW_MS);
+    await renewSession(t, helena, caio);
+    expect((await blockVia(caio.headers, { handle: 'helena' })).status).toBe(204);
+    expect(await blockPairs()).toEqual([]);
   });
 });

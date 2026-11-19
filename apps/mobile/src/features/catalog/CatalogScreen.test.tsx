@@ -136,7 +136,7 @@ describe('CatalogScreen', () => {
     await userEvent.press(screen.getByRole('button', { name: 'Cancelar' }));
   });
 
-  it('Fase 4 (ADR 0012): seletor "Encostar / QR code", ilustração do encostar, par de avatares, QR e o perfil de conexão', async () => {
+  it('Fase 4 (ADR 0013): seletor "Mostrar meu código / Ler código", ilustração do encostar, par de avatares, QR e o perfil de conexão', async () => {
     await render(<CatalogScreen />);
     const phase4 = within(screen.getByTestId('catalog-section-fase4'));
     for (const block of [
@@ -148,9 +148,9 @@ describe('CatalogScreen', () => {
     ]) {
       expect(phase4.getByRole('header', { name: block })).toBeOnTheScreen();
     }
-    await userEvent.press(phase4.getByRole('radio', { name: 'QR code' }));
-    expect(phase4.getByRole('radio', { name: 'QR code' })).toBeChecked();
-    expect(phase4.getByRole('radio', { name: 'Encostar' })).not.toBeChecked();
+    await userEvent.press(phase4.getByRole('radio', { name: 'Ler código' }));
+    expect(phase4.getByRole('radio', { name: 'Ler código' })).toBeChecked();
+    expect(phase4.getByRole('radio', { name: 'Mostrar meu código' })).not.toBeChecked();
     // As 3 poses e o modo "Reduzir movimento" (decorativas: fora do leitor de tela).
     for (const id of ['demo', 'approaching', 'touching', 'reduced']) {
       expect(

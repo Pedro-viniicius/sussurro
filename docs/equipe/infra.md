@@ -76,7 +76,7 @@ O `.editorconfig` leva `end_of_line = lf`, e o Prettier, `endOfLine: "lf"`. Moti
 |---|---|---|
 | Instalação | Nenhuma. Instala o APK pelo link ou QR do EAS. | ~10 a 15 GB (SDK, imagens, Gradle) e configuração de JDK e `ANDROID_HOME`. |
 | RAM | Zero no PC. | O emulador sozinho usa 2 a 4 GB. **Com 7,7 GB de RAM, junto com Docker, Metro e VS Code, fica inviável.** |
-| BLE (Fase 4) | Funciona. | **Não funciona** (emulador não tem BLE real). |
+| NFC do Conectar (Fase 4e, ADR 0013; antes BLE) | Funciona (reader mode e HCE). | **Não funciona** (emulador não tem NFC real). |
 | Câmera/QR, push | Real. | Câmera simulada. Push só com imagem Google Play. |
 | Ciclo | Novo build só quando muda código nativo (~10 a 30 min na fila Free). Mudanças em JS chegam na hora pelo Metro. | Build local mais rápido, mas exige toda a toolchain nativa. |
 | Custo | Consome 1 dos 15 builds Android grátis por mês. | Grátis. |
@@ -316,8 +316,9 @@ flowchart LR
 | `test` | services `postgres:18.6-bookworm` e `valkey/valkey:8.1-alpine` com health options → install → `pnpm test` **e** `pnpm test:e2e` (migrations só a partir da Fase 1; filtros pelo nome completo `@sussurro/*`; resolvido na consolidação, A-24) (unidade + integração da API com `/health/ready` contra Postgres e Redis reais; jest-expo no app e no `ui`) | PR e main |
 | `build` | `pnpm turbo run build --filter=!mobile` (API, worker, shared, ui, db) | PR e main |
 | `infra` (Fase 7) | `terraform fmt -check`, `init` + `validate` das duas raízes (sem backend e sem credencial), `tflint` e `trivy config`. (atualizado em 2026-10-31, B6) O `.terraform.lock.hcl` das duas raízes está no Git (gerado pelo próprio job, run 41234942342), e o `init` usa `-lockfile=readonly`. Uma raiz sem lock ainda passa: o job gera o lock (`providers lock`, 5 plataformas) e o publica no artefato `terraform-lock` | PR e main |
-| `changes` (B5) | Lista os arquivos do PR (`git diff HEAD^1 HEAD` no merge commit) e decide se o `images` roda. Só docs, `*.md`, `infra/` (menos `infra/local/`), testes, app e `ui` (menos os `package.json`), as exceções do gitleaks e do audit e alguns arquivos do `.github/` (`CODEOWNERS`, Dependabot e o modelo de PR) ficam de fora; qualquer outro caminho roda o `images` | PR |
+| `changes` (B5) | Lista os arquivos do PR (`git diff HEAD^1 HEAD` no merge commit) e decide se o `images` roda. Só docs, `*.md`, `infra/` (menos `infra/local/`), testes, app e `ui` (menos os `package.json`), as exceções do gitleaks e do audit e alguns arquivos do `.github/` (`CODEOWNERS`, Dependabot e o modelo de PR) ficam de fora; qualquer outro caminho roda o `images`. (atualizado em 2026-11-19) Também decide se o `native` roda: módulos nativos (`apps/mobile/modules/`), `app.config.ts` e `package.json` do app, `package.json` da raiz, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `scripts/check-android-manifest.mjs` e o próprio `ci.yml` | PR |
 | `images` (B5) | Em **ARM64 nativo** (`ubuntu-24.04-arm`): build das duas imagens (`--platform linux/arm64`), arquitetura `arm64` e usuário `node` (uid 1000), a migration pela imagem duas vezes (`node dist/migrate.js`), a API com `NODE_ENV=production` respondendo `/health/ready` 200 contra Postgres e Valkey (services), o worker em produção no ar com os emuladores do compose e o `SIGTERM` saindo com 0 nos dois. Raiz só leitura, `/tmp` gravável e init, como no ECS | main e `workflow_dispatch`; no PR, se o `changes` disser que mexe nas imagens |
+| `native` (2026-11-19, Fase 4e) | Prebuild do Android na variante `production` (CNG), validação do `gradle-wrapper.jar` (`gradle/actions/wrapper-validation`), JDK 21 (Temurin, cache do Gradle pelo `setup-java`), testes de JVM do módulo NFC (`:sussurro-proximity:testDebugUnitTest`, NFC-10 a 17) e o manifesto **final** de release (`:app:processReleaseManifest`, depois do ajuste de `maxSdkVersion` do Expo), conferido pelo `scripts/check-android-manifest.mjs`. O script usa uma **lista de permitidas**, a mesma da tabela do `docs/deploy/lojas.md`: qualquer permissão fora dela falha (inclusive as que uma biblioteca nova traga pelo merge, como `AD_ID` ou `ACCESS_MEDIA_LOCATION`), assim como armazenamento legado sem `maxSdkVersion` ≤ 32 e a falta da permissão `NFC` ou do serviço HCE com `BIND_NFC_SERVICE`. A lista de permissões vai para o resumo do run, e os relatórios e o manifesto, para o artefato `android-native` (7 dias). Sem assinatura, sem bundle JS e sem segredos. O Swift continua fora (runner macOS; sai pelo EAS). Custo estimado: de 8 a 15 min por run (a confirmar no primeiro) | main e `workflow_dispatch`; no PR, se o `changes` disser que mexe na parte nativa (falha fechado: sem resposta do `changes`, roda) |
 | `audit` | `pnpm audit --prod --audit-level high`, que só informa (`continue-on-error` no passo). Desde 2026-10-31 (B8), também o `scripts/audit-exceptions.mjs`, que deixa o job vermelho, inclusive no agendado, quando uma exceção do `audit.ignore` sai do caminho registrado ou passa da data de revisão (§8.3) | main (push), semanal (`schedule`) e `workflow_dispatch` |
 
 Notas:
@@ -395,7 +396,7 @@ Notas:
 
 Excedente: Android US$ 1 a 2 e iOS US$ 2 a 4 por build. No Free, ao fim da cota, os builds param até o dia 1º do mês seguinte.
 
-Consumo previsto: a Fase 0 usa ~2 iOS + ~2 Android. Fases sem código nativo novo quase não consomem, porque o JS vem do Metro. **A Fase 4 (módulo BLE próprio em Swift/Kotlin) pode passar de 15 builds por plataforma:** aí vale o Starter por um ou dois meses. `eas build --local` não roda no Windows. Para Android, roda dentro do WSL/Ubuntu, mas isso exige SDK e JDK no Linux e só compensa se a cota apertar.
+Consumo previsto: a Fase 0 usa ~2 iOS + ~2 Android. Fases sem código nativo novo quase não consomem, porque o JS vem do Metro. **A Fase 4 (módulo nativo próprio em Swift/Kotlin: BLE na origem, NFC desde a Fase 4e, ADR 0013) pode passar de 15 builds por plataforma:** aí vale o Starter por um ou dois meses. `eas build --local` não roda no Windows. Para Android, roda dentro do WSL/Ubuntu, mas isso exige SDK e JDK no Linux e só compensa se a cota apertar.
 
 ### 5.4 Como o celular alcança a API local
 
@@ -692,7 +693,7 @@ Outros cortes possíveis, não recomendados: tirar o ElastiCache (o Redis é cen
 | I1 | **7,7 GB de RAM** na máquina de dev (Docker + Metro + VS Code + navegador) | `.wslconfig` com 3 GB. Emuladores leves (opção B). Sem emulador Android. |
 | I2 | Imagem do EAS ainda não suportar o Node 26 | Smoke test da Fase 0. Fallback para o Node 24 (ADR 0001). |
 | I3 | Emuladores (ElasticMQ/SeaweedFS) divergirem da AWS em presign ou headers | Spike da Fase 0 com os mesmos testes. Plano B: LocalStack Base. Teste de fumaça contra a AWS real só depois do apply. |
-| I4 | Cota Free do EAS estourar na Fase 4 (BLE nativo) | Starter (US$ 19) por 1 ou 2 meses, ou build local Android no WSL. |
+| I4 | Cota Free do EAS estourar na Fase 4 (módulo nativo de proximidade: NFC desde a Fase 4e) | Starter (US$ 19) por 1 ou 2 meses, ou build local Android no WSL. |
 | I5 | Celular sem acesso à API local (isolamento de rede, IP mudando, ATS) | Reserva DHCP, regras de firewall e túnel HTTPS como plano B. |
 | I6 | Custo do CDN com vídeo | Plano flat-rate, limites de reel, budget específico. |
 | I7 | Repositório privado no GitHub Free sem branch protection | Pro (US$ 4) ou repositório público. Veja a pergunta P2. |

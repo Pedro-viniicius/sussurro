@@ -723,7 +723,10 @@ Ativo no estilo Instagram com Lucide: `heart` aceita `fill` sem problema; `searc
 | Duração do reel | `play` 12 fill branco | |
 | ReelViewer | `x`, `volume-2`/`volume-x`, `play`, `rotate-ccw` | |
 | Prévia vazia do Criar | `image` 40 greyStrong | |
-| Conectar | `radio` (botão central), `bluetooth`, `bluetooth-off`, `qr-code`, `scan-line`, `camera`, `clock` (pausado), `lock` (p22) | |
+| Conectar | `smartphone-nfc` (aviso do NFC desligado, título de "Ler código", botão "Aproximar do outro celular" e o da folha do pedido; S6 da §11.19), `qr-code`, `scan-line`, `camera`, `clock` (pausado), `lock` (p22) | |
+| Vazio de "Minhas conexões" | `radio` (sobra do Bluetooth; ver a nota abaixo) | |
+
+> **Atualizado em 2026-11-14 (ADR 0013, S6 da §11.19, aprovada pelo PO):** o `smartphone-nfc` (lucide 1.63.0) entrou no catálogo do `Icon` (`packages/ui/src/components/Icon/Icon.tsx`) e substituiu o `radio` nos 4 lugares do Conectar (`ConnectScreen.tsx`: aviso do NFC desligado, título de "Ler código" e botão; `IncomingRequestSheet.tsx`: botão da folha). O `bluetooth` e o `bluetooth-off` saíram do Conectar com a ADR 0013. **O `radio` continua** na aba Conectar do `BottomTabBar` (D-UX8) e no vazio de "Minhas conexões" (`OwnListScreens.tsx:111`). Recomendação sobre os dois na §11.10.
 | Estados | `check` (CaughtUp, conectados), `circle-alert` (erro), `wifi-off` (offline), `refresh-cw` (tentar de novo), `trash-2` (excluir) | |
 | Busca | `search` 18, `circle-x` (limpar) | |
 | Senha | `eye` / `eye-off` | |
@@ -1084,6 +1087,8 @@ Resumo: a paleta do PO **passa** para texto principal e ações (blue/white 4,83
 > - o Bloqueado sem prazo continua com o nome e a foto até "Voltar", opção (a) (item 4).
 >
 > A sugestão S3 da §11.17 (o foco no T32 no QR) entra no mesmo PR 5 (§11.18). Os quatro itens de fidelidade do PR 6 (fora do Conectar) estão na §12.
+>
+> **(atualizado em 2026-11-14) ADR 0013: o Conectar passou para NFC + QR code, sem Bluetooth.** O encostar por BLE (§11.1 a §11.18) deixou de valer na tela; o que ainda vale está listado na §11.19, com a revisão dos textos novos e a lista dos T1 a T48 e A1 a A8 que ficaram obsoletos.
 
 ### 11.1 Princípios
 1. **Só quem encosta aparece.** Antes do "encostado" confirmado pelos dois aparelhos, a tela não mostra o nome, o @, a foto, a quantidade de pessoas nem a distância de ninguém.
@@ -1494,6 +1499,8 @@ Se outro gesto vencer, mudam só a ilustração e os textos T5 e T13.
 
 ### 11.9 Microcopy (aprovada pelo PO em 2026-10-30)
 
+> **(2026-11-14) Obsoleta em grande parte pela ADR 0013.** Os T* que ainda valem e os obsoletos estão na §11.19 (tabela "T1 a T48: o que vale depois da ADR 0013").
+
 **Os textos T1 a T42 foram aprovados pelo PO em 2026-10-30 como estão**; o PO revisa de novo no app, em uso. **Os T43 a T45 foram propostos depois, na revisão da implementação (§11.13), e o PO os aprovou no mesmo dia (2026-10-30), exatamente como propostos.** Eles **substituem o T6, o T23 e o T36**, que ficam riscados abaixo como substituídos. **O T46 foi proposto em 2026-10-30, com a §11.14 (bloquear e denunciar pelo cartão), e o PO o aprovou no mesmo dia, exatamente como proposto.** **Os T47 e T48 foram propostos em 2026-10-31, com a §11.15 (ADR 0012, Adendo A3), e ~~estão "propostos, a aprovar pelo PO"~~ o PO os aprovou no mesmo dia, exatamente como propostos (A3-PO-2, §11.16, item 1; atualizado em 2026-10-31).** Situação: **novo**, **alterado**, **mantido** ou **removido**. A chave é a do `apps/mobile/src/features/connect/copy.ts`, quando existe.
 
 | # | Onde (chave) | Hoje (Fase 4b) | Proposta | Situação |
@@ -1562,7 +1569,14 @@ O PO aprovou em 2026-10-30 todas as recomendações desta seção: as divergênc
 | p12 | lista "Por perto agora" com "a ~1 m", rodapé "Via Bluetooth…", (Procurar de novo) | faixas "bem perto" / "por perto" | sai: um cartão só, de quem encostou (§11.5) | Aprovar (é consequência direta do D13 substituído). |
 | Folha do pedido (não desenhada) | — | folha (`Modal`) | dentro do cartão quando o cartão é da mesma pessoa; a folha nos outros casos | Aprovar. |
 | p13, p14, p22 | — | iguais ao protótipo | sem mudança (só o T21 no "Não confirmado", que não está no protótipo) | — |
-| Aba Conectar | ícone `radio` azul (D-UX8) | igual | igual | Manter na v1 e conferir no teste se as pessoas acham a função (§11.12). A alternativa do Lucide, `smartphone-nfc`, desenha o "encostar", mas leva NFC no nome do arquivo (a pessoa não vê o nome). |
+| Aba Conectar | ícone `radio` azul (D-UX8) | igual | igual | Manter na v1 e conferir no teste se as pessoas acham a função (§11.12). ~~A alternativa do Lucide, `smartphone-nfc`, desenha o "encostar", mas leva NFC no nome do arquivo (a pessoa não vê o nome).~~ **Atualizado em 2026-11-14:** ver a nota abaixo da tabela. |
+| p10, ícones dentro da tela | — | `radio` | `smartphone-nfc` | **Aplicado em 2026-11-14** (S6 da §11.19, aprovada pelo PO). |
+
+> **`smartphone-nfc` (2026-11-14, ADR 0013).** O descarte acima já não vale: o motivo era só o nome do arquivo, e agora o gesto é mesmo o NFC. O ícone está no catálogo do `Icon` (`packages/ui`, lucide 1.63.0) e substituiu o `radio` nos 4 lugares de dentro do Conectar. **Ficaram com o `radio`:** a aba Conectar do `BottomTabBar` (D-UX8) e o vazio de "Minhas conexões" (`OwnListScreens.tsx:111`).
+>
+> **A aba deveria trocar? Recomendação (decisão do PO, sem urgência): sim, trocar para o `smartphone-nfc`, mas só depois do teste com usuários (§11.12, item 9).** A favor: o `radio` (ondas de rádio) era o desenho do Bluetooth e hoje não descreve nada do que a tela faz; com a troca, a aba e o que se vê ao abri-la ficam com o mesmo desenho. Contra: o `smartphone-nfc` só fala do NFC, e metade dos casos é o QR (iPhone com iPhone, aparelho sem NFC); o `radio` é o ícone do protótipo (p10–p14). No teste, mostrar as duas versões da aba e perguntar "onde você tocaria para se conectar com alguém que está do seu lado?". O ativo continua igual ao D-UX8 (traço 2,75 em `blue`), o que o `smartphone-nfc` aceita sem SVG próprio. **Vazio de "Minhas conexões":** trocar junto com a aba, para não ficar o `radio` sozinho fora do Conectar (ou já trocar agora, se o PO preferir: é decorativo e não muda o teste da aba).
+>
+> **Decisão do PO (2026-11-14):** o ícone da aba Conectar só muda depois do teste com usuários (§11.12, item 9). Até lá, fica o `radio` na aba e também no vazio de "Minhas conexões".
 | p10, "Simular um pedido recebido" | no protótipo | só em dev (D15) | só em dev | — |
 
 | # | Tema | Opções | Recomendação UX | Decisão |
@@ -1612,7 +1626,7 @@ O PO aprovou em 2026-10-30 todas as recomendações desta seção: as divergênc
 6. Quando a dica do QR aparece, as pessoas usam? O "Use quando encostar não funcionar" basta para explicar a diferença? Isso vale também para quem bateu no teto de pessoas novas (A2-1, num evento cheio), que só vê o "Não deu para confirmar" e depois a dica.
 7. Só com VoiceOver/TalkBack, a pessoa completa o fluxo? A vibração ajuda a saber a hora de afastar? Conferir também a ordem "foco, depois anúncio" nos casos da §11.13 (cartão vencido, pedido expirado, conectados) e o foco no título do Pronto quando o Bluetooth liga sozinho, inclusive com o app em segundo plano no iOS.
 8. Num lugar barulhento e escuro, com uma mão só, funciona?
-9. As pessoas acham a função pela aba com o ícone `radio`?
+9. As pessoas acham a função pela aba com o ícone `radio`? (Desde 2026-11-14, comparar com o `smartphone-nfc`; ver a nota da §11.10.)
 10. **Bloquear e denunciar pelo cartão (§11.14):** as pessoas acham a linha ‹Denunciar› ‹Bloquear›? Ela incomoda no encontro comum ou passa segurança? Quem quer denunciar consegue enviar antes do prazo? O T46 ajuda ou pressiona?
 11. **"Não deu para confirmar" repetido** (A2 rev. 1): quem tenta de novo logo depois de uma tentativa que falhou espera uns segundos, ou insiste e cai no QR? Se muita gente travar aí, avaliar com o PO um ajuste no T11 que peça uma pausa curta.
 12. **Aviso aos 7 s** (2026-10-31, A3-3): quando não confirma, as pessoas seguram os celulares até o aviso, ou desistem antes e ficam sem saber o que houve? Medir o tempo até o QR em destaque (P9) num lugar cheio.
@@ -2299,6 +2313,104 @@ Implementação sugerida: no `QrStart`, um segundo `useFocusOnShow(session.start
 4. **Desbloquear:** continua igual (o `Alert`, o 204, a linha sai e o Toast).
 5. **`UserRow`:** com `subtitleLines={2}`, o subtítulo aceita 2 linhas; sem a prop, continua 1 (as outras listas não mudam).
 6. **T32:** no QR com suporte, "Cancelar pedido" (13), "Conectar outra pessoa" (15), "Tentar de novo" (16) e "Tentar de novo" (19) levam o foco a `conectar-qr-explicacao`. Sem suporte, continua a faixa. "QR code" pelo seletor não move o foco.
+
+### 11.19 Revisão dos textos NFC + QR (ADR 0013, 2026-11-14)
+
+> **Escopo:** os textos da tela Conectar depois da ADR 0013, em `apps/mobile/src/features/connect/copy.ts` (os marcados "(NFC)" e os demais), mais os textos fora dele que falam do Conectar: o `NFC_USAGE` do config plugin, o `alertMessage` da folha do iOS e o vazio de "Minhas conexões". Em `a11y.ts` e `errors.ts` não há texto de interface. `ConnectScreen.tsx`, `PersonCard.tsx`, `IncomingRequestSheet.tsx`, `QrScanner.tsx` e `app/pessoal/conectar.tsx` só usam o `COPY`, sem texto solto; lá revisei **onde** cada texto aparece e como chega ao leitor de tela.
+>
+> **Critérios:** pt-BR curto e sem jargão; coerente com a §11.9; WCAG 2.2 AA (rótulos e anúncios); nada que prometa o que o aparelho não faz; nenhuma sobra do Bluetooth ou do encostar por BLE.
+>
+> **"Encostar" continua valendo, com outro sentido.** O NFC alcança uns 4 cm (ADR 0013, "Fatos de plataforma"): encostar de verdade, costas com costas. O que sai é o encostar do BLE ("encostem os celulares de novo", "Encostou!", a parte de cima com a parte de cima). O "NFC" agora aparece **só onde a pessoa precisa agir** (ligar o NFC), e isso substitui o princípio 5 da §11.1, que proibia a palavra.
+>
+> **Total:** 84 textos (81 chaves do `COPY`, mais 3 de fora). **10 trocas** e **2 chaves novas**, todas para o PO aprovar; os outros 74 textos ficam como estão.
+>
+> **Aplicado em 2026-11-14, com aprovação do PO:** as 10 trocas (N6, N9, N11, N12, N14, N16, N18, N20, N22 e N26), as chaves novas `waitingEmitHint` (N7) e `acceptReadNfc` (N24), mais a chave `turnOnNfcHint` = "Abre os ajustes do celular" (da S4), e as S1 a S7, pelo `frontend`. A **N28** (texto da câmera negada no aceite), proposta no fim desta seção, foi aprovada pelo PO no mesmo dia e está com o `frontend`.
+
+#### Os dois problemas de fundo que as trocas resolvem
+
+1. **O NFC não funciona com iPhone do outro lado, e a tela não avisa.** O iPhone não emite (ADR 0013). Um Android em "Ler código" encostado num iPhone **não recebe nada e não mostra erro**: a pessoa fica encostando sem retorno. O mesmo acontece no iPhone que tenta ler outro iPhone, e na folha do pedido quando quem pediu está num iPhone. O app não sabe o sistema do outro celular, então o texto precisa dizer: "Se ele for iPhone, use a câmera".
+2. **Os dois celulares abrem em "Mostrar meu código".** Encostar dois Android nessa hora não lê nada, porque o leitor só liga em "Ler código" (ou na folha, depois do "Aceitar"). O `emitHint` dizia só "encoste", sem dizer que o outro precisa estar lendo. E o mesmo `emitHint` aparece na tela "Aguardando", onde o caminho do outro é diferente: tocar em "Aceitar" na folha, e não em "Ler código". Por isso entra uma chave própria para o "Aguardando".
+
+#### Textos novos e alterados (para o PO)
+
+| # | Constante (arquivo:linha) | Onde aparece | Texto atual | Veredito | Texto proposto |
+|---|---|---|---|---|---|
+| N1 | `intro` (`copy.ts:30-31`), no lugar do T1 | Início, acima do seletor | "Conexões só acontecem ao vivo, com as duas pessoas juntas. Uma lê o código da outra, e as duas confirmam." | ok | — |
+| N2 | `modeGroup` (`copy.ts:33`) | rótulo do seletor no leitor de tela | "Como conectar" | ok (T3) | — |
+| N3 | `modeShow` (`copy.ts:34`) | seletor, 1º segmento (padrão) | "Mostrar meu código" | ok | — |
+| N4 | `modeRead` (`copy.ts:35`) | seletor, 2º segmento | "Ler código" | ok (curto para o segmento; igual ao título da câmera) | — |
+| N5 | `qrHint` (`copy.ts:37`) | abaixo do QR | "Peça para a outra pessoa ler este código. Mostre só para quem está com você." | ok (T33) | — |
+| N6 | `emitHint` (`copy.ts:39`) | abaixo do QR, Android com NFC ligado, em "Mostrar meu código" | "Ou encoste o outro celular nas costas deste" | **trocar** | "Ou a outra pessoa toca em Ler código e encosta o celular nas costas deste." · Diz o que o outro precisa fazer (problema 2) e fecha com ponto, como o `qrHint` logo acima. Sem "dela": o app não sabe o gênero. |
+| N7 | **novo:** `waitingEmitHint(first)` | "Aguardando", Android com NFC ligado, no lugar do `emitHint` (`ConnectScreen.tsx:281`) | (hoje usa o `emitHint`) | **novo** | "Ou {primeiro nome} toca em Aceitar e encosta o celular nas costas deste." · No "Aguardando", quem lê é quem recebeu o pedido, pela folha. "Toca em Ler código" seria a instrução errada. |
+| N8 | `nfcOffTitle` (`copy.ts:41`) | aviso, Android com NFC desligado | "O NFC está desligado" | ok | — |
+| N9 | `nfcOffText` (`copy.ts:42`) | idem | "Ligue o NFC para os celulares trocarem o código encostando." | **trocar** | "Ligue o NFC para trocar o código encostando os celulares, ou use o QR code." · "Os celulares trocarem" soa estranho, e o texto não dizia que o QR funciona sem o NFC (N5 da ADR). |
+| N10 | `turnOnNfc` (`copy.ts:43`) | botão do aviso; na folha, depois do "Aceitar" | "Ligar NFC" | ok · ver a S4 | — |
+| N11 | `readNfcTitle` (`copy.ts:45`) | "Ler código", Android com NFC ligado (título) | "Encoste nas costas do outro celular" | **trocar** | "Encoste este celular no outro, costas com costas" · Encostar o quê, ficava implícito. "Costas com costas" casa com o N6 (as antenas do Android ficam atrás). Título, sem ponto. |
+| N12 | `readNfcText` (`copy.ts:46`) | idem (texto) | "O outro celular precisa estar com a tela Conectar aberta, mostrando o código." | **trocar** | "O outro celular precisa estar mostrando o código na tela Conectar. Se ele for iPhone, use a câmera." · Problema 1. |
+| N13 | `readIphoneTitle` (`copy.ts:47`) | "Ler código", iPhone (título) | "Leia o código da outra pessoa" | ok | — |
+| N14 | `readIphoneText` (`copy.ts:48`) | idem (texto) | "Aproxime o topo do seu iPhone das costas do outro celular, ou use a câmera." | **trocar** | "Se o outro celular for Android, toque em Aproximar do outro celular e encoste o topo do seu iPhone nas costas dele. Se for iPhone, use a câmera." · Hoje promete que o iPhone lê "o outro celular", e iPhone com iPhone não funciona (problema 1, N1 da ADR). Cita o botão pelo nome (N16). |
+| N15 | `readCameraOnlyTitle` / `readCameraOnlyText` (`copy.ts:49-50`) | "Ler código", sem NFC | "Leia o código da outra pessoa" / "Aponte a câmera para o código na tela da outra pessoa." | ok | — |
+| N16 | `nfcTap` (`copy.ts:51`) | botão, só iPhone ("Ler código" e folha) | "Aproximar do celular" | **trocar** | "Aproximar do outro celular" · "Do celular" fica ambíguo (qual?). Se mudar, o N14 muda junto. |
+| N17 | `useCamera` (`copy.ts:52`) | botão ("Ler código" e folha) | "Usar a câmera" | ok | — |
+| N18 | `nfcReadFailed` (`copy.ts:54`) | aviso em "Ler código" e erro na folha | "Não deu para ler. Encoste de novo ou use a câmera." | **trocar** | "Não deu para ler o código. Tente de novo ou use a câmera." · No iPhone, "tentar de novo" é tocar no botão, não só encostar; "Tente" serve aos dois sistemas. "Ler" sem objeto ficava solto. |
+| N19 | `codeRead` (`copy.ts:56`) | ao lado do spinner e anúncio na hora | "Código lido" | ok · ver a S5 | — |
+| N20 | `cardExpired(first)` (`copy.ts:64`), no lugar do T20 | Toast, volta para "Ler código" | "O código de {primeiro nome} venceu. Leia o código de {primeiro nome} de novo." | **trocar** | "O código de {primeiro nome} venceu. Leia o código de novo." · Sem repetir o nome. O código na tela da outra pessoa já é outro (renova a cada 20 s). Ver a S1 (o anúncio). |
+| N21 | `simulate` / `simulateNfc` (`copy.ts:66-67`) | só no build de desenvolvimento (D15) | "Simular um pedido recebido" / "Simular um pedido recebido por NFC" | ok (não vai para o PO: não sai na loja) | — |
+| N22 | `notTheirCode(first)` (`copy.ts:112-113`), no lugar do T45 | erro na câmera ou na folha, no aceite (400 `PROXIMITY_TOKEN_INVALID`) | "Esse código não é de {primeiro nome}. Leia o código na tela de {primeiro nome}." | **trocar** | "Este código não é de {primeiro nome} ou já venceu. Leia o código na tela de {primeiro nome}." · O mesmo erro vale para o código **vencido** (ADR 0013 §2), e aí "não é de Caio" seria falso. "Este" como no `qrInvalid`. Não revela recusa nem bloqueio. |
+| N23 | `acceptRead(first)` (`copy.ts:119`) | folha, depois do "Aceitar" (recebe o foco) | "Para aceitar, leia o código na tela de {primeiro nome}." | ok | — |
+| N24 | **novo:** `acceptReadNfc(first)` | folha, depois do "Aceitar", Android com NFC ligado, no lugar do `readNfcTitle` (`IncomingRequestSheet.tsx:86-90`) | (hoje usa o `readNfcTitle`: "Encoste nas costas do outro celular") | **novo** | "Ou encoste este celular no de {primeiro nome}, costas com costas. Com iPhone, só a câmera funciona." · Problema 1: quem pediu pode estar num iPhone, e o encosto não daria retorno nenhum. O "Ou" liga com o `acceptRead` logo acima. |
+| N25 | `NFC_USAGE` (`apps/mobile/modules/sussurro-proximity/app.plugin.js:21-22`), no lugar do T39 | diálogo do sistema no iOS | "O Sussurro usa o NFC só para ler o código de conexão de outra pessoa quando você aproxima os celulares, com a tela Conectar aberta." | ok | — |
+| N26 | `alertMessage` (`apps/mobile/modules/sussurro-proximity/ios/SussurroProximityModule.swift:117`) | folha de leitura do sistema no iPhone | "Aproxime o topo do iPhone do outro celular." | **trocar** | "Aproxime o topo do iPhone das costas do outro celular." · Mesmo gesto do N14. A folha do sistema já tem o próprio desenho e o "Cancelar". |
+| N27 | vazio de "Minhas conexões" (`apps/mobile/src/features/lists/OwnListScreens.tsx:114`), no lugar do T40 | EmptyState | "Conexões acontecem ao vivo: uma pessoa lê o código da outra, e as duas confirmam." | ok (coerente com o N1) | — |
+
+**Mantidos sem mudança (ok), conferidos contra a §11.9 e o protótipo:** `title` (`:28`); `cardCheck` (`:58`, T15); `connectWith` e `connectWithLabel` (`:59-60`, T16); `cancel` (`:61`, T17); `alreadyConnected` (`:62`, T18); `waitingTitle`, `waitingText` e `waitingQr` (`:68-71`, p13); `cancelRequest` (`:72`); `notConfirmedTitle` (`:73`); `notConfirmedText` (`:74`, a versão "pelo QR" do T21); `tryAgain` e `back` (`:75-76`); `connectedTitle`, `connectedSince`, `connectedText`, `goHome` e `connectAnother` (`:77-81`, p14); `cannotSend` (`:83`); `pausedTitle` e `pausedText` (`:85-86`, T22); `unavailable*` e `offline*` (`:87-90`); `email*` e `verifyEmail` (`:92-94`); `continue` e `openSettings` (`:95-96`); `scannerTitle`, `scannerHint`, `scannerHintAccept` e `close` (`:98-101`); `cameraExplain*` e `cameraDenied*` (`:102-105`); `showMyCode` (`:106`); `qrInvalid` (`:108-109`, também na leitura por NFC); `sheetTitle`, `sheetConfirm`, `accept`, `decline`, `expiresIn`, `expired` e `gone` (`:115-124`); `announceCard`, `announceCardConnected`, `announceIncoming`, `announceSent`, `announceConnected` e `announceNotConfirmed` (`:126-131`, os A3 a A5 sem o "Encostou em"); `creatorTitle`, `creatorText` e `backToProfile` (`:133-135`, p22). Nenhum fala em Bluetooth nem no encostar do BLE.
+
+#### Leitor de tela e outros achados (para o `frontend`; não são texto)
+
+| # | Sev. | Onde | Problema | Correção sugerida |
+|---|---|---|---|---|
+| S1 | 🟡 | `useConnectSession.ts:634-635` (`cardExpired`) | O Toast sai junto com o `backTo('read')`, que leva o foco ao início. A leitura do elemento focado corta o anúncio do Toast: é o caso do antigo T20 (§11.8, "foco e anúncio juntos"). | `toast.show({ message, announceAfterMs: announceAfterFocusMs() })`. |
+| S2 | 🟡 | `ConnectScreen.tsx:155-165` (`readNotice`) e `IncomingRequestSheet.tsx:175-185` (erro da folha) | Só a `accessibilityLiveRegion`, que o iOS ignora. O `nfcReadFailed` pelo botão "Aproximar do outro celular" só existe no iPhone, então lá ele **nunca é anunciado** (WCAG 4.1.3). | `announce(mensagem)` quando o aviso aparece, no iOS (no Android, a região viva já anuncia), como faz o `ToastProvider`. |
+| S3 | 🟢 | `ConnectScreen.tsx:135` (título de "Ler código") | Sem `accessibilityRole="header"`. Os títulos dos estados são cabeçalhos (§11.8). | Acrescentar o role. |
+| S4 | 🟢 | "Ligar NFC" (`ConnectScreen.tsx:88`, `IncomingRequestSheet.tsx:104-110`) | O botão abre os ajustes do Android, não liga nada. | `accessibilityHint="Abre os ajustes do celular"`. O rótulo fica, porque é o que a pessoa quer fazer. **Aplicado em 2026-11-14** como a chave nova `COPY.turnOnNfcHint` ("Abre os ajustes do celular", `copy.ts:48`), usada nos dois botões. É texto lido pelo leitor de tela: entra no catálogo de textos aprovados junto com as trocas. |
+| S5 | 🟢 | `ConnectScreen.tsx:143-154` | O "Código lido" é anunciado duas vezes no Android: pelo `announce` do `cueRead` e pela região viva da linha do spinner. | Tirar a `accessibilityLiveRegion` da linha. |
+| S6 | 🟢 | ícone `radio` (`ConnectScreen.tsx:71`, `:132` e `:169`; `IncomingRequestSheet.tsx:93`) | O `radio` (ondas) era o desenho do Bluetooth. | O `smartphone-nfc` do Lucide, que a §11.10 descartou só pelo nome do arquivo e agora descreve o gesto. Fica no catálogo do `packages/ui`, se ainda não estiver. Decorativo. **Aplicado em 2026-11-14:** no catálogo do `Icon` (lucide 1.63.0) e nos 4 lugares. A aba e o vazio de "Minhas conexões" seguem com o `radio` (recomendação na §11.10). |
+| S7 | 🟡 | `QrScanner.tsx:104` (câmera negada **no aceite**) | A ação secundária "Mostrar meu código" não ajuda quem está aceitando: o D7 pede que **eu** leia o código de quem pediu. | No aceite, esconder o "Mostrar meu código" e deixar só "Abrir Ajustes" e o ✕ (a folha continua com o NFC, quando houver). ~~Não precisa de texto novo.~~ **Aplicado em 2026-11-14** (`ConnectScreen.tsx:497`). Errei ao dizer que não precisava de texto novo: o `cameraDeniedText` continua mandando "peça para a outra pessoa ler o seu código", que é o caminho do botão que saiu. Ver a N28. |
+
+> **Aplicado em 2026-11-14 (aprovado pelo PO):** S1 a S7.
+
+#### N28: câmera negada no aceite (2026-11-14, aprovada pelo PO no mesmo dia)
+
+> **Por que N28, e não N27:** o N27 desta seção já é o vazio de "Minhas conexões".
+
+**O problema.** Na folha, depois do "Aceitar", o "Usar a câmera" abre o `QrScanner` com `purpose.kind === 'accept'`. Se a câmera estiver negada sem poder perguntar de novo, aparece o `EmptyState` "Câmera sem permissão" (`QrScanner.tsx:100-112`) com o `cameraDeniedText` (`copy.ts:112`): "Permita a câmera nos Ajustes ou peça para a outra pessoa ler o seu código." No aceite, a segunda metade está errada por dois motivos:
+- quem aceita é quem lê o código de quem pediu (D7); ninguém lê o código de quem aceita;
+- a S7 tirou o botão "Mostrar meu código" justamente nesse caso, então o texto aponta um caminho que a tela não oferece.
+
+Fora do aceite (em "Ler código"), o texto continua certo: lá o botão "Mostrar meu código" aparece e a outra pessoa pode ler.
+
+| # | Constante | Onde aparece | Texto atual | Veredito | Texto proposto |
+|---|---|---|---|---|---|
+| N28 | **novo:** `cameraDeniedTextAccept(first)` | `EmptyState` "Câmera sem permissão", **só no aceite**, no lugar do `cameraDeniedText` | "Permita a câmera nos Ajustes ou peça para a outra pessoa ler o seu código." | **novo** | "Para aceitar, permita a câmera nos Ajustes e leia o código na tela de {primeiro nome}." · Repete o começo do `acceptRead` ("Para aceitar, … leia o código na tela de {primeiro nome}"), que a pessoa acabou de ler na folha. Sem "dele" ou "dela". Não cita o NFC: o app não sabe, nesta tela, se o outro celular emite (iPhone não emite), e o ✕ já devolve à folha, onde o NFC aparece quando existe. |
+
+**Para o `frontend` (eu não altero código):** o `ConnectSessionView` já sabe o `accepting` e o nome (`ConnectScreen.tsx:460-464`, mesmo cálculo do `acceptHint`). Basta passar ao `QrScanner` uma prop opcional com a descrição da câmera negada (ou o próprio texto) e usar o `cameraDeniedText` quando ela não vier. O `cameraDeniedText` fica como está para o "Ler código". Teste sugerido (o `testes` dá o ID): no aceite com a câmera negada, a tela mostra o N28 e não mostra o `cameraDeniedText` nem o "Mostrar meu código" (complementa o teste da S7 em `connect-incoming.test.tsx:265-268`).
+
+#### T1 a T48: o que vale depois da ADR 0013
+
+| Situação | T* e A* |
+|---|---|
+| **Valem** | T3 (só o `modeGroup`), T15, T16, T17, T18, T22, T33, T37 (os textos da folha), o T21 na versão "pelo QR" e os anúncios A5 e "mantidos" da §11.8 |
+| **Valem com outro texto** | A3 e A4: sem o "Encostou em" (`announceCard` e `announceCardConnected`) |
+| **Substituídos** | T1 → N1 · T20 → N20 · T39 → N25 · T40 → N27 · T45 → N22 |
+| **Obsoletos** | T2, o 2º segmento do T3 (`modeQr`), T4 a T14, o T21 na versão "pelo encostar", T23 a T32, T34, T35, T36 (já estava substituído), T38, T41 a T44, T46, T47 e T48 · A1, A2, A6, A7 e A8 |
+
+O T46 sai porque o formulário de denúncia agora abre pela folha do pedido, com a janela de 24 h do pedido (ADR 0013, Adendo B1, M1), e não há mais o prazo de 1 minuto do encosto. O T47 e o T48 saem junto com o cartão do encosto.
+
+#### Pendências
+
+1. ~~**PO:** aprovar as trocas N6, N9, N11, N12, N14, N16, N18, N20, N22 e N26 e as chaves novas N7 e N24.~~ **Aprovado e aplicado em 2026-11-14**, com a chave `turnOnNfcHint`. A N28 também foi aprovada pelo PO em 2026-11-14. O ícone da aba fica para depois do teste com usuários (decisão do PO na §11.10).
+2. **Aparelho (MAN-NFC):** conferir se dois Android **ambos** em "Mostrar meu código" se leem pelo `NDEF_DISCOVERED` do sistema. Se lerem, o N6 pode voltar a ser curto ("Ou encoste os celulares, costas com costas."). Conferir também o gesto real do iPhone (topo nas costas) e se a S2 anuncia no VoiceOver.
+3. ~~**`frontend`:** aplicar as trocas, as chaves novas e a S1 a S7. Os testes que procuram os textos antigos mudam junto (`testes`).~~ **Feito em 2026-11-14.** A N28, aprovada no mesmo dia, está sendo aplicada pelo `frontend`.
 
 ## 12. Fidelidade ao ux.md: os quatro itens do PR 6 (2026-10-31)
 

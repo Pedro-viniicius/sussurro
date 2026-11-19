@@ -1,5 +1,6 @@
 import {
   ANDROID_BLOCKED_PERMISSIONS,
+  ANDROID_RELEASE_BLOCKED_PERMISSIONS,
   type AppVariant,
   buildAppConfig,
   CAMERA_PERMISSION_TEXT,
@@ -15,11 +16,14 @@ interface ManifestEntry {
 }
 
 interface ProximityPlugin {
-  BLUETOOTH_USAGE: string;
-  setAndroidBluetoothPermissions: (manifest: { manifest: Record<string, ManifestEntry[]> }) => {
-    manifest: Record<string, ManifestEntry[]>;
+  NFC_USAGE: string;
+  NFC_ENTITLEMENT: string;
+  NFC_FORMATS: string[];
+  setAndroidNfc: (manifest: { manifest: Record<string, unknown> }) => {
+    manifest: Record<string, unknown>;
   };
-  setIosBluetoothUsage: (plist: Record<string, unknown>) => Record<string, unknown>;
+  setIosNfcUsage: (plist: Record<string, unknown>) => Record<string, unknown>;
+  setIosNfcEntitlements: (entitlements: Record<string, unknown>) => Record<string, unknown>;
 }
 
 const proximityPlugin =
@@ -97,45 +101,35 @@ describe('app.config', () => {
     expect(CAMERA_PERMISSION_TEXT).toMatch(/só para ler o QR code/);
   });
 
-  it('4.3 CA5: Android 12+ só BLUETOOTH_SCAN (neverForLocation), ADVERTISE e CONNECT; localização só até o Android 11', () => {
-    const manifest = proximityPlugin.setAndroidBluetoothPermissions({
+  it('NFC-07 (ADR 0013 §4): Android só com a permissão NFC; o Bluetooth e a localização da versão BLE saem do manifesto', () => {
+    const manifest = proximityPlugin.setAndroidNfc({
       manifest: {
         'uses-permission': [
           { $: { 'android:name': 'android.permission.INTERNET' } },
-          // Uma declaração anterior sem limite é trocada pela com maxSdkVersion.
+          { $: { 'android:name': 'android.permission.BLUETOOTH_SCAN' } },
           { $: { 'android:name': 'android.permission.ACCESS_FINE_LOCATION' } },
+        ],
+        'uses-feature': [
+          { $: { 'android:name': 'android.hardware.bluetooth_le', 'android:required': 'false' } },
+        ],
+        application: [
+          {
+            $: { 'android:name': '.MainApplication' },
+            activity: [{ $: { 'android:name': '.MainActivity' } }],
+          },
         ],
       },
     }).manifest;
-    const permissions = (manifest['uses-permission'] ?? []).map((entry) => entry.$);
-    const byName = (name: string) =>
-      permissions.filter((entry) => entry['android:name'] === `android.permission.${name}`);
-
-    expect(byName('BLUETOOTH_SCAN')).toEqual([
-      {
-        'android:name': 'android.permission.BLUETOOTH_SCAN',
-        'android:usesPermissionFlags': 'neverForLocation',
-      },
-    ]);
-    expect(byName('BLUETOOTH_ADVERTISE')).toEqual([
-      { 'android:name': 'android.permission.BLUETOOTH_ADVERTISE' },
-    ]);
-    expect(byName('BLUETOOTH_CONNECT')).toEqual([
-      { 'android:name': 'android.permission.BLUETOOTH_CONNECT' },
-    ]);
-    for (const legacy of ['ACCESS_FINE_LOCATION', 'BLUETOOTH', 'BLUETOOTH_ADMIN']) {
-      expect(byName(legacy)).toEqual([
-        { 'android:name': `android.permission.${legacy}`, 'android:maxSdkVersion': '30' },
-      ]);
-    }
-    // Nada de localização aproximada nem em background; o resto do manifesto fica.
-    const names = permissions.map((entry) => entry['android:name'] ?? '');
-    expect(names.some((name) => /COARSE|BACKGROUND_LOCATION/.test(name))).toBe(false);
-    expect(byName('INTERNET')).toHaveLength(1);
-    // O BLE não é obrigatório para instalar (sem ele, o QR).
-    expect(manifest['uses-feature']).toEqual([
-      { $: { 'android:name': 'android.hardware.bluetooth_le', 'android:required': 'false' } },
-    ]);
+    const names = ((manifest['uses-permission'] ?? []) as ManifestEntry[])
+      .filter((entry) => entry.$['tools:node'] !== 'remove')
+      .map((entry) => entry.$['android:name'] ?? '');
+    expect(names).toContain('android.permission.NFC');
+    expect(names).toContain('android.permission.INTERNET');
+    expect(names.some((name) => /BLUETOOTH|LOCATION/.test(name))).toBe(false);
+    const features = ((manifest['uses-feature'] ?? []) as ManifestEntry[])
+      .filter((entry) => entry.$['tools:node'] !== 'remove')
+      .map((entry) => entry.$['android:name'] ?? '');
+    expect(features.some((name) => name.includes('bluetooth'))).toBe(false);
   });
 
   it('Fase 5: o expo-video sem áudio em segundo plano e sem picture-in-picture', () => {
@@ -151,12 +145,18 @@ describe('app.config', () => {
     });
   });
 
-  it('4.3 / T39 (ADR 0012): iOS só com o texto do Bluetooth em pt-BR, sem modo de background', () => {
-    const plist = proximityPlugin.setIosBluetoothUsage({});
-    expect(plist).toEqual({ NSBluetoothAlwaysUsageDescription: proximityPlugin.BLUETOOTH_USAGE });
-    expect(proximityPlugin.BLUETOOTH_USAGE).toBe(
-      'O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa, com a tela Conectar aberta. Ninguém vê sua localização, e nada é transmitido com o app fechado.',
+  it('NFC-07 (ADR 0013 §4): iOS com o texto do NFC em pt-BR e o entitlement TAG, sem Bluetooth nem modo de background', () => {
+    const plist = proximityPlugin.setIosNfcUsage({
+      NSBluetoothAlwaysUsageDescription: 'antigo',
+    });
+    expect(plist).toEqual({ NFCReaderUsageDescription: proximityPlugin.NFC_USAGE });
+    expect(proximityPlugin.NFC_USAGE).toBe(
+      'O Sussurro usa o NFC só para ler o código de conexão de outra pessoa quando você aproxima os celulares, com a tela Conectar aberta.',
     );
+    expect(proximityPlugin.NFC_FORMATS).toEqual(['TAG']);
+    expect(proximityPlugin.setIosNfcEntitlements({})).toEqual({
+      [proximityPlugin.NFC_ENTITLEMENT]: ['TAG'],
+    });
   });
 
   it('Fase 6: expo-notifications com o ícone branco, a cor da marca e sem push silencioso', () => {
@@ -169,12 +169,21 @@ describe('app.config', () => {
     });
     for (const variant of ['preview', 'production'] as const) {
       expect(plugin(variant, 'expo-notifications')).toMatchObject({ mode: 'production' });
-      // Só o RECEIVE_BOOT_COMPLETED do expo-notifications sai (o app não agenda notificações).
+      // O RECEIVE_BOOT_COMPLETED do expo-notifications sai (o app não agenda notificações) e, fora
+      // do dev build, o SYSTEM_ALERT_WINDOW do template (job "native" do CI, lojas.md).
       expect(buildAppConfig(variant).android?.blockedPermissions).toEqual(
-        ANDROID_BLOCKED_PERMISSIONS,
+        ANDROID_RELEASE_BLOCKED_PERMISSIONS,
       );
     }
     expect(ANDROID_BLOCKED_PERMISSIONS).toEqual(['android.permission.RECEIVE_BOOT_COMPLETED']);
+    expect(ANDROID_RELEASE_BLOCKED_PERMISSIONS).toEqual([
+      'android.permission.RECEIVE_BOOT_COMPLETED',
+      'android.permission.SYSTEM_ALERT_WINDOW',
+    ]);
+    // O dev build mantém a sobreposição para o monitor de desempenho do React Native.
+    expect(buildAppConfig('development').android?.blockedPermissions).toEqual(
+      ANDROID_BLOCKED_PERMISSIONS,
+    );
     // Nenhum modo de background no iOS (nem remote-notification).
     expect(JSON.stringify(buildAppConfig('production'))).not.toMatch(/UIBackgroundModes/);
   });

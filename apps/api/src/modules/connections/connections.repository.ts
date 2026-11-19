@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   and,
   asc,
+  type ConnectionMethodValue,
   type ConnectionRequestRow,
   connectionRequests,
   connections,
@@ -103,7 +104,13 @@ export class ConnectionsRepository {
 
   async insertPending(
     tx: DbExecutor,
-    values: { fromId: string; toId: string; method: 'ble' | 'qr'; now: Date; expiresAt: Date },
+    values: {
+      fromId: string;
+      toId: string;
+      method: ConnectionMethodValue;
+      now: Date;
+      expiresAt: Date;
+    },
   ): Promise<ConnectionRequestRow> {
     const [row] = await tx
       .insert(connectionRequests)
@@ -151,7 +158,7 @@ export class ConnectionsRepository {
     tx: DbExecutor,
     first: string,
     second: string,
-    values: { method: 'ble' | 'qr'; requestId: string; now: Date },
+    values: { method: ConnectionMethodValue; requestId: string; now: Date },
   ): Promise<boolean> {
     const [userAId, userBId] = orderedPair(first, second);
     const inserted = await tx
@@ -192,6 +199,21 @@ export class ConnectionsRepository {
           gt(connectionRequests.respondedAt, since),
         ),
       )
+      .limit(1);
+    return row !== undefined;
+  }
+
+  /**
+   * Há pedido de conexão entre `first` e `second` (qualquer direção, qualquer status) criado depois
+   * de `since`? A janela de moderação do pedido (`CONNECTION_REQUEST_MODERATION_WINDOW_S`), usada
+   * pelo `AccessPolicyService` para bloquear e denunciar. Cada direção usa o índice
+   * `connection_requests_from_idx (from_id, to_id)`; `created_at` filtra as poucas linhas do par.
+   */
+  async hasRecentRequestBetween(first: string, second: string, since: Date): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: connectionRequests.id })
+      .from(connectionRequests)
+      .where(and(betweenPair(first, second), gt(connectionRequests.createdAt, since)))
       .limit(1);
     return row !== undefined;
   }

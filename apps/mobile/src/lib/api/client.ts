@@ -48,8 +48,7 @@ export interface RequestOptions<T> {
   /**
    * Prazo da chamada inteira (envio, refresh e leitura da resposta), em ms. No fim, a conexão é
    * abortada pelo `AbortController` (o `signal` vai no `fetch`) e a chamada falha com
-   * `NetworkError`. Sem ele, a chamada espera o sistema desistir (ADR 0012, A3-3 item 1: só o relato
-   * do encosto usa).
+   * `NetworkError`. Sem ele, a chamada espera o sistema desistir.
    */
   timeoutMs?: number;
 }

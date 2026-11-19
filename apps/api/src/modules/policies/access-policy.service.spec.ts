@@ -6,14 +6,13 @@ import {
   isFollowAllowed,
   isPostVisible,
   isProfileVisible,
-  isTouchActionAllowed,
   type PostTarget,
   type Relationship,
-  type TouchParty,
-  touchRevealParties,
 } from './access-policy.service.js';
 import type { RelationsRepository } from './relations.repository.js';
 import type { AuthContext } from '../../common/auth/auth-context.js';
+import { FakeClock } from '../../testing/fake-clock.js';
+import type { ConnectionsRepository } from '../connections/connections.repository.js';
 
 const viewer: AuthContext = {
   userId: '01a189e0-af57-7000-85fe-2054e618fea6',
@@ -34,8 +33,15 @@ const BLOCKED: Relationship = { connected: false, blocked: true };
  * como bloqueadas.
  */
 function policyWith(
-  options: { connected?: string[]; blocked?: string[]; iBlocked?: string[] } = {},
+  options: {
+    connected?: string[];
+    blocked?: string[];
+    iBlocked?: string[];
+    /** Contas com pedido de conexão com o leitor (qualquer direção), com o `created_at`. */
+    requests?: Record<string, Date>;
+  } = {},
 ) {
+  const requests = options.requests ?? {};
   const connected = options.connected ?? [];
   const blocked = options.blocked ?? [];
   const iBlocked = options.iBlocked ?? [];
@@ -61,9 +67,23 @@ function policyWith(
     ),
     isFollowing: vi.fn(() => Promise.resolve(true)),
   };
+  const connections = {
+    hasRecentRequestBetween: vi.fn((first: string, second: string, since: Date) => {
+      const other = first === viewer.userId ? second : first;
+      const createdAt = requests[other];
+      return Promise.resolve(createdAt !== undefined && createdAt.getTime() > since.getTime());
+    }),
+  };
+  const clock = new FakeClock();
   return {
-    policy: new AccessPolicyService(relations as unknown as RelationsRepository),
+    policy: new AccessPolicyService(
+      relations as unknown as RelationsRepository,
+      connections as unknown as ConnectionsRepository,
+      clock,
+    ),
     relations,
+    connections,
+    clock,
   };
 }
 
@@ -223,132 +243,22 @@ describe('seguir e pedir conexão (ADR 0008, X.2 CA2)', () => {
   });
 });
 
-describe('bloquear e denunciar pelo cartão do encosto (ADR 0012, A2 rev. 1, R1-5)', () => {
+describe('bloquear e denunciar pelo @ (ADR 0013: sem o caminho do cartão do encosto)', () => {
   const person = { id: OTHER, accountType: 'personal' as const };
   const creator = { id: OTHER, accountType: 'creator' as const };
   const self = { id: viewer.userId, accountType: 'personal' as const };
 
-  it('[PROX-61] [PROX-62] isTouchActionAllowed: só com o par vivo, entre duas contas pessoais diferentes', () => {
-    expect(isTouchActionAllowed(viewer, person, true)).toBe(true);
-    expect(isTouchActionAllowed(viewer, person, false)).toBe(false);
-    expect(isTouchActionAllowed(viewer, creator, true)).toBe(false);
-    expect(isTouchActionAllowed(creatorViewer, person, true)).toBe(false);
-    expect(isTouchActionAllowed(viewer, self, true)).toBe(false);
-  });
-
-  it('[PROX-61] [PROX-62] perfil visível (conexão, criador, a própria conta) → pode, sem consultar o par', async () => {
-    const touchPair = vi.fn((_targetId: string | undefined) => Promise.resolve(false));
+  it('[PROX-61] canBlockOrReport: só quem o leitor vê (conexão, criador, a própria conta); sem conta, não', async () => {
     await expect(
-      policyWith({ connected: [OTHER] }).policy.canBlockOrReport(viewer, person, touchPair),
+      policyWith({ connected: [OTHER] }).policy.canBlockOrReport(viewer, person),
     ).resolves.toBe(true);
-    await expect(policyWith().policy.canBlockOrReport(viewer, creator, touchPair)).resolves.toBe(
-      true,
-    );
-    await expect(policyWith().policy.canBlockOrReport(viewer, self, touchPair)).resolves.toBe(true);
-    expect(touchPair).not.toHaveBeenCalled();
-  });
-
-  it('[PROX-61] [PROX-62] perfil que não se vê: pode só com o par vivo, também quando um já bloqueou o outro', async () => {
-    const paired = vi.fn((_targetId: string | undefined) => Promise.resolve(true));
-    const unpaired = vi.fn((_targetId: string | undefined) => Promise.resolve(false));
-    await expect(policyWith().policy.canBlockOrReport(viewer, person, paired)).resolves.toBe(true);
-    expect(paired).toHaveBeenLastCalledWith(OTHER);
-    await expect(policyWith().policy.canBlockOrReport(viewer, person, unpaired)).resolves.toBe(
-      false,
-    );
+    await expect(policyWith().policy.canBlockOrReport(viewer, creator)).resolves.toBe(true);
+    await expect(policyWith().policy.canBlockOrReport(viewer, self)).resolves.toBe(true);
+    await expect(policyWith().policy.canBlockOrReport(viewer, person)).resolves.toBe(false);
     await expect(
-      policyWith({ blocked: [OTHER] }).policy.canBlockOrReport(viewer, person, paired),
-    ).resolves.toBe(true);
-    // Criador que não se vê (bloqueio) ou leitor criador: o par não vale (não há encosto com criador).
-    await expect(
-      policyWith({ blocked: [OTHER] }).policy.canBlockOrReport(viewer, creator, paired),
+      policyWith({ blocked: [OTHER] }).policy.canBlockOrReport(viewer, creator),
     ).resolves.toBe(false);
-    await expect(policyWith().policy.canBlockOrReport(creatorViewer, person, paired)).resolves.toBe(
-      false,
-    );
-  });
-
-  it('[PROX-61] [PROX-62] sem conta (@ inexistente, excluído ou inválido): consulta o par mesmo assim, com undefined, e nunca pode', async () => {
-    const touchPair = vi.fn((_targetId: string | undefined) => Promise.resolve(true));
-    await expect(policyWith().policy.canBlockOrReport(viewer, undefined, touchPair)).resolves.toBe(
-      false,
-    );
-    expect(touchPair).toHaveBeenCalledTimes(1);
-    expect(touchPair).toHaveBeenCalledWith(undefined);
-  });
-
-  it('[PROX-61] [PROX-62] a falha da consulta do par (Valkey fora, 503) sobe igual para alvo com e sem conta', async () => {
-    const failure = new Error('503');
-    const touchPair = vi.fn((_targetId: string | undefined) => Promise.reject(failure));
-    await expect(policyWith().policy.canBlockOrReport(viewer, person, touchPair)).rejects.toBe(
-      failure,
-    );
-    await expect(policyWith().policy.canBlockOrReport(viewer, undefined, touchPair)).rejects.toBe(
-      failure,
-    );
-    // Alvo visível não depende do Valkey.
-    await expect(
-      policyWith({ connected: [OTHER] }).policy.canBlockOrReport(viewer, person, touchPair),
-    ).resolves.toBe(true);
-  });
-
-  it('[PROX-65] [PROX-61] [X.2] regressão (R1-PO-1): o bloqueio não ganha a regra "quem você bloqueou"; sem par → não pode, Valkey fora → o erro sobe, sem consultar o bloqueio', async () => {
-    const { policy, relations } = policyWith({ iBlocked: [OTHER] });
-    const unpaired = vi.fn((_targetId: string | undefined) => Promise.resolve(false));
-    await expect(policy.canBlockOrReport(viewer, person, unpaired)).resolves.toBe(false);
-    expect(unpaired).toHaveBeenCalledWith(OTHER);
-    const failure = new Error('503');
-    const down = vi.fn((_targetId: string | undefined) => Promise.reject(failure));
-    await expect(policy.canBlockOrReport(viewer, person, down)).rejects.toBe(failure);
-    expect(relations.hasBlocked).not.toHaveBeenCalled();
-  });
-});
-
-describe('revelar os cartões no encosto (ADR 0012, A3-1, R22: touchRevealParties)', () => {
-  /** Uma linha do `findTouchPair`: pessoal, ativa, sem bloqueio, com o @ (que volta como veio). */
-  function party(id: string, overrides: Partial<TouchParty> = {}) {
-    return { id, personal: true, active: true, blocked: false, handle: `@${id}`, ...overrides };
-  }
-
-  it('[PROX-66] [X.2] as duas contas pessoais, ativas e sem bloqueio → as duas linhas (com o que vier junto), em qualquer ordem; o serviço dá a mesma resposta e não consulta nada', () => {
-    const owner = party(OTHER);
-    const caller = party(viewer.userId);
-    for (const rows of [
-      [owner, caller],
-      [caller, owner],
-    ]) {
-      expect(touchRevealParties(viewer, OTHER, rows)).toEqual({ owner, caller });
-      expect(touchRevealParties(viewer, OTHER, rows)?.owner).toBe(owner);
-    }
-    const { policy, relations } = policyWith();
-    expect(policy.touchRevealParties(viewer, OTHER, [caller, owner])).toEqual({ owner, caller });
-    for (const query of Object.values(relations)) {
-      expect(query).not.toHaveBeenCalled();
-    }
-  });
-
-  it('[PROX-66] [PROX-36] [X.2] recusa (null) com bloqueio (o do par, em qualquer sentido), conta excluída ou de criador de cada lado, conta sem linha de cada lado e a própria conta como dona', () => {
-    const owner = party(OTHER);
-    const caller = party(viewer.userId);
-    const refused: [string, TouchParty[], string][] = [
-      [
-        'bloqueio do par',
-        [party(OTHER, { blocked: true }), party(viewer.userId, { blocked: true })],
-        OTHER,
-      ],
-      ['bloqueio na linha do dono', [party(OTHER, { blocked: true }), caller], OTHER],
-      ['dono excluído', [party(OTHER, { active: false }), caller], OTHER],
-      ['quem chama excluído', [owner, party(viewer.userId, { active: false })], OTHER],
-      ['dono criador', [party(OTHER, { personal: false }), caller], OTHER],
-      ['quem chama criador', [owner, party(viewer.userId, { personal: false })], OTHER],
-      ['dono sem linha', [caller], OTHER],
-      ['quem chama sem linha', [owner], OTHER],
-      ['sem linhas', [], OTHER],
-      ['a própria conta como dona', [caller], viewer.userId],
-    ];
-    for (const [name, rows, ownerId] of refused) {
-      expect(touchRevealParties(viewer, ownerId, rows), name).toBeNull();
-    }
+    await expect(policyWith().policy.canBlockOrReport(viewer, undefined)).resolves.toBe(false);
   });
 });
 
@@ -356,84 +266,115 @@ describe('denunciar a conta de quem você bloqueou (R1-PO-1, canReportAccount)',
   const person = { id: OTHER, accountType: 'personal' as const };
   const creator = { id: OTHER, accountType: 'creator' as const };
   const self = { id: viewer.userId, accountType: 'personal' as const };
-  const pairIs = (live: boolean) => vi.fn((_targetId: string | undefined) => Promise.resolve(live));
 
-  it('[PROX-65] [PROX-62] [X.1] o leitor bloqueou o alvo → pode, sem consultar o par (pessoal ou criador, leitor pessoal ou criador, também com bloqueio nos dois sentidos)', async () => {
-    const touchPair = pairIs(false);
+  it('[PROX-65] [X.1] o leitor bloqueou o alvo → pode (pessoal ou criador, leitor pessoal ou criador, também com bloqueio nos dois sentidos)', async () => {
     for (const [who, target] of [
       [viewer, person],
       [viewer, creator],
       [creatorViewer, person],
     ] as const) {
       const { policy, relations } = policyWith({ iBlocked: [OTHER] });
-      await expect(policy.canReportAccount(who, target, touchPair)).resolves.toBe(true);
+      await expect(policy.canReportAccount(who, target)).resolves.toBe(true);
       expect(relations.hasBlocked).toHaveBeenCalledWith(viewer.userId, OTHER);
     }
     await expect(
-      policyWith({ iBlocked: [OTHER], blocked: [OTHER] }).policy.canReportAccount(
-        viewer,
-        person,
-        touchPair,
-      ),
+      policyWith({ iBlocked: [OTHER], blocked: [OTHER] }).policy.canReportAccount(viewer, person),
     ).resolves.toBe(true);
-    expect(touchPair).not.toHaveBeenCalled();
   });
 
-  it('[PROX-65] [PROX-62] [X.1] só o alvo bloqueou o leitor → não conta: segue o par (sem par não pode, com par pode)', async () => {
+  it('[PROX-65] [X.1] só o alvo bloqueou o leitor → não pode', async () => {
     const { policy, relations } = policyWith({ blocked: [OTHER] });
-    const unpaired = pairIs(false);
-    await expect(policy.canReportAccount(viewer, person, unpaired)).resolves.toBe(false);
+    await expect(policy.canReportAccount(viewer, person)).resolves.toBe(false);
     expect(relations.hasBlocked).toHaveBeenCalledWith(viewer.userId, OTHER);
-    expect(unpaired).toHaveBeenCalledWith(OTHER);
-    await expect(policy.canReportAccount(viewer, person, pairIs(true))).resolves.toBe(true);
   });
 
-  it('[PROX-65] [PROX-62] [X.1] sem bloqueio e sem par → não pode; o bloqueio é consultado mesmo assim (sem atalho pela relação, o tempo não revela o bloqueio do alvo)', async () => {
+  it('[PROX-65] [X.1] sem bloqueio → não pode; o bloqueio é consultado mesmo assim (sem atalho pela relação, o tempo não revela o bloqueio do alvo)', async () => {
     const { policy, relations } = policyWith();
-    const unpaired = pairIs(false);
-    await expect(policy.canReportAccount(viewer, person, unpaired)).resolves.toBe(false);
+    await expect(policy.canReportAccount(viewer, person)).resolves.toBe(false);
     expect(relations.hasBlocked).toHaveBeenCalledTimes(1);
     expect(relations.hasBlocked).toHaveBeenCalledWith(viewer.userId, OTHER);
-    expect(unpaired).toHaveBeenCalledTimes(1);
-    expect(unpaired).toHaveBeenCalledWith(OTHER);
   });
 
-  it('[PROX-65] [PROX-62] [X.1] perfil visível (conexão, criador, a própria conta) → pode, sem consultar o bloqueio nem o par', async () => {
-    const touchPair = pairIs(false);
+  it('[PROX-65] [X.1] perfil visível (conexão, criador, a própria conta) → pode, sem consultar o bloqueio', async () => {
     const connected = policyWith({ connected: [OTHER] });
-    await expect(connected.policy.canReportAccount(viewer, person, touchPair)).resolves.toBe(true);
+    await expect(connected.policy.canReportAccount(viewer, person)).resolves.toBe(true);
     const others = policyWith();
-    await expect(others.policy.canReportAccount(viewer, creator, touchPair)).resolves.toBe(true);
-    await expect(others.policy.canReportAccount(viewer, self, touchPair)).resolves.toBe(true);
+    await expect(others.policy.canReportAccount(viewer, creator)).resolves.toBe(true);
+    await expect(others.policy.canReportAccount(viewer, self)).resolves.toBe(true);
     expect(connected.relations.hasBlocked).not.toHaveBeenCalled();
     expect(others.relations.hasBlocked).not.toHaveBeenCalled();
-    expect(touchPair).not.toHaveBeenCalled();
   });
 
-  it('[PROX-65] [PROX-62] [X.1] sem conta (@ inexistente, excluído ou inválido): consulta o par com undefined e nunca pode', async () => {
+  it('[PROX-65] [X.1] sem conta (@ inexistente, excluído ou inválido): nunca pode', async () => {
     const { policy, relations } = policyWith({ iBlocked: [OTHER] });
-    const touchPair = pairIs(true);
-    await expect(policy.canReportAccount(viewer, undefined, touchPair)).resolves.toBe(false);
-    expect(touchPair).toHaveBeenCalledTimes(1);
-    expect(touchPair).toHaveBeenCalledWith(undefined);
+    await expect(policy.canReportAccount(viewer, undefined)).resolves.toBe(false);
     expect(relations.hasBlocked).not.toHaveBeenCalled();
   });
+});
 
-  it('[PROX-65] [PROX-62] [X.1] Valkey fora: a conta que o leitor bloqueou passa (sem 503); o mesmo erro sobe para alvo sem bloqueio, bloqueado só pelo alvo e sem conta', async () => {
-    const failure = new Error('503');
-    const down = vi.fn((_targetId: string | undefined) => Promise.reject(failure));
-    await expect(
-      policyWith({ iBlocked: [OTHER] }).policy.canReportAccount(viewer, person, down),
-    ).resolves.toBe(true);
-    expect(down).not.toHaveBeenCalled();
-    await expect(policyWith().policy.canReportAccount(viewer, person, down)).rejects.toBe(failure);
-    await expect(
-      policyWith({ blocked: [OTHER] }).policy.canReportAccount(viewer, person, down),
-    ).rejects.toBe(failure);
-    await expect(policyWith().policy.canReportAccount(viewer, undefined, down)).rejects.toBe(
-      failure,
+describe('bloquear e denunciar a outra pessoa de um pedido de conexão recente (ADR 0013)', () => {
+  const person = { id: OTHER, accountType: 'personal' as const };
+  const THIRD = '01a189e0-af57-7000-85fe-2054e618fe09';
+  const now = FakeClock.DEFAULT_START.getTime();
+  const hoursAgo = (hours: number) => new Date(now - hours * 3600 * 1000);
+
+  it('[NFC-MOD-01] pedido entre os dois há menos de 24 h, sem perfil visível → bloqueia e denuncia', async () => {
+    const { policy, connections } = policyWith({ requests: { [OTHER]: hoursAgo(23) } });
+    await expect(policy.canBlockOrReport(viewer, person)).resolves.toBe(true);
+    await expect(policy.canReportAccount(viewer, person)).resolves.toBe(true);
+    expect(connections.hasRecentRequestBetween).toHaveBeenCalledWith(
+      viewer.userId,
+      OTHER,
+      hoursAgo(24),
     );
-    expect(down.mock.calls).toEqual([[OTHER], [OTHER], [undefined]]);
+  });
+
+  it('[NFC-MOD-02] sem pedido, ou pedido com 24 h ou mais → não pode', async () => {
+    for (const requests of [{}, { [OTHER]: hoursAgo(24) }, { [OTHER]: hoursAgo(25) }]) {
+      const { policy } = policyWith({ requests });
+      await expect(policy.canBlockOrReport(viewer, person)).resolves.toBe(false);
+      await expect(policy.canReportAccount(viewer, person)).resolves.toBe(false);
+    }
+  });
+
+  it('[NFC-MOD-03] a janela anda com o relógio: o mesmo pedido deixa de valer depois de 24 h', async () => {
+    const { policy, clock } = policyWith({ requests: { [OTHER]: hoursAgo(0) } });
+    await expect(policy.canBlockOrReport(viewer, person)).resolves.toBe(true);
+    clock.advance(24 * 3600 * 1000);
+    await expect(policy.canBlockOrReport(viewer, person)).resolves.toBe(false);
+    await expect(policy.canReportAccount(viewer, person)).resolves.toBe(false);
+  });
+
+  it('[NFC-MOD-04] o pedido com outra pessoa não vale para um terceiro', async () => {
+    const { policy } = policyWith({ requests: { [THIRD]: hoursAgo(1) } });
+    await expect(policy.canBlockOrReport(viewer, person)).resolves.toBe(false);
+    await expect(policy.canReportAccount(viewer, person)).resolves.toBe(false);
+  });
+
+  it('[NFC-MOD-05] perfil visível: não consulta o pedido; sem conta: não consulta nada', async () => {
+    const visible = policyWith({ connected: [OTHER] });
+    await expect(visible.policy.canBlockOrReport(viewer, person)).resolves.toBe(true);
+    await expect(visible.policy.canReportAccount(viewer, person)).resolves.toBe(true);
+    expect(visible.connections.hasRecentRequestBetween).not.toHaveBeenCalled();
+    const none = policyWith({ requests: { [OTHER]: hoursAgo(1) } });
+    await expect(none.policy.canBlockOrReport(viewer, undefined)).resolves.toBe(false);
+    await expect(none.policy.canReportAccount(viewer, undefined)).resolves.toBe(false);
+    expect(none.connections.hasRecentRequestBetween).not.toHaveBeenCalled();
+  });
+
+  it('[NFC-MOD-06] denúncia: o pedido e o bloqueio são consultados juntos para todo alvo não visível (sem atalho, o tempo não revela nada)', async () => {
+    const { policy, relations, connections } = policyWith({
+      requests: { [OTHER]: hoursAgo(1) },
+    });
+    await expect(policy.canReportAccount(viewer, person)).resolves.toBe(true);
+    expect(connections.hasRecentRequestBetween).toHaveBeenCalledTimes(1);
+    expect(relations.hasBlocked).toHaveBeenCalledTimes(1);
+  });
+
+  it('[NFC-MOD-07] com bloqueio em algum sentido e pedido recente, ainda pode bloquear e denunciar (a resposta não muda)', async () => {
+    const { policy } = policyWith({ blocked: [OTHER], requests: { [OTHER]: hoursAgo(1) } });
+    await expect(policy.canBlockOrReport(viewer, person)).resolves.toBe(true);
+    await expect(policy.canReportAccount(viewer, person)).resolves.toBe(true);
   });
 });
 

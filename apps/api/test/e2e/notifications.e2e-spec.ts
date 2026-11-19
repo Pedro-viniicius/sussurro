@@ -283,12 +283,12 @@ describe('conexões e pedidos (PROX-29, 6.6)', () => {
   it('[PROX-29] pedidos cruzados (A→B com B→A pendente): a conexão nasce na hora, com a notificação para os dois', async () => {
     const a = await person(t);
     const b = await person(t);
-    // B e A encostaram (ADR 0012): A também toca em "Conectar" no cartão de B (P5).
+    // B e A leram o código um do outro: A também toca em "Conectar" no cartão de B (P5).
     const { fromTokens, request } = await pendingRequest(t, b, a);
     const response = await t.http
       .post('/v1/connections/requests')
       .set(a.headers)
-      .send({ targetToken: fromTokens.bleToken, method: 'ble' })
+      .send({ targetToken: fromTokens.token, method: 'nfc' })
       .expect(200);
     expect((response.body as { status: string }).status).toBe('accepted');
     expect(summary(await list(a))).toEqual([`Você e ${b.user.handle} estão conectados.`]);

@@ -31,6 +31,7 @@ import RefreshCw from 'lucide-react-native/icons/refresh-cw';
 import RotateCcw from 'lucide-react-native/icons/rotate-ccw';
 import ScanLine from 'lucide-react-native/icons/scan-line';
 import Search from 'lucide-react-native/icons/search';
+import SmartphoneNfc from 'lucide-react-native/icons/smartphone-nfc';
 import SquarePlay from 'lucide-react-native/icons/square-play';
 import SquarePlus from 'lucide-react-native/icons/square-plus';
 import AlignLeft from 'lucide-react-native/icons/text-align-start';
@@ -78,6 +79,7 @@ const lucideIcons = {
   'rotate-ccw': RotateCcw,
   'scan-line': ScanLine,
   search: Search,
+  'smartphone-nfc': SmartphoneNfc,
   'square-play': SquarePlay,
   'square-plus': SquarePlus,
   'trash-2': Trash2,

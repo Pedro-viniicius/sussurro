@@ -42,7 +42,7 @@ function request(
     .values({
       fromId,
       toId,
-      method: 'ble',
+      method: 'qr',
       createdAt: NOW,
       expiresAt: new Date(NOW.getTime() + 120_000),
       ...overrides,
@@ -87,7 +87,7 @@ describe('connection_requests (ADR 0003 e 0008)', () => {
     expect(await testDb.db.select().from(connectionRequests)).toHaveLength(2);
   });
 
-  it('responded_at existe só fora de pending; expires_at depois de created_at; método ble|qr', async () => {
+  it('responded_at existe só fora de pending; expires_at depois de created_at; método qr|nfc', async () => {
     const a = await createUser(testDb.db);
     const b = await createUser(testDb.db);
     expect(await pgErrorOf(() => request(a.id, b.id, { respondedAt: NOW }))).toEqual({
@@ -102,8 +102,8 @@ describe('connection_requests (ADR 0003 e 0008)', () => {
       code: PgErrorCode.CHECK_VIOLATION,
       constraint: 'connection_requests_expiry_chk',
     });
-    const [row] = await request(a.id, b.id, { method: 'qr' });
-    expect(row).toMatchObject({ status: 'pending', method: 'qr', respondedAt: null });
+    const [row] = await request(a.id, b.id, { method: 'nfc' });
+    expect(row).toMatchObject({ status: 'pending', method: 'nfc', respondedAt: null });
     expect(row?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7/);
   });
 

@@ -1,8 +1,8 @@
 Pod::Spec.new do |s|
   s.name           = 'SussurroProximity'
-  s.version        = '0.1.0'
-  s.summary        = 'Anúncio e varredura BLE da tela Conectar do Sussurro (ADR 0002).'
-  s.description    = 'Anuncia um UUID de serviço de 128 bits (prefixo + token efêmero) e varre os UUIDs com o mesmo prefixo, sem conexão GATT.'
+  s.version        = '0.2.0'
+  s.summary        = 'Leitura por NFC do código de conexão da tela Conectar do Sussurro (ADR 0013).'
+  s.description    = 'Lê o registro NDEF URI sussurro://c/{token} pela folha do sistema (NFCNDEFReaderSession). Sem Bluetooth.'
   s.author         = 'Sussurro'
   s.homepage       = 'https://docs.expo.dev/modules/'
   s.license        = { :type => 'UNLICENSED' }
@@ -12,7 +12,8 @@ Pod::Spec.new do |s|
   s.static_framework = true
 
   s.dependency 'ExpoModulesCore'
-  s.frameworks = 'CoreBluetooth'
+  # Weak: o app abre em aparelho sem NFC (o `readingAvailable` responde false).
+  s.weak_frameworks = 'CoreNFC'
 
   # Swift/Objective-C compatibility
   s.pod_target_xcconfig = {

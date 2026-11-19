@@ -2,10 +2,9 @@ import { MONTHS_SHORT } from '@sussurro/ui';
 
 /**
  * Textos da tela Conectar: os do protótipo (p10–p14, p22), os do ux.md (§4.10 a §4.12, §5.2 e §7.3)
- * e, para o "encostar" (ADR 0012), os T1 a T42 e os anúncios A1 a A6 do ux.md §11.8 e §11.9,
- * aprovados pelo PO em 2026-10-30 como estão (os T47 e T48, dos anúncios A7 e A8, estão propostos,
- * a aprovar pelo PO). Onde os documentos não dão texto, a decisão está marcada com "(4b)" e
- * registrada no README.
+ * e os da ADR 0013 §5 (NFC e QR code, sem Bluetooth), revisados pelo `ux-ui` (ux.md §11.19) e
+ * aprovados pelo PO em 2026-11-14. Onde os documentos não dão texto, a decisão está marcada com
+ * "(4b)" e registrada no README.
  */
 
 /** Primeiro nome para "Aguardando Caio confirmar" (o @ completo aparece na folha). */
@@ -27,67 +26,59 @@ export function formatCountdown(seconds: number): string {
 
 export const COPY = {
   title: 'Conectar',
-  // T1
+  // N1, no lugar do T1: o gesto não é mais só encostar.
   intro:
-    'Conexões só acontecem ao vivo, com os celulares encostados. As duas pessoas precisam confirmar.',
-  // T2, T3
+    'Conexões só acontecem ao vivo, com as duas pessoas juntas. Uma lê o código da outra, e as duas confirmam.',
+  // Seletor (ADR 0013 §5).
   modeGroup: 'Como conectar',
-  modeTouch: 'Encostar',
-  modeQr: 'QR code',
-  // Pronto (estado 6): T4, T5 e a nota T43 (no lugar do T6; aprovado pelo PO em 2026-10-30).
-  readyTitle: 'Encoste o seu celular no da outra pessoa',
-  readyText:
-    'Os dois com esta tela aberta. Juntem as partes de cima dos celulares e segurem por um instante.',
-  privacyNote:
-    'Seu nome e sua foto só aparecem quando os dois celulares percebem o encosto, e você vê a outra pessoa na mesma hora.',
-  // Aproximando (7): T7, T8.
-  approachingTitle: 'Quase lá',
-  approachingText: 'Encostem os celulares e segurem por um instante.',
-  // Confirmando (8): T9, T10.
-  confirmingTitle: 'Encostou!',
-  confirmingText: 'Segurem mais um instante…',
-  // Não deu para confirmar (9): T11.
-  touchFailed: 'Não deu para confirmar. Afastem e encostem os celulares de novo.',
-  // Nada detectado (10): T12, T13, T14.
-  nobodyTitle: 'Não está dando certo?',
-  nobodyText:
-    'Confiram se a outra pessoa está com a tela Conectar aberta e encostem as partes de cima dos celulares. Se não funcionar, usem o QR code.',
-  useQr: 'Usar QR code',
-  // Cartão de quem encostou (11, 12): T15 a T18.
+  modeShow: 'Mostrar meu código',
+  modeRead: 'Ler código',
+  // Mostrar meu código (QR, §4.10, e o NFC da ADR 0013).
+  qrHint: 'Peça para a outra pessoa ler este código. Mostre só para quem está com você.',
+  // N6: com o NFC ligado, este celular também entrega o código por NFC. Diz o que o outro faz.
+  emitHint: 'Ou a outra pessoa toca em Ler código e encosta o celular nas costas deste.',
+  // N7: no "Aguardando", quem lê é quem recebeu o pedido, pela folha (toca em Aceitar).
+  waitingEmitHint: (first: string) =>
+    `Ou ${first} toca em Aceitar e encosta o celular nas costas deste.`,
+  // NFC desligado (Android).
+  nfcOffTitle: 'O NFC está desligado',
+  nfcOffText: 'Ligue o NFC para trocar o código encostando os celulares, ou use o QR code.',
+  turnOnNfc: 'Ligar NFC',
+  // S4: o botão abre os ajustes do Android, não liga nada sozinho.
+  turnOnNfcHint: 'Abre os ajustes do celular',
+  // Ler código. O iPhone não emite: com iPhone do outro lado, só a câmera (ux.md §11.19).
+  readNfcTitle: 'Encoste este celular no outro, costas com costas',
+  readNfcText:
+    'O outro celular precisa estar mostrando o código na tela Conectar. Se ele for iPhone, use a câmera.',
+  readIphoneTitle: 'Leia o código da outra pessoa',
+  readIphoneText:
+    'Se o outro celular for Android, toque em Aproximar do outro celular e encoste o topo do seu iPhone nas costas dele. Se for iPhone, use a câmera.',
+  readCameraOnlyTitle: 'Leia o código da outra pessoa',
+  readCameraOnlyText: 'Aponte a câmera para o código na tela da outra pessoa.',
+  nfcTap: 'Aproximar do outro celular',
+  useCamera: 'Usar a câmera',
+  // A leitura por NFC que falhou no meio (a tag saiu do campo, ou não era do Sussurro).
+  nfcReadFailed: 'Não deu para ler o código. Tente de novo ou use a câmera.',
+  // Leitor de tela e o texto ao lado do Spinner: um código foi lido (QR ou NFC).
+  codeRead: 'Código lido',
+  // Cartão da pessoa lida (T15 a T18).
   cardCheck: 'Confira se é a pessoa que está com você.',
   connectWith: (first: string) => `Conectar com ${first}`,
   connectWithLabel: (name: string, handle: string) => `Conectar com ${name}, @${handle}`,
   cancel: 'Cancelar',
   alreadyConnected: 'Vocês já estão conectados.',
-  // T46 (aprovado pelo PO em 2026-10-30): o prazo da denúncia, só no formulário aberto pelo cartão
-  // 11, 14 ou 22. Nunca no 12, no Bloqueado (quem bloqueou denuncia sem prazo, R1-PO-1) nem na rota
-  // `/denunciar` (ux.md §11.14 e §11.15).
-  reportDeadline: 'Envie em até 1 minuto depois do encosto.',
-  // Cartão venceu (17): T20, no Toast e no leitor de tela.
-  cardExpired: (first: string) =>
-    `O tempo para conectar com ${first} acabou. Encostem os celulares de novo.`,
-  // T47 (cartão atrasado, 21) e T48 (cartão sem Conectar, 22): no lugar do T15 e como os anúncios
-  // A7 e A8 (ux.md §11.9 e §11.15). Proposto, a aprovar pelo PO (A3-PO-2): se o PO mudar o texto,
-  // só muda aqui.
-  lateCardText: (first: string) =>
-    `O tempo para conectar acabou. Para tentar de novo, toque em Voltar e encoste o seu celular no de ${first}.`,
-  noConnectCardText: (first: string) =>
-    `Para conectar, toque em Voltar e encoste de novo o seu celular no de ${first}.`,
-  // (dev, D15) Simulações e a calibração: só no build de desenvolvimento.
+  // N20: o código lido venceu antes do "Conectar" (30 s), no lugar do T20.
+  cardExpired: (first: string) => `O código de ${first} venceu. Leia o código de novo.`,
+  // (dev, D15) Simulações: só no build de desenvolvimento.
   simulate: 'Simular um pedido recebido',
-  simulateTouch: 'Simular o outro celular encostando',
-  calibration: 'Calibração do encostar (dev)',
+  simulateNfc: 'Simular um pedido recebido por NFC',
   waitingTitle: (first: string) => `Aguardando ${first} confirmar`,
   waitingText: (first: string) =>
     `O pedido apareceu no celular de ${first}. A conexão só existe quando as duas pessoas confirmam.`,
   waitingQr: (first: string) => `${first} precisa ler este código para confirmar`,
   cancelRequest: 'Cancelar pedido',
   notConfirmedTitle: (first: string) => `${first} não confirmou`,
-  // T21: pelo encostar e pelo QR.
-  notConfirmedText: (method: 'ble' | 'qr') =>
-    method === 'ble'
-      ? 'O pedido vale por 2 minutos. Para tentar de novo, encostem os celulares outra vez.'
-      : 'O pedido vale por 2 minutos. Vocês podem tentar de novo.',
+  notConfirmedText: 'O pedido vale por 2 minutos. Vocês podem tentar de novo.',
   tryAgain: 'Tentar de novo',
   back: 'Voltar',
   connectedTitle: (first: string) => `Você e ${first} estão conectados`,
@@ -108,77 +99,49 @@ export const COPY = {
   emailTitle: 'Confirme seu e-mail para se conectar',
   emailText: 'Conectar fica disponível depois que você confirma o e-mail da sua conta.',
   verifyEmail: 'Verificar e-mail',
-  // Permissões (§4.12 e §11.9): T23 a T29. O texto da explicação é o T44 (no lugar do T23;
-  // aprovado pelo PO em 2026-10-30).
-  btExplainTitle: 'Permitir o Bluetooth',
-  btExplainText:
-    'O Sussurro usa o Bluetooth só para perceber quando o seu celular encosta no de outra pessoa. Seu nome e sua foto não passam pelo Bluetooth, e nada é transmitido com o app fechado.',
-  btExplainLegacy:
-    'Neste celular, o sistema chama essa permissão de localização. O Sussurro não usa nem guarda onde você está.',
   continue: 'Continuar',
-  btDeniedTitle: 'Bluetooth sem permissão',
-  btDeniedText: 'Para encostar os celulares, permita o Bluetooth nos Ajustes.',
   openSettings: 'Abrir Ajustes',
-  btOffTitle: 'O Bluetooth está desligado',
-  btOffText: 'Ligue o Bluetooth para encostar os celulares.',
-  turnOnBluetooth: 'Ligar Bluetooth',
-  locationOffTitle: 'Ligue a localização do celular',
-  locationOffText:
-    'Neste celular, o Android só deixa encostar com a localização ligada. O Sussurro não usa nem guarda onde você está.',
-  btUnavailableTitle: 'Este celular não consegue encostar',
-  btUnavailableText: 'Use o QR code para se conectar com quem está com você.',
-  // T30: a faixa do QR quando o celular não consegue encostar.
-  unsupportedBanner: 'Este celular não consegue encostar. Use o QR code.',
-  // QR (§4.10 e §11.6): T32 a T34.
-  qrExplain:
-    'Use quando encostar não funcionar: um celular mostra o código e o outro lê com a câmera.',
-  qrHint: 'Peça para a outra pessoa ler este código. Mostre só para quem está com você.',
-  readTheirCode: 'Ler o código da outra pessoa',
+  // Câmera (§4.12): T32 a T34.
   scannerTitle: 'Ler código',
   scannerHint: 'Aponte a câmera para o código da outra pessoa.',
+  scannerHintAccept: (first: string) => `Aponte a câmera para o código na tela de ${first}.`,
   close: 'Fechar',
   cameraExplainTitle: 'Ler o código da outra pessoa',
   cameraExplainText: 'A câmera é usada só para ler o QR code.',
   cameraDeniedTitle: 'Câmera sem permissão',
   cameraDeniedText: 'Permita a câmera nos Ajustes ou peça para a outra pessoa ler o seu código.',
+  // N28: câmera negada no aceite. Quem aceita lê o código de quem pediu (D7); sem "dele" ou "dela".
+  cameraDeniedTextAccept: (first: string) =>
+    `Para aceitar, permita a câmera nos Ajustes e leia o código na tela de ${first}.`,
   showMyCode: 'Mostrar meu código',
-  // (4b) QR vencido ou adulterado (4.7 CA4): nada é criado.
+  // (4b) Código vencido ou adulterado (4.7 CA4): nada é criado.
   qrInvalid:
     'Este código venceu ou não é do Sussurro. Peça para a outra pessoa mostrar o código de novo.',
-  // (4b) No aceite por QR, o código lido é de outra pessoa.
-  qrNotTheirs: (first: string) =>
-    `Este código não é de ${first}. Leia o código que aparece no celular de ${first}.`,
-  // Folha do pedido recebido (§4.11) e o pedido no cartão (T37). Sem artigo antes do nome ("a
-  // Helena"): o app não sabe o gênero.
+  // N22: no aceite, o código lido é de outra pessoa ou venceu (400 `PROXIMITY_TOKEN_INVALID`). Sem
+  // "dele" ou "dela": o app não sabe o gênero.
+  notTheirCode: (first: string) =>
+    `Este código não é de ${first} ou já venceu. Leia o código na tela de ${first}.`,
+  // Folha do pedido recebido (§4.11). Sem artigo antes do nome ("a Helena"): o app não sabe o gênero.
   sheetTitle: (first: string) => `${first} quer se conectar`,
   sheetConfirm: (first: string) => `Confirme só se ${first} estiver aí com você.`,
   accept: 'Aceitar',
-  acceptByQr: 'Ler código para aceitar',
+  // Depois do "Aceitar": ler o código de quem pediu (D7).
+  acceptRead: (first: string) => `Para aceitar, leia o código na tela de ${first}.`,
+  // N24: na folha, Android com NFC ligado. Quem pediu pode estar num iPhone, que não emite.
+  acceptReadNfc: (first: string) =>
+    `Ou encoste este celular no de ${first}, costas com costas. Com iPhone, só a câmera funciona.`,
   decline: 'Recusar',
   expiresIn: (countdown: string) => `Expira em ${countdown}`,
   expired: (first: string) => `O pedido de ${first} expirou.`,
   // (4b) O pedido sumiu antes de vencer (cancelado por quem pediu).
   gone: (first: string) => `O pedido de ${first} não está mais disponível.`,
-  // T35: o aceite por encostar recusado pelo servidor (o pedido continua valendo).
-  notSeen: (first: string) => `Encoste o seu celular no de ${first} e toque em Aceitar de novo.`,
-  // T45 (no lugar do T36; aprovado pelo PO em 2026-10-30): o aceite por QR recusado pelo código
-  // lido (o pedido continua valendo). Só o aceite por QR mostra este texto.
-  acceptFailed: (first: string) =>
-    `Não foi possível confirmar agora. Leia o código de ${first} de novo.`,
-  // Leitor de tela: A1 a A6 (§11.8) e os mantidos do §7.3.
-  announceApproaching: 'Quase lá. Encostem os celulares.',
-  announceConfirming: 'Encostou. Segurem mais um instante.',
-  announceTouched: (name: string) =>
-    `Encostou em ${name}. Confira se é a pessoa que está com você.`,
-  announceTouchedConnected: (name: string) => `Encostou em ${name}. Vocês já estão conectados.`,
+  // Leitor de tela (§7.3).
+  announceCard: (name: string) => `${name}. Confira se é a pessoa que está com você.`,
+  announceCardConnected: (name: string) => `${name}. Vocês já estão conectados.`,
   announceIncoming: (first: string) => `${first} quer se conectar com você.`,
-  announceNoTouch: 'Não está dando certo? Você pode usar o QR code.',
   announceSent: 'Pedido enviado',
   announceConnected: 'Vocês estão conectados',
   announceNotConfirmed: 'Pedido recusado ou expirado',
-  // T41 (opcional, só no iPhone): o uso depende do resultado do spike 4.1-B (ux.md §11.7 e §11.12).
-  nameDropNote:
-    'Se o iPhone abrir a troca de contatos, não precisa usar: o Sussurro conecta sem ela.',
   // Criador (p22).
   creatorTitle: 'Indisponível para criadores',
   creatorText: 'Contas de criador só publicam. Elas não se conectam nem seguem outras contas.',

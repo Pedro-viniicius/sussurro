@@ -1,49 +1,30 @@
 import type { RateLimitHit } from '../common/rate-limit/rate-limit.store.js';
 import {
-  type BlockSignalCounts,
-  type ClaimTouchPairInput,
-  type DeliveredOwedCard,
   MemoryProximityStore,
   type ProximityStore,
   type ProximityTokenRecord,
   type ProximityTtls,
-  type TouchClaim,
 } from '../modules/proximity/proximity.store.js';
 
 /** Nome de uma operação da porta (para derrubar só ela, `failing`). */
 export type ProximityStoreOperation = keyof ProximityStore;
 
 /**
- * Uma ida registrada em `calls`: uma operação da porta ou uma consulta do `ProximityRepository`,
- * que o `createTestApp` anota aqui: (ADR 0012, A3-1, BAIXO 1 do `seguranca`) o `findTouchPair`, a
- * consulta da política do `touches`, e o `findNearby`, a do `resolve` (QR). O `findNearby` fica na
- * lista para uma volta acidental dele ao `touches` aparecer na sequência (PROX-66).
+ * Uma ida registrada em `calls`: uma operação da porta ou o `findNearby` do `ProximityRepository`
+ * (a consulta do `resolve`), que o `createTestApp` anota aqui.
  */
-export type RecordedProximityCall = ProximityStoreOperation | 'findTouchPair' | 'findNearby';
+export type RecordedProximityCall = ProximityStoreOperation | 'findNearby';
 
 /**
  * O fake em memória da proximidade (validades sobre o relógio de teste, sem `sleep`), com três
- * interruptores de queda (PROX-21, PROX-35, PROX-54, PROX-61):
+ * interruptores de queda (PROX-21):
  * - `down = true`: toda operação falha como um Redis fora do ar;
- * - `failing`: só as operações listadas falham (ex.: `claimTouchPair`), para provar que cada passo
- *   do encostar também fecha a proximidade (503), e não só o primeiro acesso ao Redis;
+ * - `failing`: só as operações listadas falham, para provar que cada passo também fecha a
+ *   proximidade (503), e não só o primeiro acesso ao Redis;
  * - `stalling`: só as operações listadas nunca respondem (o Valkey lento); quem chama desiste no
  *   prazo de 500 ms (`withTimeout`, relógio de verdade), então cada chamada custa meio segundo.
  *
- * Toda operação da porta tem o seu override, inclusive o `countBlockSignal` (o sinal de abuso, em
- * falha aberta, PROX-55 e PROX-63) e o `hasTouchPair` (o par que o bloqueio e a denúncia pelo cartão
- * consultam em falha fechada, PROX-61 e PROX-62).
- *
- * E três registros só de leitura para os e2e:
- * - `calls` (ADR 0012, A3-1, PROX-66): cada ida, na ordem em que chegou, **antes** de qualquer
- *   queda simulada (a operação que falha também foi tentada), com as consultas do repositório
- *   (`findTouchPair` no `touches`, `findNearby` no `resolve`) na mesma lista. É o teste de tempo do
- *   R22 sem medir a rede: com token válido de outra conta, a lista é a mesma em todo caminho;
- * - `claims` (A2): o resultado de **todo** `claimTouchPair` que respondeu, na ordem, inclusive o
- *   `gone` (sem a observação do outro na janela) e o `refused` (a política recusou, A3-1). A
- *   resposta HTTP não distingue nenhum deles de propósito (PROX-46); assim o teste prova **por que**
- *   o encosto não confirmou, e que todo relato com token válido de outra conta chegou ao script;
- * - `blockSignals` (A2 rev. 1, R1-6): o resultado de cada `countBlockSignal`.
+ * E o registro `calls`: cada ida, na ordem em que chegou, **antes** de qualquer queda simulada.
  *
  * Usado nos dois modos de `TEST_DB`; o adaptador Redis tem teste próprio contra o Valkey
  * (`real-services`, PROX-56).
@@ -52,21 +33,10 @@ export class TestProximityStore extends MemoryProximityStore {
   down = false;
   readonly failing = new Set<ProximityStoreOperation>();
   readonly stalling = new Set<ProximityStoreOperation>();
-  /** (A3-1) Cada ida ao fake (e as consultas do repositório), na ordem. */
+  /** Cada ida ao fake (e o `findNearby` do repositório), na ordem. */
   readonly calls: RecordedProximityCall[] = [];
-  /** Resultado de cada `claimTouchPair` que respondeu, na ordem (os seis, `gone` e `refused` também). */
-  readonly claims: TouchClaim[] = [];
-  /**
-   * (A2 rev. 1, R1-6) Resultado de cada `countBlockSignal` que chegou ao fake, na ordem: os dois
-   * contadores depois da soma, ou `null` (sem par, ou o sentido já contado neste casamento). O
-   * bloqueio responde 204 nos dois casos, então é aqui que o teste vê se o sinal contou.
-   */
-  readonly blockSignals: (BlockSignalCounts | null)[] = [];
 
-  /**
-   * Anota uma ida que não é da porta (o `findTouchPair` ou o `findNearby` do repositório; ver
-   * `createTestApp`).
-   */
+  /** Anota uma ida que não é da porta (o `findNearby` do repositório; ver `createTestApp`). */
   noteCall(name: RecordedProximityCall): void {
     this.calls.push(name);
   }
@@ -113,66 +83,11 @@ export class TestProximityStore extends MemoryProximityStore {
     return this.outage('lockRemainingMs', () => super.lockRemainingMs(userId));
   }
 
-  override recordTouch(
-    observerId: string,
-    ownerId: string,
-    ownerTokenHash: string,
-    atMs: number,
-    windowMs: number,
-  ): Promise<boolean> {
-    return this.outage('recordTouch', () =>
-      super.recordTouch(observerId, ownerId, ownerTokenHash, atMs, windowMs),
-    );
-  }
-
-  override claimTouchPair(input: ClaimTouchPairInput): Promise<TouchClaim> {
-    return this.outage('claimTouchPair', async () => {
-      const outcome = await super.claimTouchPair(input);
-      this.claims.push(outcome);
-      return outcome;
-    });
-  }
-
-  override takeOwedCard(recipientId: string, busyMs: number): Promise<DeliveredOwedCard | null> {
-    return this.outage('takeOwedCard', () => super.takeOwedCard(recipientId, busyMs));
-  }
-
-  override markTouchPair(
-    first: string,
-    second: string,
-    ttlMs: number,
-    atMs: number,
-  ): Promise<void> {
-    return this.outage('markTouchPair', () => super.markTouchPair(first, second, ttlMs, atMs));
-  }
-
-  override hasTouchPair(first: string, second: string): Promise<boolean> {
-    return this.outage('hasTouchPair', () => super.hasTouchPair(first, second));
-  }
-
-  override countBlockSignal(
-    blockerId: string,
-    blockedId: string,
-    windowMs: number,
-  ): Promise<BlockSignalCounts | null> {
-    return this.outage('countBlockSignal', async () => {
-      const counts = await super.countBlockSignal(blockerId, blockedId, windowMs);
-      this.blockSignals.push(counts);
-      return counts;
-    });
-  }
-
-  override forgetTouchState(userId: string): Promise<void> {
-    return this.outage('forgetTouchState', () => super.forgetTouchState(userId));
-  }
-
   override clear(): void {
     super.clear();
     this.down = false;
     this.failing.clear();
     this.stalling.clear();
     this.calls.length = 0;
-    this.claims.length = 0;
-    this.blockSignals.length = 0;
   }
 }

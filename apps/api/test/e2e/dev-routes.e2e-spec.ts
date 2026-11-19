@@ -1,35 +1,24 @@
-// Rotas de desenvolvimento (D15; história 4.11; ADR 0012 §7; testes.md PROX-30 e PROX-42).
-// `POST /v1/dev/simulate-request` e `POST /v1/dev/simulate-touch` só existem com
-// NODE_ENV=development: em `test` e `production` o módulo nem é registrado.
+// Rotas de desenvolvimento (D15; história 4.11; testes.md PROX-30 e PROX-42).
+// `POST /v1/dev/simulate-request` só existe com NODE_ENV=development: em `test` e `production` o
+// módulo nem é registrado. (ADR 0013) O `POST /v1/dev/simulate-touch` saiu com o Bluetooth.
 import { connectionRequests, connections, eq, users } from '@sussurro/db';
 import { block, seedDatabase, TEST_PASSWORD_HASH } from '@sussurro/db/testing';
 import {
   ErrorResponseSchema,
   IncomingConnectionRequestsSchema,
   SimulatedConnectionRequestSchema,
-  SimulatedTouchSchema,
 } from '@sussurro/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { devModules } from '../../src/app.module.js';
 import { DevModule } from '../../src/modules/dev/dev.module.js';
 import { directUser } from '../support/auth.js';
-import {
-  acceptRequest,
-  issueToken,
-  issueTokens,
-  person,
-  parseRequest,
-  reportTouch,
-  requestConnection,
-  touchItems,
-} from '../support/proximity.js';
+import { acceptRequest, issueToken, person, parseRequest } from '../support/proximity.js';
 import { listRoutes, routeKey } from '../support/routes.js';
 import { createTestApp, type TestApp } from '../support/test-app.js';
 
 const ROUTE = 'POST /v1/dev/simulate-request';
 const TOUCH_ROUTE = 'POST /v1/dev/simulate-touch';
-const SECOND = 1_000;
 
 describe('[PROX-30] [PROX-42] fora de desenvolvimento as rotas não existem', () => {
   it('[PROX-30] devModules só inclui o DevModule com NODE_ENV=development', () => {
@@ -39,7 +28,7 @@ describe('[PROX-30] [PROX-42] fora de desenvolvimento as rotas não existem', ()
   });
 
   for (const NODE_ENV of ['production', 'test'] as const) {
-    it(`[PROX-30] [PROX-42] NODE_ENV=${NODE_ENV}: simulate-request e simulate-touch não estão registradas e respondem 404, com ou sem sessão`, async () => {
+    it(`[PROX-30] [PROX-42] NODE_ENV=${NODE_ENV}: simulate-request e simulate-touch (removida, ADR 0013) não estão registradas e respondem 404, com ou sem sessão`, async () => {
       const t = await createTestApp({
         env: {
           NODE_ENV,
@@ -88,9 +77,11 @@ describe('[4.11] simular um pedido recebido (NODE_ENV=development)', () => {
     await t.close();
   });
 
-  it('[4.11 CA1] [PROX-41] a persona do seed (@lucasf) pede conexão (ble) para a conta logada: aparece na caixa de entrada, o par fica gravado e o aceite sem token conecta; o pedido qr aceita com o qrToken devolvido', async () => {
+  it('[4.11 CA1] [PROX-41] a persona do seed (@lucasf) pede conexão (qr, o padrão) para a conta logada: aparece na caixa de entrada; o aceite exige o token devolvido (D7); o pedido nfc também', async () => {
     const me = await person(t, 'testadora');
     expect(listRoutes(t.app).map(routeKey)).toContain(ROUTE);
+    // ADR 0013: o encosto por Bluetooth saiu, nem em desenvolvimento a simulação existe.
+    expect(listRoutes(t.app).map(routeKey)).not.toContain(TOUCH_ROUTE);
     const response = await t.http
       .post('/v1/dev/simulate-request')
       .set(me.headers)
@@ -100,7 +91,7 @@ describe('[4.11] simular um pedido recebido (NODE_ENV=development)', () => {
     expect(simulated.request).toMatchObject({
       direction: 'incoming',
       status: 'pending',
-      method: 'ble',
+      method: 'qr',
       other: { handle: 'lucasf', name: 'Lucas Ferreira' },
       expiresInS: 120,
     });
@@ -108,11 +99,10 @@ describe('[4.11] simular um pedido recebido (NODE_ENV=development)', () => {
       (await t.http.get('/v1/connections/requests/incoming').set(me.headers).expect(200)).body,
     );
     expect(inbox.items.map((item) => item.id)).toEqual([simulated.request.id]);
-    const [lucas] = await t.database.db.select().from(users).where(eq(users.handle, 'lucasf'));
-    expect(await t.proximity.hasTouchPair(lucas!.id, me.user.id)).toBe(true);
 
     await issueToken(t, me);
-    const accepted = await acceptRequest(t, me, simulated.request.id);
+    await acceptRequest(t, me, simulated.request.id).expect(400);
+    const accepted = await acceptRequest(t, me, simulated.request.id, simulated.observedToken);
     expect(accepted.status).toBe(200);
     expect(parseRequest(accepted).status).toBe('accepted');
     expect(await t.database.db.select().from(connections)).toHaveLength(
@@ -120,17 +110,15 @@ describe('[4.11] simular um pedido recebido (NODE_ENV=development)', () => {
       3,
     );
 
-    // Já conectados: 409; com @tomas e QR, outro pedido (sem par), aceito com o qrToken devolvido.
+    // Já conectados: 409; com @tomas e NFC, outro pedido, aceito com o token devolvido.
     await t.http.post('/v1/dev/simulate-request').set(me.headers).send({}).expect(409);
     const qr = await t.http
       .post('/v1/dev/simulate-request')
       .set(me.headers)
-      .send({ from: '@Tomas', method: 'qr' })
+      .send({ from: '@Tomas', method: 'nfc' })
       .expect(201);
     const qrSimulated = SimulatedConnectionRequestSchema.parse(qr.body);
-    expect(qrSimulated.request).toMatchObject({ method: 'qr', other: { handle: 'tomas' } });
-    const [tomas] = await t.database.db.select().from(users).where(eq(users.handle, 'tomas'));
-    expect(await t.proximity.hasTouchPair(tomas!.id, me.user.id)).toBe(false);
+    expect(qrSimulated.request).toMatchObject({ method: 'nfc', other: { handle: 'tomas' } });
     await acceptRequest(t, me, qrSimulated.request.id).expect(400);
     const qrAccepted = await acceptRequest(
       t,
@@ -138,7 +126,7 @@ describe('[4.11] simular um pedido recebido (NODE_ENV=development)', () => {
       qrSimulated.request.id,
       qrSimulated.observedToken,
     ).expect(200);
-    expect(parseRequest(qrAccepted)).toMatchObject({ status: 'accepted', method: 'qr' });
+    expect(parseRequest(qrAccepted)).toMatchObject({ status: 'accepted', method: 'nfc' });
   });
 
   it('[4.11] persona fora da lista ou campo a mais → 400; criador → 403 (guard); com bloqueio → 409, nada gravado', async () => {
@@ -159,80 +147,6 @@ describe('[4.11] simular um pedido recebido (NODE_ENV=development)', () => {
     const before = await t.database.db.select().from(connectionRequests);
     await t.http.post('/v1/dev/simulate-request').set(me.headers).send({}).expect(409);
     expect(await t.database.db.select().from(connectionRequests)).toHaveLength(before.length);
-  });
-
-  it('[PROX-42] simulate-touch: devolve só o bleToken da persona; a conta relata em touches, recebe o cartão pelo caminho real e pode pedir por encostar; simular de novo com a mesma persona funciona (o cartão devido a ela é apagado)', async () => {
-    const me = await person(t);
-    expect(listRoutes(t.app).map(routeKey)).toContain(TOUCH_ROUTE);
-    await issueTokens(t, me);
-    const response = await t.http
-      .post('/v1/dev/simulate-touch')
-      .set(me.headers)
-      .send({ from: '@tomas' })
-      .expect(201);
-    expect(response.headers['cache-control']).toBe('no-store');
-    expect(Object.keys(response.body as object)).toEqual(['bleToken']);
-    const { bleToken } = SimulatedTouchSchema.parse(response.body);
-
-    expect(touchItems(await reportTouch(t, me, [bleToken]).expect(200))).toEqual([
-      expect.objectContaining({ token: bleToken, handle: 'tomas', alreadyConnected: false }),
-    ]);
-    const created = await requestConnection(t, me, bleToken, 'ble').expect(201);
-    expect(parseRequest(created)).toMatchObject({ method: 'ble', other: { handle: 'tomas' } });
-
-    // (A2-2 §7) A persona nunca relata: o cartão de `me` ficou devido a ela. Outra conta simula
-    // com a mesma persona logo depois e casa (a simulação apaga o cartão devido e o ocupado dela;
-    // sem isso, seria `busy` por 60 s).
-    const other = await person(t);
-    await issueTokens(t, other);
-    const again = SimulatedTouchSchema.parse(
-      (
-        await t.http
-          .post('/v1/dev/simulate-touch')
-          .set(other.headers)
-          .send({ from: '@tomas' })
-          .expect(201)
-      ).body,
-    );
-    expect(touchItems(await reportTouch(t, other, [again.bleToken]).expect(200))).toEqual([
-      expect.objectContaining({ token: again.bleToken, handle: 'tomas' }),
-    ]);
-  });
-
-  it('[PROX-42] simulate-touch respeita a janela (5 s desde a simulação, A2-2) e o bloqueio; persona fora da lista ou campo a mais → 400; criador → 403', async () => {
-    const late = await person(t);
-    await issueTokens(t, late);
-    const simulated = SimulatedTouchSchema.parse(
-      (await t.http.post('/v1/dev/simulate-touch').set(late.headers).send({}).expect(201)).body,
-    );
-    // Exatamente 5 s: a observação da persona ainda existe (vive 10 s), mas passou da janela.
-    t.clock.advance(5 * SECOND);
-    await issueTokens(t, late);
-    expect((await reportTouch(t, late, [simulated.bleToken]).expect(200)).body).toEqual({
-      items: [],
-    });
-
-    const blocker = await person(t);
-    const [lucas] = await t.database.db.select().from(users).where(eq(users.handle, 'lucasf'));
-    await block(t.database.db, blocker.user, lucas!);
-    await issueTokens(t, blocker);
-    const blocked = SimulatedTouchSchema.parse(
-      (await t.http.post('/v1/dev/simulate-touch').set(blocker.headers).send({}).expect(201)).body,
-    );
-    expect((await reportTouch(t, blocker, [blocked.bleToken]).expect(200)).body).toEqual({
-      items: [],
-    });
-
-    for (const body of [{ from: 'helena' }, { from: 'lucasf', extra: true }]) {
-      await t.http.post('/v1/dev/simulate-touch').set(late.headers).send(body).expect(400);
-    }
-    const creator = await directUser(t.app, t.database.db, { accountType: 'creator' });
-    const denied = await t.http
-      .post('/v1/dev/simulate-touch')
-      .set(creator.headers)
-      .send({})
-      .expect(403);
-    expect(ErrorResponseSchema.parse(denied.body).code).toBe('ACCOUNT_TYPE_NOT_ALLOWED');
   });
 
   it('[4.11] sem o seed, a persona não existe → 404 com a dica de rodar o seed', async () => {

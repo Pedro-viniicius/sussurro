@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Aparece nos Ajustes de NFC do Android (Pagamentos por aproximação / Outros). -->
+  <string name="sussurro_nfc_service_description">Sussurro: código de conexão</string>
+  <string name="sussurro_nfc_aid_group_description">Código de conexão do Sussurro, só com a tela Conectar aberta</string>
+</resources>

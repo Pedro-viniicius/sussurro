@@ -15,8 +15,12 @@ import { accountType, users } from './users.ts';
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' });
 
-/** Como a conexão presencial foi feita (Fase 4). */
-export const connectionMethod = pgEnum('connection_method', ['ble', 'qr']);
+/**
+ * Como a conexão presencial foi feita (Fase 4). `ble` fica só como histórico (ADR 0013): tirar um
+ * valor de enum exige recriar o tipo (migration destrutiva). Nenhuma escrita nova usa `ble`; na
+ * leitura, o servidor mostra o `ble` antigo como `nfc`.
+ */
+export const connectionMethod = pgEnum('connection_method', ['ble', 'qr', 'nfc']);
 
 /**
  * Ciclo do pedido de conexão (ADR 0003). `pending` vale até `expires_at` (120 s); a expiração é
@@ -197,5 +201,6 @@ export const blocks = pgTable(
 export type ConnectionRow = typeof connections.$inferSelect;
 export type ConnectionRequestRow = typeof connectionRequests.$inferSelect;
 export type RequestStatusValue = (typeof requestStatus.enumValues)[number];
+export type ConnectionMethodValue = (typeof connectionMethod.enumValues)[number];
 export type FollowRow = typeof follows.$inferSelect;
 export type BlockRow = typeof blocks.$inferSelect;

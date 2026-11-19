@@ -12,23 +12,29 @@ export const CONNECTION_REQUEST_TTL_S = 120;
 export const CONNECTION_POLL_INTERVAL_S = 2;
 /** Depois de uma recusa, A não consegue pedir de novo para B por 1 h (B → A continua livre, A-34). */
 export const CONNECTION_DECLINE_COOLDOWN_S = 60 * 60;
+/**
+ * Janela de moderação do pedido (ADR 0013, no lugar da exceção R1-5 do encosto): as duas pessoas de
+ * um pedido de conexão criado há até 24 h (qualquer direção, qualquer status) podem se bloquear e
+ * denunciar a conta uma da outra pelo @, mesmo sem ver o perfil. Assim quem recebe o pedido de um
+ * desconhecido (que leu o QR ou o NFC, até de longe) pode bloquear e denunciar, não só recusar.
+ * Contada a partir de `created_at` do pedido, no Postgres (sem Valkey).
+ */
+export const CONNECTION_REQUEST_MODERATION_WINDOW_S = 24 * 60 * 60;
 
 /**
- * Como a conexão foi feita (D3), gravado no pedido e na conexão (PROX-22): `ble` = encostando os
- * celulares (ADR 0012, P11; sem valor novo) ou `qr` = QR code.
+ * Como o código foi lido (D3, ADR 0013 §2), gravado no pedido e na conexão (PROX-22): `qr` = QR code
+ * ou `nfc` = encostando os celulares (NFC). As regras são as mesmas para os dois. Registros antigos
+ * com `ble` (ADR 0012, histórico no banco) saem como `nfc` nas respostas.
  */
-export const ConnectionMethodSchema = z.enum(['ble', 'qr'], {
-  error: 'Use "ble" ou "qr".',
+export const ConnectionMethodSchema = z.enum(['qr', 'nfc'], {
+  error: 'Use "qr" ou "nfc".',
 });
 export type ConnectionMethod = z.infer<typeof ConnectionMethodSchema>;
 
 /**
- * `POST /connections/requests` (A → B, e-mail confirmado, tela de A aberta). `targetToken`, pelo
- * método (ADR 0012 §4):
- * - `ble`: o `bleToken` de B devolvido no cartão do encosto (`touches`), válido ou recente (até
- *   120 s). Exige o par encostado A–B (60 s desde o casamento);
- * - `qr`: o `qrToken` lido do QR de B, válido (até 30 s).
- * Sem o par, token do outro canal, vencido ou de outra pessoa → 400 `PROXIMITY_TOKEN_INVALID`.
+ * `POST /connections/requests` (A → B, e-mail confirmado, tela de A aberta). `targetToken`: o token
+ * de B lido por QR ou NFC, válido (até 30 s); `method`: o caminho da leitura (ADR 0013 §2). Vencido,
+ * inexistente ou do próprio chamador → 400 `PROXIMITY_TOKEN_INVALID`.
  */
 export const CreateConnectionRequestSchema = z.strictObject({
   targetToken: ProximityTokenValueSchema,
@@ -37,15 +43,13 @@ export const CreateConnectionRequestSchema = z.strictObject({
 export type CreateConnectionRequest = z.infer<typeof CreateConnectionRequestSchema>;
 
 /**
- * `POST /connections/requests/:id/accept` (B, e-mail confirmado, tela aberta). `observedToken`, pelo
- * método do pedido (ADR 0012 §4):
- * - `ble`: dispensado (se vier, é ignorado). O pedido só nasce com o par encostado;
- * - `qr` (D7, QR cruzado): **obrigatório**, o `qrToken` lido do QR de A na tela "Aguardando" (até
- *   120 s). Sem ele → 400 `VALIDATION_ERROR`; do outro canal, vencido ou de outra pessoa → 400
- *   `PROXIMITY_TOKEN_INVALID`, e o pedido continua pendente.
+ * `POST /connections/requests/:id/accept` (B, e-mail confirmado, tela aberta). `observedToken` (D7,
+ * leitura cruzada; ADR 0013 §2): **obrigatório** nos dois métodos, o token de A lido por B (QR ou
+ * NFC) na tela "Aguardando" de A, até 120 s. Sem ele → 400 `VALIDATION_ERROR`; vencido ou de outra
+ * pessoa → 400 `PROXIMITY_TOKEN_INVALID`, e o pedido continua pendente.
  */
 export const AcceptConnectionRequestSchema = z.strictObject({
-  observedToken: ProximityTokenValueSchema.optional(),
+  observedToken: ProximityTokenValueSchema,
 });
 export type AcceptConnectionRequest = z.infer<typeof AcceptConnectionRequestSchema>;
 
@@ -106,8 +110,8 @@ export type IncomingConnectionRequests = z.infer<typeof IncomingConnectionReques
 
 /**
  * `POST /dev/simulate-request` (só com `NODE_ENV=development`; em produção a rota não existe):
- * uma persona do seed (`@lucasf` por padrão, ou `@tomas`) pede conexão para a conta logada. No
- * método `ble` (o padrão), o servidor também grava o par encostado da persona com a conta.
+ * uma persona do seed (`@lucasf` por padrão, ou `@tomas`) pede conexão para a conta logada, pelo
+ * método `qr` (o padrão) ou `nfc`.
  */
 export const SimulateConnectionRequestSchema = z.strictObject({
   from: z.string().min(1).max(64).optional(),
@@ -116,9 +120,8 @@ export const SimulateConnectionRequestSchema = z.strictObject({
 export type SimulateConnectionRequest = z.infer<typeof SimulateConnectionRequestSchema>;
 
 /**
- * Resposta da simulação: o pedido como a conta logada o vê e o `qrToken` válido da persona (ADR
- * 0012), que o app de desenvolvimento usa como `observedToken` no aceite de um pedido `qr` (não há
- * um segundo aparelho mostrando o QR). O aceite `ble` dispensa o token.
+ * Resposta da simulação: o pedido como a conta logada o vê e o token válido da persona, que o app de
+ * desenvolvimento usa como `observedToken` no aceite (não há um segundo aparelho mostrando o código).
  */
 export const SimulatedConnectionRequestSchema = z.object({
   request: ConnectionRequestSchema,

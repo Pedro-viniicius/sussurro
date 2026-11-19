@@ -1,13 +1,9 @@
-import { Body, Controller, Header, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import {
   type SimulateConnectionRequest,
   SimulateConnectionRequestSchema,
   type SimulatedConnectionRequest,
   SimulatedConnectionRequestSchema,
-  type SimulatedTouch,
-  SimulatedTouchSchema,
-  type SimulateTouchRequest,
-  SimulateTouchRequestSchema,
 } from '@sussurro/shared';
 
 import type { AuthContext } from '../../common/auth/auth-context.js';
@@ -26,8 +22,8 @@ export class DevController {
   constructor(private readonly connections: ConnectionsService) {}
 
   /**
-   * "Simular um pedido recebido" (4.11): uma persona do seed pede conexão para a conta logada (no
-   * `ble`, com o par encostado gravado).
+   * "Simular um pedido recebido" (4.11): uma persona do seed pede conexão para a conta logada, por
+   * `qr` (o padrão) ou `nfc`, e devolve o token dela para o aceite (D7).
    */
   @Post('simulate-request')
   @HttpCode(201)
@@ -38,21 +34,5 @@ export class DevController {
     @Body(new ZodValidationPipe(SimulateConnectionRequestSchema)) body: SimulateConnectionRequest,
   ): Promise<SimulatedConnectionRequest> {
     return this.connections.simulateIncoming(auth, body.from, body.method);
-  }
-
-  /**
-   * "Simular o outro celular encostando" (ADR 0012 §7): grava a observação de uma persona e devolve
-   * o `bleToken` dela, para o app relatar em `POST /proximity/touches` com um aparelho só.
-   */
-  @Post('simulate-touch')
-  @HttpCode(201)
-  @RequireAccountType('personal')
-  @Header('Cache-Control', 'no-store')
-  @ResponseSchema(SimulatedTouchSchema)
-  simulateTouch(
-    @CurrentAuth() auth: AuthContext,
-    @Body(new ZodValidationPipe(SimulateTouchRequestSchema)) body: SimulateTouchRequest,
-  ): Promise<SimulatedTouch> {
-    return this.connections.simulateTouch(auth, body.from);
   }
 }

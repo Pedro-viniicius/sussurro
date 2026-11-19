@@ -10,20 +10,21 @@ export interface QrScannerProps {
   busy: boolean;
   onRead: (data: string) => void;
   onClose: () => void;
-  /** "Mostrar meu código" com a câmera negada. */
-  onShowMyCode: () => void;
   /**
-   * `false`: a câmera está saindo porque o cartão de quem encostou chegou (ux.md §11.15). O `Modal`
-   * fica montado até o `onDismiss` do iOS, para o foco do cartão esperar por ele.
+   * "Mostrar meu código" com a câmera negada. Sem ele (no aceite, ux.md §11.19, S7), a ação some e
+   * ficam só "Abrir Ajustes" e o ✕.
    */
-  visible?: boolean | undefined;
-  /** O `Modal` saiu da tela (iOS). */
-  onDismiss?: (() => void) | undefined;
+  onShowMyCode?: (() => void) | undefined;
+  /** A dica sobre a câmera (no aceite, o nome de quem pediu). */
+  hint?: string | undefined;
+  /** O texto da câmera negada (no aceite, a N28 do ux.md §11.19). Padrão: `cameraDeniedText`. */
+  deniedText?: string | undefined;
 }
 
 /**
  * Leitura do QR com a câmera (4.7, `expo-camera`), em tela cheia por cima da tela Conectar (que
- * continua aberta no servidor). Só lê QR codes; nada é fotografado nem gravado. Antes do pedido do
+ * continua aberta no servidor): para pedir (o código da outra pessoa) ou para aceitar (o de quem
+ * pediu, D7). Só lê QR codes; nada é fotografado nem gravado. Antes do pedido do
  * sistema, a explicação do ux.md §4.12; negada, "Câmera sem permissão" (4.7 CA5).
  */
 export function QrScanner({
@@ -32,8 +33,8 @@ export function QrScanner({
   onRead,
   onClose,
   onShowMyCode,
-  visible = true,
-  onDismiss,
+  hint = COPY.scannerHint,
+  deniedText = COPY.cameraDeniedText,
 }: QrScannerProps) {
   const [permission, requestPermission] = useCameraPermissions();
   const insets = useSafeAreaInsets();
@@ -69,9 +70,16 @@ export function QrScanner({
         <View style={styles.overlay} pointerEvents="none">
           <View style={styles.frame} />
           <Text variant="bodyStrong" color="white" align="center" style={styles.hint}>
-            {COPY.scannerHint}
+            {hint}
           </Text>
-          {busy ? <ActivityIndicator color={theme.colors.white} /> : null}
+          {busy ? (
+            <View style={styles.row} accessibilityLiveRegion="polite">
+              <ActivityIndicator color={theme.colors.white} />
+              <Text variant="bodySm" color="white">
+                {COPY.codeRead}
+              </Text>
+            </View>
+          ) : null}
           {error === null ? null : (
             <View style={styles.errorChip} accessibilityLiveRegion="polite">
               <Text variant="bodySm" color="white" align="center" testID="qr-erro">
@@ -97,9 +105,11 @@ export function QrScanner({
       <EmptyState
         icon="camera"
         title={COPY.cameraDeniedTitle}
-        description={COPY.cameraDeniedText}
+        description={deniedText}
         primaryAction={{ label: COPY.openSettings, onPress: openSettings }}
-        secondaryAction={{ label: COPY.showMyCode, onPress: onShowMyCode }}
+        {...(onShowMyCode === undefined
+          ? {}
+          : { secondaryAction: { label: COPY.showMyCode, onPress: onShowMyCode } })}
         testID="camera-negada"
       />
     );
@@ -107,11 +117,10 @@ export function QrScanner({
 
   return (
     <Modal
-      visible={visible}
+      visible
       animationType={reduceMotion ? 'none' : 'slide'}
       presentationStyle="fullScreen"
       onRequestClose={onClose}
-      {...(onDismiss === undefined ? {} : { onDismiss })}
       testID="conectar-camera"
     >
       <View
@@ -174,6 +183,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.white,
   },
   hint: { maxWidth: 300 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: theme.space[8] },
   errorChip: {
     maxWidth: 320,
     paddingHorizontal: theme.space[12],

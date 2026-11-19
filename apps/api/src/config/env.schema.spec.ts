@@ -157,71 +157,8 @@ describe('loadApiEnv', () => {
     );
   });
 
-  it('[PROX-47] ADR 0012 e A2: janela do encosto (5 s) e par (60 s) com padrão; par + token ≤ recente; janela ≤ token; janela + 2 ≤ 8 (o relato do app)', () => {
-    expect(loadApiEnv(base)).toMatchObject({ PROX_TOUCH_WINDOW_S: 5, PROX_TOUCH_PAIR_TTL_S: 60 });
-    expect(
-      loadApiEnv({ ...base, PROX_TOUCH_WINDOW_S: '3', PROX_TOUCH_PAIR_TTL_S: '90' }),
-    ).toMatchObject({ PROX_TOUCH_WINDOW_S: 3, PROX_TOUCH_PAIR_TTL_S: 90 });
-    expect(loadApiEnv({ ...base, PROX_TOUCH_WINDOW_S: '' }).PROX_TOUCH_WINDOW_S).toBe(5);
-    // 90 + 30 = 120: no limite, sobe.
-    expect(loadApiEnv({ ...base, PROX_TOUCH_PAIR_TTL_S: '90' }).PROX_TOUCH_PAIR_TTL_S).toBe(90);
-    // 91 + 30 > 120: o token do casamento venceria durante o par.
-    expect(() => loadApiEnv({ ...base, PROX_TOUCH_PAIR_TTL_S: '91' })).toThrow(
-      /PROX_TOUCH_PAIR_TTL_S: PROX_TOUCH_PAIR_TTL_S \+ PROX_TOKEN_TTL_S/,
-    );
-    expect(() => loadApiEnv({ ...base, PROX_TOKEN_TTL_S: '40', PROX_RECENT_TTL_S: '90' })).toThrow(
-      /PROX_TOUCH_PAIR_TTL_S/,
-    );
-    // Janela igual à validade do token: sobe; maior: não.
-    expect(
-      loadApiEnv({ ...base, PROX_TOKEN_TTL_S: '5', PROX_TOUCH_WINDOW_S: '5' }).PROX_TOUCH_WINDOW_S,
-    ).toBe(5);
-    expect(() => loadApiEnv({ ...base, PROX_TOKEN_TTL_S: '5', PROX_TOUCH_WINDOW_S: '6' })).toThrow(
-      /PROX_TOUCH_WINDOW_S: precisa ser menor ou igual a PROX_TOKEN_TTL_S/,
-    );
-    // A2-2: 6 + 2 = 8 sobe; 7 + 2 > 8 não (o app relata por 8 s).
-    expect(loadApiEnv({ ...base, PROX_TOUCH_WINDOW_S: '6' }).PROX_TOUCH_WINDOW_S).toBe(6);
-    expect(() => loadApiEnv({ ...base, PROX_TOUCH_WINDOW_S: '7' })).toThrow(
-      /PROX_TOUCH_WINDOW_S: PROX_TOUCH_WINDOW_S \+ 2 precisa ser menor ou igual a 8/,
-    );
-    expect(() => loadApiEnv({ ...base, PROX_TOUCH_WINDOW_S: '10' })).toThrow(
-      /PROX_TOUCH_WINDOW_S \+ 2/,
-    );
-    for (const invalid of ['0', '-1', 'abc', '1.5']) {
-      expect(() => loadApiEnv({ ...base, PROX_TOUCH_WINDOW_S: invalid })).toThrow(
-        /PROX_TOUCH_WINDOW_S/,
-      );
-      expect(() => loadApiEnv({ ...base, PROX_TOUCH_PAIR_TTL_S: invalid })).toThrow(
-        /PROX_TOUCH_PAIR_TTL_S/,
-      );
-    }
-  });
-
-  it('[PROX-47] A2-1: teto de pessoas novas 10/h e 30/dia por padrão; vazio = padrão; inteiro ≥ 1; PER_DAY ≥ PER_HOUR', () => {
-    expect(loadApiEnv(base)).toMatchObject({
-      PROX_TOUCH_PAIRS_PER_HOUR: 10,
-      PROX_TOUCH_PAIRS_PER_DAY: 30,
-    });
-    expect(
-      loadApiEnv({ ...base, PROX_TOUCH_PAIRS_PER_HOUR: '', PROX_TOUCH_PAIRS_PER_DAY: '' }),
-    ).toMatchObject({ PROX_TOUCH_PAIRS_PER_HOUR: 10, PROX_TOUCH_PAIRS_PER_DAY: 30 });
-    expect(
-      loadApiEnv({ ...base, PROX_TOUCH_PAIRS_PER_HOUR: '20', PROX_TOUCH_PAIRS_PER_DAY: '20' }),
-    ).toMatchObject({ PROX_TOUCH_PAIRS_PER_HOUR: 20, PROX_TOUCH_PAIRS_PER_DAY: 20 });
-    expect(() =>
-      loadApiEnv({ ...base, PROX_TOUCH_PAIRS_PER_HOUR: '20', PROX_TOUCH_PAIRS_PER_DAY: '19' }),
-    ).toThrow(/PROX_TOUCH_PAIRS_PER_DAY: precisa ser maior ou igual a PROX_TOUCH_PAIRS_PER_HOUR/);
-    // Só a hora acima do padrão do dia (30) já impede a subida.
-    expect(() => loadApiEnv({ ...base, PROX_TOUCH_PAIRS_PER_HOUR: '31' })).toThrow(
-      /PROX_TOUCH_PAIRS_PER_DAY/,
-    );
-    for (const invalid of ['0', '-1', 'abc', '1.5']) {
-      expect(() => loadApiEnv({ ...base, PROX_TOUCH_PAIRS_PER_HOUR: invalid })).toThrow(
-        /PROX_TOUCH_PAIRS_PER_HOUR/,
-      );
-      expect(() => loadApiEnv({ ...base, PROX_TOUCH_PAIRS_PER_DAY: invalid })).toThrow(
-        /PROX_TOUCH_PAIRS_PER_DAY/,
-      );
-    }
+  it('[PROX-47] ADR 0013: os env do encosto (PROX_TOUCH_*) saíram e não entram no env carregado', () => {
+    const env = loadApiEnv({ ...base, PROX_TOUCH_WINDOW_S: '5', PROX_TOUCH_PAIR_TTL_S: '60' });
+    expect(Object.keys(env).filter((name) => name.startsWith('PROX_TOUCH'))).toEqual([]);
   });
 });

@@ -279,13 +279,14 @@ jobs:
     timeout-minutes: 5
     outputs:
       images: ${{ steps.diff.outputs.images }}
+      native: ${{ steps.diff.outputs.native }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # O merge commit do PR (refs/pull/N/merge) e os pais: HEAD^1 é a ponta da main.
           fetch-depth: 2
           persist-credentials: false
-      - name: Arquivos do PR que afetam as imagens
+      - name: Arquivos do PR que afetam as imagens e a parte nativa do app
         id: diff
         run: |
           # quotepath=off: caminho com acento sai como está, sem aspas, e casa com os padrões.
@@ -305,6 +306,16 @@ jobs:
             esac
           done <<< "$arquivos"
           echo "images=$images" | tee -a "$GITHUB_OUTPUT"
+          # Job "native": o módulo nativo, o que entra no prebuild do Android e o próprio job.
+          native=false
+          while IFS= read -r f; do
+            case "$f" in
+              apps/mobile/modules/* | apps/mobile/app.config.ts | apps/mobile/package.json) native=true ;;
+              package.json | pnpm-lock.yaml | pnpm-workspace.yaml) native=true ;;
+              scripts/check-android-manifest.mjs | .github/workflows/ci.yml) native=true ;;
+            esac
+          done <<< "$arquivos"
+          echo "native=$native" | tee -a "$GITHUB_OUTPUT"
 
   # B5 (7.6 CA; runbook, passo 4): as imagens de produção, construídas e testadas em ARM64 nativo,
   # a arquitetura do Fargate (Graviton). O ubuntu-24.04-arm é runner "standard" também em
@@ -456,6 +467,70 @@ jobs:
             echo "::endgroup::"
           done
           docker compose logs --no-color || true
+
+  # Fase 4e (ADR 0013): a parte nativa do Android, que nenhum outro job compila. Prebuild (CNG) da
+  # variante de produção, testes de JVM do módulo NFC (NFC-10 a 17, SussurroNfcProtocolTest) e o
+  # manifesto final de release, conferido pela lista de permitidas do
+  # scripts/check-android-manifest.mjs (a mesma da tabela do docs/deploy/lojas.md). Aqui o Gradle baixa as dependências do Maven, o que a
+  # máquina de desenvolvimento não faz. Sem assinatura, sem bundle JS e sem segredos: não gera AAB.
+  # O Swift continua fora (precisaria de runner macOS; o binário sai pelo EAS).
+  native:
+    name: native (Kotlin NFC-10 a 17 e manifesto de release)
+    needs: changes
+    if: >-
+      !cancelled() && github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.native != 'false')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # android/ é gerado (CNG, no .gitignore). Variante de produção: sem as exceções de rede do dev
+      # build, como o AAB enviado às lojas.
+      - name: Prebuild do Android (variante production)
+        working-directory: apps/mobile
+        env:
+          APP_VARIANT: production
+        run: pnpm exec expo prebuild --platform android --no-install --clean
+      # O gradle-wrapper.jar vem do template do prebuild: confere o checksum contra os publicados.
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      # Depois do prebuild: o cache do Gradle é indexado pelos arquivos gerados.
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            apps/mobile/android/**/*.gradle*
+            apps/mobile/android/gradle/wrapper/gradle-wrapper.properties
+            apps/mobile/modules/*/android/build.gradle
+      # processReleaseManifest: o manifesto final, depois do ajuste de maxSdkVersion do Expo
+      # (expoReleaseOverrideMaxSdkConflicts). O processReleaseMainManifest é anterior a ele.
+      - name: Testes Kotlin (NFC-10 a 17) e manifesto final de release
+        working-directory: apps/mobile/android
+        run: ./gradlew --no-daemon :sussurro-proximity:testDebugUnitTest :app:processReleaseManifest
+      - name: Permissões do manifesto final de release (lista de permitidas, lojas.md)
+        run: >-
+          node scripts/check-android-manifest.mjs
+          apps/mobile/android/app/build/intermediates/merged_manifests/release/processReleaseManifest/AndroidManifest.xml
+      - name: Publica os relatórios e o manifesto (artefato android-native)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-native
+          path: |
+            apps/mobile/modules/sussurro-proximity/android/build/reports/tests/
+            apps/mobile/android/app/build/intermediates/merged_manifests/release/
+            apps/mobile/android/app/build/outputs/logs/
+          if-no-files-found: warn
+          retention-days: 7
 
   audit:
     name: audit (dependências de produção)

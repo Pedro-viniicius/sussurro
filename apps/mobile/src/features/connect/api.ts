@@ -9,63 +9,42 @@ import {
   ProximityResolveResultSchema,
   type ProximityToken,
   ProximityTokenSchema,
-  type ProximityTouchResult,
-  ProximityTouchResultSchema,
   type SimulatedConnectionRequest,
   SimulatedConnectionRequestSchema,
-  type SimulatedTouch,
-  SimulatedTouchSchema,
 } from '@sussurro/shared';
 
 import type { ApiClient } from '../../lib/api/client';
 
 /**
  * Rotas da conexão presencial (contrato em packages/shared: proximity.ts e connections.ts; ADR
- * 0012). Todas só de conta pessoal e sem cache. O RSSI, a potência e o modelo do aparelho nunca
- * vão para o servidor: o `touches` recebe só o token encostado (PROX-43).
+ * 0013). Todas só de conta pessoal e sem cache. Nada do aparelho vai para o servidor: só o token lido.
  */
 
 const idPath = (id: string) => encodeURIComponent(id);
 
 /**
- * `POST /proximity/tokens`: os dois tokens da emissão (30 s) e a marca de "tela Conectar aberta".
- * O `bleToken` só vai no anúncio; o `qrToken` só no QR (ADR 0012 §1).
+ * `POST /proximity/tokens`: o token da emissão (30 s), o mesmo no QR e no NFC (ADR 0013 §1), e a
+ * marca de "tela Conectar aberta".
  */
-export function issueProximityTokens(api: ApiClient): Promise<ProximityToken> {
+export function issueProximityToken(api: ApiClient): Promise<ProximityToken> {
   return api.request('/v1/proximity/tokens', { method: 'POST', schema: ProximityTokenSchema });
 }
 
-/**
- * `POST /proximity/touches` com **um** token: o `bleToken` encostado de menor perda (P8). O cartão
- * só volta com o encosto mútuo (ADR 0012 §3). Nada além do token vai no corpo. É a única chamada com
- * prazo (`timeoutMs`, o `reportTimeoutMs` de 4 s; A3-3 item 1): uma conexão que trava prenderia o
- * relato em voo, e o portão do relato é do processo inteiro.
- */
-export function reportTouch(
+/** `POST /proximity/resolve` com o token lido (QR, NFC ou deep link). */
+export function resolveProximityToken(
   api: ApiClient,
-  bleToken: string,
-  timeoutMs: number,
-): Promise<ProximityTouchResult> {
-  return api.request('/v1/proximity/touches', {
-    method: 'POST',
-    body: { tokens: [bleToken] },
-    schema: ProximityTouchResultSchema,
-    timeoutMs,
-  });
-}
-
-/** `POST /proximity/resolve` com o `qrToken` lido de um QR (o `resolve` só serve ao QR). */
-export function resolveQrToken(api: ApiClient, qrToken: string): Promise<ProximityResolveResult> {
+  token: string,
+): Promise<ProximityResolveResult> {
   return api.request('/v1/proximity/resolve', {
     method: 'POST',
-    body: { tokens: [qrToken] },
+    body: { tokens: [token] },
     schema: ProximityResolveResultSchema,
   });
 }
 
 /**
- * `POST /connections/requests`: A pede a B. Encostando (`ble`), com o `bleToken` de B devolvido no
- * cartão; pelo QR, com o `qrToken` lido do QR de B.
+ * `POST /connections/requests`: A pede a B, com o token de B lido e o caminho da leitura (`qr` ou
+ * `nfc`, ADR 0013 §2).
  */
 export function createConnectionRequest(
   api: ApiClient,
@@ -94,17 +73,17 @@ export function fetchConnectionRequest(api: ApiClient, id: string): Promise<Conn
 }
 
 /**
- * `POST .../:id/accept`. Pedido por encostar (`ble`): corpo vazio (o par encostado já prova o
- * encontro). Pedido por QR (D7): o `qrToken` lido do QR de quem pediu.
+ * `POST .../:id/accept` (D7, ADR 0013 §2): sempre com o token de quem pediu, lido por QR ou NFC na
+ * tela "Aguardando" dele.
  */
 export function acceptConnectionRequest(
   api: ApiClient,
   id: string,
-  observedToken?: string,
+  observedToken: string,
 ): Promise<ConnectionRequest> {
   return api.request(`/v1/connections/requests/${idPath(id)}/accept`, {
     method: 'POST',
-    body: observedToken === undefined ? {} : { observedToken },
+    body: { observedToken },
     schema: ConnectionRequestSchema,
   });
 }
@@ -133,25 +112,17 @@ export function removeConnection(api: ApiClient, handle: string): Promise<undefi
   });
 }
 
-/** `POST /dev/simulate-request` (só existe com `NODE_ENV=development`, 4.11). */
-export function simulateIncomingRequest(api: ApiClient): Promise<SimulatedConnectionRequest> {
+/**
+ * `POST /dev/simulate-request` (só existe com `NODE_ENV=development`, 4.11): uma persona pede
+ * conexão pelo método escolhido e a rota devolve o token dela, que faz as vezes da leitura no aceite.
+ */
+export function simulateIncomingRequest(
+  api: ApiClient,
+  method: ConnectionMethod,
+): Promise<SimulatedConnectionRequest> {
   return api.request('/v1/dev/simulate-request', {
     method: 'POST',
-    body: {},
+    body: { method },
     schema: SimulatedConnectionRequestSchema,
-  });
-}
-
-/**
- * `POST /dev/simulate-touch` (só com `NODE_ENV=development`, ADR 0012 §7): uma persona "encosta"
- * na conta logada e a rota devolve o `bleToken` dela, que o app relata em `touches` na hora. O
- * servidor só casa se o relato chegar dentro da janela (`PROXIMITY_TOUCH_WINDOW_S`, 5 s), contada da
- * observação que a simulação grava e sem renovar (A2-2).
- */
-export function simulateTouch(api: ApiClient): Promise<SimulatedTouch> {
-  return api.request('/v1/dev/simulate-touch', {
-    method: 'POST',
-    body: {},
-    schema: SimulatedTouchSchema,
   });
 }

@@ -12,10 +12,9 @@ import { MediaModule } from '../media/media.module.js';
 import { PoliciesModule } from '../policies/policies.module.js';
 
 /**
- * Proximidade (arquitetura.md §5 e §11; ADR 0012): emissão e rotação dos dois tokens (BLE e QR) no
- * Redis, o relato do encosto com a observação mútua (`touches`), o `resolve` do QR e a validação
- * dos tokens (com o canal) e do par encostado para o módulo `connections`. Não grava no Postgres.
- * Todas as rotas são só de conta pessoal (PERM-05 confere).
+ * Proximidade (arquitetura.md §5 e §11; ADR 0013): emissão e rotação do token (o mesmo no QR e no
+ * NFC) no Redis, o `resolve` do código lido e a validação dos tokens para o módulo `connections`.
+ * Não grava no Postgres. Todas as rotas são só de conta pessoal (PERM-05 confere).
  */
 @Module({
   imports: [PoliciesModule, MediaModule],

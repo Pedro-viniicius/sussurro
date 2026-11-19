@@ -8,15 +8,10 @@ import type { DomainError } from '../../common/errors/domain-error.js';
 import type { RateLimiterService } from '../../common/rate-limit/rate-limiter.service.js';
 import { FakeClock } from '../../testing/fake-clock.js';
 import type { CommentsService } from '../comments/comments.service.js';
+import type { ConnectionsRepository } from '../connections/connections.repository.js';
 import type { NotificationsService } from '../notifications/notifications.service.js';
 import { AccessPolicyService } from '../policies/access-policy.service.js';
 import type { RelationsRepository } from '../policies/relations.repository.js';
-import {
-  type ProximityAbuseFlag,
-  type ProximityService,
-  proximityUnavailable,
-} from '../proximity/proximity.service.js';
-import type { ModerationSignalsService } from '../reports/moderation-signals.service.js';
 import type { UsersService } from '../users/users.service.js';
 
 const M = '01a189e0-af57-7000-85fe-2054e618fe0a';
@@ -37,20 +32,15 @@ const ACCOUNTS: Record<string, { id: string; accountType: 'personal' | 'creator'
 };
 
 /**
- * O bloqueio com o banco dublado, registrando a ordem: transação, depois o sinal (A2-3). A política
- * é a de verdade, sobre relações dubladas (`connected`/`blocked`); o par vivo vem de
- * `proximity.hasLiveTouchPair` (A2 rev. 1, R1-5).
+ * O bloqueio com o banco dublado. A política é a de verdade, sobre relações dubladas
+ * (`connected`/`blocked`). (ADR 0013) Sem par encostado nem sinal depois do encosto.
  */
-function setup(flags: ProximityAbuseFlag[] = []) {
-  const order: string[] = [];
+function setup() {
   // A trava do par (`pg_advisory_xact_lock`) roda no `execute` da transação.
   const tx = { execute: vi.fn(() => Promise.resolve({ rows: [] })) };
   const blocks = {
     db: {
-      transaction: vi.fn(async (work: (executor: typeof tx) => Promise<void>) => {
-        await work(tx);
-        order.push('commit');
-      }),
+      transaction: vi.fn((work: (executor: typeof tx) => Promise<void>) => work(tx)),
     },
     insert: vi.fn(() => Promise.resolve()),
     removeRelations: vi.fn(() => Promise.resolve()),
@@ -68,25 +58,15 @@ function setup(flags: ProximityAbuseFlag[] = []) {
   const relations = {
     relationship: vi.fn(() => Promise.resolve({ ...relation })),
   };
-  const policy = new AccessPolicyService(relations as unknown as RelationsRepository);
+  /** Sem pedido de conexão recente entre os dois (a janela de 24 h tem teste próprio na política). */
+  const connections = { hasRecentRequestBetween: vi.fn(() => Promise.resolve(false)) };
+  const policy = new AccessPolicyService(
+    relations as unknown as RelationsRepository,
+    connections as unknown as ConnectionsRepository,
+    new FakeClock(),
+  );
   const rateLimiter = { consume: vi.fn(() => Promise.resolve()) };
   const notifications = { removeBetween: vi.fn(() => Promise.resolve()) };
-  const pair = { live: false, down: false };
-  const proximity = {
-    hasLiveTouchPair: vi.fn((_viewerId: string, _otherId: string | undefined) =>
-      pair.down ? Promise.reject(proximityUnavailable()) : Promise.resolve(pair.live),
-    ),
-    noteBlockAfterTouch: vi.fn(() => {
-      order.push('sinal');
-      return Promise.resolve(flags);
-    }),
-  };
-  const moderationSignals = {
-    proximityBlockAfterTouch: vi.fn(() => {
-      order.push('moderação');
-      return Promise.resolve();
-    }),
-  };
   const service = new BlocksService(
     blocks as unknown as BlocksRepository,
     users as unknown as UsersService,
@@ -94,11 +74,9 @@ function setup(flags: ProximityAbuseFlag[] = []) {
     policy,
     rateLimiter as unknown as RateLimiterService,
     notifications as unknown as NotificationsService,
-    proximity as unknown as ProximityService,
-    moderationSignals as unknown as ModerationSignalsService,
     new FakeClock(),
   );
-  return { service, order, blocks, proximity, moderationSignals, relation, pair };
+  return { service, blocks, relation };
 }
 
 async function failure(promise: Promise<unknown>): Promise<{ status: number; body: unknown }> {
@@ -111,143 +89,56 @@ async function failure(promise: Promise<unknown>): Promise<{ status: number; bod
   return { status: 204, body: undefined };
 }
 
-describe('BlocksService: sinal de bloqueio depois do encosto (ADR 0012, A2-3)', () => {
-  it('[PROX-55] bloqueio gravado: o sinal roda depois do commit, com quem bloqueou e quem foi bloqueado', async () => {
+describe('BlocksService: bloquear pelo @ (ADR 0013: só quem a pessoa vê)', () => {
+  it('[PROX-61] alvo visível (conexão): grava o bloqueio, sem depender do Valkey', async () => {
     const t = setup();
     await t.service.block(viewer, { handle: 'ana' });
-    expect(t.blocks.insert).toHaveBeenCalledTimes(1);
-    expect(t.proximity.noteBlockAfterTouch).toHaveBeenCalledWith(V, M);
-    expect(t.order).toEqual(['commit', 'sinal']);
-    expect(t.moderationSignals.proximityBlockAfterTouch).not.toHaveBeenCalled();
-  });
-
-  it('[PROX-55] cada papel que chegou ao 3º vira um sinal para a moderação', async () => {
-    const flags: ProximityAbuseFlag[] = [
-      { userId: V, role: 'blocker' },
-      { userId: M, role: 'blocked' },
-    ];
-    const t = setup(flags);
-    await t.service.block(viewer, { handle: 'ana' });
-    expect(t.moderationSignals.proximityBlockAfterTouch.mock.calls).toEqual([
-      [flags[0]],
-      [flags[1]],
-    ]);
-    expect(t.order).toEqual(['commit', 'sinal', 'moderação', 'moderação']);
-  });
-
-  it('[PROX-55] bloqueio sem par não grava e não soma (perfil que a pessoa não vê, @ inexistente)', async () => {
-    const t = setup();
-    t.relation.connected = false;
-    await t.service.block(viewer, { handle: 'ana' });
-    await t.service.block(viewer, { handle: 'ninguem' });
-    expect(t.blocks.insert).not.toHaveBeenCalled();
-    expect(t.proximity.noteBlockAfterTouch).not.toHaveBeenCalled();
-  });
-
-  it('[PROX-55] a transação falhou: nenhum sinal (o erro do banco segue como antes)', async () => {
-    const t = setup();
-    t.blocks.insert.mockRejectedValueOnce(new Error('banco fora'));
-    await expect(t.service.block(viewer, { handle: 'ana' })).rejects.toThrow('banco fora');
-    expect(t.proximity.noteBlockAfterTouch).not.toHaveBeenCalled();
-  });
-});
-
-describe('BlocksService: bloquear pelo cartão do encosto (ADR 0012, A2 rev. 1, R1-5)', () => {
-  it('[PROX-61] desconhecidos com par vivo: grava (e o sinal soma), consultando o par com o id do alvo', async () => {
-    const t = setup();
-    t.relation.connected = false;
-    t.pair.live = true;
-    await t.service.block(viewer, { handle: 'ana' });
-    expect(t.proximity.hasLiveTouchPair).toHaveBeenCalledWith(V, M);
     expect(t.blocks.insert).toHaveBeenCalledWith(expect.anything(), V, M, expect.any(Date));
-    expect(t.proximity.noteBlockAfterTouch).toHaveBeenCalledWith(V, M);
   });
 
-  it('[PROX-61] também quando o outro já bloqueou quem chama (o perfil não é visível)', async () => {
-    const t = setup();
-    t.relation.blocked = true;
-    t.pair.live = true;
-    await t.service.block(viewer, { handle: 'ana' });
-    expect(t.blocks.insert).toHaveBeenCalledTimes(1);
-  });
-
-  it('[PROX-61] sem par (sem encosto ou depois dos 60 s): 204 sem gravar, como o A-05', async () => {
+  it('[PROX-61] desconhecido, ou quem já bloqueou quem chama: 204 sem gravar, como o A-05', async () => {
     const t = setup();
     t.relation.connected = false;
     await expect(t.service.block(viewer, { handle: 'ana' })).resolves.toBeUndefined();
-    expect(t.proximity.hasLiveTouchPair).toHaveBeenCalledWith(V, M);
+    t.relation.blocked = true;
+    await expect(t.service.block(viewer, { handle: 'ana' })).resolves.toBeUndefined();
     expect(t.blocks.insert).not.toHaveBeenCalled();
   });
 
-  it('[PROX-61] @ inexistente, excluído ou inválido: consulta o par mesmo assim (sem conta) e não grava, mesmo que a consulta dissesse que sim', async () => {
+  it('[PROX-61] @ inexistente, excluído ou inválido: 204 sem gravar', async () => {
     const t = setup();
-    t.pair.live = true;
     for (const handle of ['ninguem', 'excluida', 'Inválido!']) {
       await expect(t.service.block(viewer, { handle })).resolves.toBeUndefined();
     }
-    expect(t.proximity.hasLiveTouchPair.mock.calls).toEqual([
-      [V, undefined],
-      [V, undefined],
-      [V, undefined],
-    ]);
     expect(t.blocks.insert).not.toHaveBeenCalled();
   });
 
-  it('[PROX-61] o próprio @ → 400, sem consultar o par', async () => {
+  it('[PROX-61] o próprio @ → 400', async () => {
     const t = setup();
-    t.pair.live = true;
     const result = await failure(t.service.block(viewer, { handle: 'eu' }));
     expect(result.status).toBe(400);
     expect(result.body).toMatchObject({ code: ErrorCode.VALIDATION_ERROR });
-    expect(t.proximity.hasLiveTouchPair).not.toHaveBeenCalled();
     expect(t.blocks.insert).not.toHaveBeenCalled();
   });
 
-  it('[PROX-61] criador que a pessoa não vê, com par: 204 sem gravar (o par só vale entre contas pessoais)', async () => {
+  it('[PROX-61] criador com bloqueio (perfil não visível): 204 sem gravar', async () => {
     const t = setup();
     t.relation.blocked = true;
-    t.pair.live = true;
     await t.service.block(viewer, { handle: 'loja' });
     expect(t.blocks.insert).not.toHaveBeenCalled();
   });
 
-  it('[PROX-61] Valkey fora com alvo não visível → 503 PROXIMITY_UNAVAILABLE com o mesmo corpo para @ existente com e sem par, inexistente, excluído e inválido; nada gravado', async () => {
-    const t = setup();
-    t.relation.connected = false;
-    t.pair.down = true;
-    const answers = [];
-    for (const handle of ['ana', 'ninguem', 'excluida', 'Inválido!']) {
-      answers.push(await failure(t.service.block(viewer, { handle })));
-    }
-    t.pair.live = true;
-    answers.push(await failure(t.service.block(viewer, { handle: 'ana' })));
-    for (const answer of answers) {
-      expect(answer).toEqual({
-        status: 503,
-        body: {
-          code: ErrorCode.PROXIMITY_UNAVAILABLE,
-          message: 'Conectar está indisponível agora. Tente de novo em instantes.',
-        },
-      });
-    }
-    expect(t.blocks.insert).not.toHaveBeenCalled();
-    expect(t.proximity.noteBlockAfterTouch).not.toHaveBeenCalled();
-  });
-
-  it('[PROX-61] alvo visível (conexão) com o Valkey fora → grava, sem consultar o par', async () => {
-    const t = setup();
-    t.pair.down = true;
-    await t.service.block(viewer, { handle: 'ana' });
-    expect(t.proximity.hasLiveTouchPair).not.toHaveBeenCalled();
-    expect(t.blocks.insert).toHaveBeenCalledTimes(1);
-  });
-
-  it('[PROX-61] o bloqueio pelo commentId não muda: não consulta o par', async () => {
+  it('[PROX-61] pelo commentId: grava só o autor de um comentário visível', async () => {
     const t = setup();
     t.relation.connected = false;
     await t.service.block(viewer, { commentId: 'c1' });
     await t.service.block(viewer, { commentId: 'c2' });
-    expect(t.proximity.hasLiveTouchPair).not.toHaveBeenCalled();
     expect(t.blocks.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('[PROX-61] a transação falhou: o erro do banco sobe', async () => {
+    const t = setup();
+    t.blocks.insert.mockRejectedValueOnce(new Error('banco fora'));
+    await expect(t.service.block(viewer, { handle: 'ana' })).rejects.toThrow('banco fora');
   });
 });
