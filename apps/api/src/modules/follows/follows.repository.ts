@@ -7,6 +7,7 @@ import {
   eq,
   follows,
   isNull,
+  qualified,
   type SQL,
   sql,
   users,
@@ -71,6 +72,9 @@ export class FollowsRepository {
    * Conta pessoal nunca entra: o filtro de tipo está na consulta, sem outra consulta para @ pessoal
    * (a resposta e o tempo são os mesmos de um @ inexistente, BUS-05). `visible` é o filtro da
    * política (X.2: sem criadores com bloqueio com o leitor).
+   *
+   * `followedByMe` usa a linha de fora com `qualified(users.id)` (`"users"."id"`), e não com
+   * `${users.id}`, que o Drizzle escreveria `"id"` na lista do `select` sem `join` (R25).
    */
   async searchCreators(
     viewerId: string,
@@ -87,7 +91,7 @@ export class FollowsRepository {
         avatarKey: users.avatarKey,
         followedByMe: sql<boolean>`exists (
           select 1 from follows f
-           where f.follower_id = ${viewerId} and f.creator_id = ${users.id})`,
+           where f.follower_id = ${viewerId} and f.creator_id = ${qualified(users.id)})`,
       })
       .from(users)
       .where(

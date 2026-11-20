@@ -38,8 +38,10 @@ function close() {
 /**
  * Denunciar publicação, comentário ou conta (X.1), na rota `/denunciar`: o formulário de sempre
  * (`ReportForm`). Depois do 202, fecha com um Toast neutro; a pessoa denunciada não é avisada. 404
- * (o conteúdo sumiu) fecha com o aviso; 429 e falha de rede mantêm o formulário para tentar de
- * novo, com o erro num Toast.
+ * (o conteúdo sumiu) fecha com o aviso; 429, 503 e falha de rede mantêm o formulário para tentar de
+ * novo, com o erro na linha do próprio formulário: a rota abre como modal nativo
+ * (`presentation: 'modal'`), e no iOS o Toast da raiz ficaria atrás dele (ux.md §11.18). Os
+ * avisos do 202 e do 404 continuam no Toast, porque a rota fecha junto e eles ficam à vista.
  */
 export function ReportScreen() {
   const params = useLocalSearchParams<Record<keyof ReportRouteParams, string>>();
@@ -65,7 +67,7 @@ export function ReportScreen() {
       ) : (
         <ReportForm
           target={target}
-          errorMode="toast"
+          errorTestID="denunciar-erro"
           onClose={close}
           onSent={() => {
             toast.show({ message: REPORT_SENT_MESSAGE, variant: 'success' });

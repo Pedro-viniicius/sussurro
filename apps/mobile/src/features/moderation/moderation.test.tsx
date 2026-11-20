@@ -1,7 +1,7 @@
 import { REPORT_REASON_LABELS, REPORT_REASONS } from '@sussurro/shared';
 import { userEvent } from '@testing-library/react-native';
 import { screen, waitFor, within } from 'expo-router/testing-library';
-import { Alert, type AlertButton } from 'react-native';
+import { AccessibilityInfo, Alert, type AlertButton } from 'react-native';
 
 import {
   COMMENT_GONE_MESSAGE,
@@ -11,6 +11,7 @@ import {
   REPORT_SENT_MESSAGE,
 } from './ReportScreen';
 import { BLOCK_MESSAGE, UNBLOCK_MESSAGE } from './useBlockAccount';
+import { OFFLINE_MESSAGE } from '../../lib/error-messages';
 import { creatorMe, personalMe } from '../../test-utils/fake-api';
 import {
   AUTHORS,
@@ -28,12 +29,16 @@ import {
 } from '../../test-utils/relation-fixtures';
 import { renderApp } from '../../test-utils/render-app';
 import { OWN_LIST_NOTE } from '../lists/OwnListScreen';
+import { PROFILE_GONE_MESSAGE } from '../relations/useFollowToggle';
 
 afterEach(() => {
   jest.restoreAllMocks();
 });
 
 const COMMENT_ID = '01a189e0-af57-7000-8000-00000000abcd';
+
+/** A data de "Contas bloqueadas", com o espaço não separável (U+00A0) entre o dia e o mês. */
+const BLOCKED_AT_LABEL = 'Bloqueio em 27 out';
 
 /** Responde ao Alert apertando o botão com este texto. */
 function answerAlerts(...texts: string[]) {
@@ -223,6 +228,14 @@ describe('Denunciar (X.1)', () => {
     expect(
       await screen.findByText('Muitas tentativas. Espere um pouco e tente de novo.'),
     ).toBeOnTheScreen();
+    // ux.md §11.18: a rota é um modal nativo, e no iOS o Toast da raiz ficaria atrás dele. O erro
+    // sai na linha do próprio formulário, anunciada uma vez.
+    expect(screen.getByTestId('denunciar-erro')).toHaveTextContent(
+      'Muitas tentativas. Espere um pouco e tente de novo.',
+    );
+    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith(
+      'Muitas tentativas. Espere um pouco e tente de novo.',
+    );
     expect(screen).toHavePathname('/denunciar');
     expect(screen.getByRole('radio', { name: 'Assédio ou bullying' })).toBeChecked();
     expect(screen.getByRole('button', { name: 'Enviar' })).toBeEnabled();
@@ -399,7 +412,7 @@ describe('Contas bloqueadas (X.2)', () => {
       expect(screen).toHavePathname('/conta/bloqueados');
     });
     expect(await screen.findByText('caio.r')).toBeOnTheScreen();
-    expect(screen.getByText('Bloqueio em 27 out')).toBeOnTheScreen();
+    expect(screen.getByText(BLOCKED_AT_LABEL)).toBeOnTheScreen();
     expect(screen.getByText(OWN_LIST_NOTE)).toBeOnTheScreen();
 
     await userEvent.press(screen.getByRole('button', { name: 'Desbloquear @caio.r' }));
@@ -412,6 +425,109 @@ describe('Contas bloqueadas (X.2)', () => {
     expect(
       await screen.findByRole('header', { name: 'Nenhuma conta bloqueada' }),
     ).toBeOnTheScreen();
+  });
+
+  it('PROX-65 (R1-PO-1; ux.md §11.18): cada linha tem o (Desbloquear) e o ⋯, nessa ordem; o ⋯ abre "Perfil de @caio.r" só com "Denunciar" e o "Cancelar", que não navega', async () => {
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: '/conta/bloqueados',
+      configure: (fake) => {
+        fake.on('GET /v1/me/blocks', {
+          status: 200,
+          body: { items: [blockedAccount()], nextCursor: null },
+        });
+      },
+    });
+    const row = await screen.findByTestId('user-row-caio.r');
+    // Ordem de leitura: a linha (o @ e a data), "Desbloquear @caio.r" e "Mais opções para @caio.r".
+    expect(within(row).getByLabelText(`@caio.r, ${BLOCKED_AT_LABEL}`)).toBeOnTheScreen();
+    expect(
+      within(row)
+        .getAllByRole('button')
+        .map((node) => String(node.props.accessibilityLabel)),
+    ).toEqual(['Desbloquear @caio.r', 'Mais opções para @caio.r']);
+    // A data quebra em até 2 linhas (o ⋯ tira espaço do texto); o @ fica em 1.
+    const date = within(row).getByText(BLOCKED_AT_LABEL);
+    expect(date.props.numberOfLines).toBe(2);
+    // ux.md §11.20, S4: o espaço não separável entre o dia e o mês. O `getByText` normaliza os
+    // espaços, então o texto cru confere o caractere.
+    expect(date.props.children).toBe(BLOCKED_AT_LABEL);
+
+    await userEvent.press(screen.getByTestId('bloqueados-mais-caio.r'));
+    expect(screen.getByRole('header', { name: 'Perfil de @caio.r' })).toBeOnTheScreen();
+    expect(menuLabels('blocked-menu')).toEqual(['Denunciar', 'Cancelar']);
+    await userEvent.press(
+      within(screen.getByTestId('blocked-menu')).getByRole('button', { name: 'Cancelar' }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByTestId('blocked-menu')).not.toBeOnTheScreen();
+    });
+    expect(screen).toHavePathname('/conta/bloqueados');
+    expect(screen.getByTestId('user-row-caio.r')).toBeOnTheScreen();
+    expect(api.callsTo('POST /v1/reports')).toHaveLength(0);
+    expect(api.callsTo('DELETE /v1/me/blocks/caio.r')).toHaveLength(0);
+  });
+
+  it('PROX-65 (R1-PO-1; ux.md §11.18): "Denunciar" no ⋯ abre /denunciar com a conta; o 202 avisa e volta à lista, com a linha', async () => {
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: '/conta/bloqueados',
+      configure: (fake) => {
+        fake.on('GET /v1/me/blocks', {
+          status: 200,
+          body: { items: [blockedAccount()], nextCursor: null },
+        });
+        fake.on('POST /v1/reports', { status: 202 });
+      },
+    });
+    await userEvent.press(await screen.findByRole('button', { name: 'Mais opções para @caio.r' }));
+    await userEvent.press(screen.getByRole('button', { name: 'Denunciar' }));
+    await waitFor(() => {
+      expect(screen).toHavePathname('/denunciar');
+    });
+    expect(screen).toHaveSearchParams({ alvo: 'conta', handle: 'caio.r' });
+    expect(
+      await screen.findByRole('header', { name: 'Por que você está denunciando @caio.r?' }),
+    ).toBeOnTheScreen();
+
+    await userEvent.press(screen.getByRole('radio', { name: 'Assédio ou bullying' }));
+    await userEvent.press(screen.getByRole('button', { name: 'Enviar' }));
+    await waitFor(() => {
+      expect(api.callsTo('POST /v1/reports')[0]?.body).toEqual({
+        target: { type: 'account', handle: 'caio.r' },
+        reason: 'harassment',
+      });
+    });
+    expect(await screen.findByText(REPORT_SENT_MESSAGE)).toBeOnTheScreen();
+    await waitFor(() => {
+      expect(screen).toHavePathname('/conta/bloqueados');
+    });
+    // A conta continua bloqueada: a linha e o ⋯ ficam.
+    expect(screen.getByTestId('user-row-caio.r')).toBeOnTheScreen();
+    expect(screen.getByTestId('bloqueados-mais-caio.r')).toBeOnTheScreen();
+  });
+
+  it('PROX-65 (R1-PO-1; ux.md §11.18): o 404 (conta excluída) avisa "Este perfil não está mais disponível." e volta à lista, com a linha até a próxima atualização', async () => {
+    await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: '/conta/bloqueados',
+      configure: (fake) => {
+        fake.on('GET /v1/me/blocks', {
+          status: 200,
+          body: { items: [blockedAccount()], nextCursor: null },
+        });
+        fake.on('POST /v1/reports', NOT_FOUND);
+      },
+    });
+    await userEvent.press(await screen.findByRole('button', { name: 'Mais opções para @caio.r' }));
+    await userEvent.press(screen.getByRole('button', { name: 'Denunciar' }));
+    await userEvent.press(await screen.findByRole('radio', { name: 'Spam ou golpe' }));
+    await userEvent.press(screen.getByRole('button', { name: 'Enviar' }));
+    expect(await screen.findByText(PROFILE_GONE_MESSAGE)).toBeOnTheScreen();
+    await waitFor(() => {
+      expect(screen).toHavePathname('/conta/bloqueados');
+    });
+    expect(screen.getByTestId('user-row-caio.r')).toBeOnTheScreen();
   });
 
   it('X.2: o criador também tem a lista de bloqueados', async () => {
@@ -427,4 +543,77 @@ describe('Contas bloqueadas (X.2)', () => {
     ).toBeOnTheScreen();
     expect(api.callsTo('GET /v1/me/blocks')).toHaveLength(1);
   });
+
+  it('PROX-65 (R1-PO-1; ux.md §11.18, "Tipo de conta"): o criador também denuncia pelo ⋯ de "Contas bloqueadas", com o mesmo formulário', async () => {
+    const { api } = await renderApp({
+      signedInAs: creatorMe(),
+      initialUrl: '/conta/bloqueados',
+      configure: (fake) => {
+        fake.on('GET /v1/me/blocks', {
+          status: 200,
+          body: { items: [blockedAccount()], nextCursor: null },
+        });
+        fake.on('POST /v1/reports', { status: 202 });
+      },
+    });
+    await userEvent.press(await screen.findByRole('button', { name: 'Mais opções para @caio.r' }));
+    expect(menuLabels('blocked-menu')).toEqual(['Denunciar', 'Cancelar']);
+    await userEvent.press(screen.getByRole('button', { name: 'Denunciar' }));
+    expect(
+      await screen.findByRole('header', { name: 'Por que você está denunciando @caio.r?' }),
+    ).toBeOnTheScreen();
+    await userEvent.press(screen.getByRole('radio', { name: 'Spam ou golpe' }));
+    await userEvent.press(screen.getByRole('button', { name: 'Enviar' }));
+    await waitFor(() => {
+      expect(api.callsTo('POST /v1/reports')[0]?.body).toEqual({
+        target: { type: 'account', handle: 'caio.r' },
+        reason: 'spam',
+      });
+    });
+    await waitFor(() => {
+      expect(screen).toHavePathname('/conta/bloqueados');
+    });
+  });
+
+  it.each([
+    [
+      '503',
+      { status: 503, body: { code: 'SERVICE_UNAVAILABLE', message: 'x' } },
+      'Algo deu errado do nosso lado. Tente de novo.',
+    ],
+    ['sem rede', null, OFFLINE_MESSAGE],
+  ] as const)(
+    'PROX-65 (R1-PO-1; ux.md §11.18): pelo ⋯ de "Contas bloqueadas", o %s no "Enviar" fica na linha de erro do formulário (a rota é um modal nativo), anunciado uma vez, sem Toast; o formulário continua com o motivo',
+    async (_case, reply, message) => {
+      const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+      await renderApp({
+        signedInAs: personalMe(),
+        initialUrl: '/conta/bloqueados',
+        configure: (fake) => {
+          fake.on('GET /v1/me/blocks', {
+            status: 200,
+            body: { items: [blockedAccount()], nextCursor: null },
+          });
+          fake.on('POST /v1/reports', () => {
+            if (reply === null) throw new Error('sem rede');
+            return reply;
+          });
+        },
+      });
+      await userEvent.press(
+        await screen.findByRole('button', { name: 'Mais opções para @caio.r' }),
+      );
+      await userEvent.press(screen.getByRole('button', { name: 'Denunciar' }));
+      await userEvent.press(await screen.findByRole('radio', { name: 'Assédio ou bullying' }));
+      announce.mockClear();
+      await userEvent.press(screen.getByRole('button', { name: 'Enviar' }));
+      expect(await screen.findByTestId('denunciar-erro')).toHaveTextContent(message);
+      // Uma vez só: a linha, sem um Toast com o mesmo texto por trás do modal.
+      expect(screen.getAllByText(message)).toHaveLength(1);
+      expect(announce.mock.calls.filter(([text]) => text === message)).toHaveLength(1);
+      expect(screen).toHavePathname('/denunciar');
+      expect(screen.getByRole('radio', { name: 'Assédio ou bullying' })).toBeChecked();
+      expect(screen.getByRole('button', { name: 'Enviar' })).toBeEnabled();
+    },
+  );
 });

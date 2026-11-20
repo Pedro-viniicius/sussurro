@@ -906,7 +906,7 @@ Regras comuns: todo componente aceita `testID`; todo elemento tocável tem `acce
 | `SegmentedControl` | Conectar (p10) | minHeight 40 (≈45 px), fundo greySoft, raio 10, padding 3; segmento ativo white + `shadow.sm` + `bodyStrong` black; inativo `bodyStrong` greyStrong; a11y: `radiogroup`/`radio` |
 | `SearchBar` | Pesquisar (p15) | minHeight 36, fundo greySoft, raio 10, `search` 18 greyStrong, placeholder "Pesquisar @criador" greyStrong, limpar `circle-x`; prefixo "@" opcional ignorado na busca |
 | `UserRow` | busca, Por perto, listas | Avatar 44/48, @ `bodyStrong`, subtítulo `bodySm` grey, ação à direita (Button sm); minHeight 64. (atualizado em 2026-10-31, §11.18) Prop opcional `subtitleLines?: 1 \| 2` (padrão 1): com 2, o subtítulo quebra em até 2 linhas, e a linha ganha `paddingVertical` 8. Usada só em "Contas bloqueadas", onde o (Desbloquear) e o ⋯ deixam pouco espaço para a data |
-| `NotificationRow` | p09/p21 | Avatar 44, texto `body` com @ em 600 e tempo inline `caption` grey, miniatura 44 raio 6 à direita; não lida: sem fundo diferente (o protótipo não diferencia), ponto azul 8 à esquerda da miniatura ← proposta, validar. (atualizado na Fase 6) Implementado assim; texto de post sem miniatura; @ tocável só com `profileVisible` (senão, 600 sem toque) e, para o leitor de tela, a ação "Abrir o perfil de @x"; seguidores com "+N" (acima de 99, "99+") e sem toque; o texto dos seguidores fica todo em `body` (o p21 põe "2 novas pessoas" em 600) |
+| `NotificationRow` | p09/p21 | Avatar 44, texto `body` com @ em 600 e tempo inline `caption` grey, miniatura 44 raio 6 à direita; não lida: sem fundo diferente (o protótipo não diferencia), ponto azul 8 à esquerda da miniatura ← proposta, validar. (atualizado na Fase 6) Implementado assim; texto de post sem miniatura; @ tocável só com `profileVisible` (senão, 600 sem toque) e, para o leitor de tela, a ação "Abrir o perfil de @x"; seguidores com "+N" (acima de 99, "99+") e sem toque; ~~o texto dos seguidores fica todo em `body` (o p21 põe "2 novas pessoas" em 600)~~. (Atualizado em 2026-10-31, PR 5, §11.20.) **Divergência do p21 resolvida:** o "N novas pessoas" vai num pedaço próprio (`count`, do `notificationTextParts` do `packages/shared`), em 600 como o @, e nunca é tocável, porque não nomeia ninguém. O resto da frase e o tempo continuam como eram, e o rótulo da linha para o leitor de tela é a frase inteira |
 | `RadioOptionList` | Cadastro (p05) | fieldset com legenda "Tipo de conta" `caption` 600 grey sobre a borda; linhas com título `bodyStrong`, descrição `bodySm` grey, rádio 22 (ativo: anel 2 blue + miolo 10 blue; inativo: anel 1,5 border); hairline entre linhas; raio 12; a11y `radiogroup` |
 | `Divider` | p01 "OU", listas | hairline `border`; variante com rótulo central |
 | `Sheet` | base de CommentsSheet e pedido recebido | 6.13 CommentsSheet |
@@ -1088,6 +1088,8 @@ Resumo: a paleta do PO **passa** para texto principal e ações (blue/white 4,83
 >
 > A sugestão S3 da §11.17 (o foco no T32 no QR) entra no mesmo PR 5 (§11.18). Os quatro itens de fidelidade do PR 6 (fora do Conectar) estão na §12.
 >
+> **(atualizado em 2026-10-31; portado para a `main` em 2026-11-19) Revisão da implementação do PR 5:** §11.20 (no commit de passagem `e3191ad` ela era a §11.19; foi renumerada porque a §11.19 da `main` é a revisão NFC + QR). Aprovado com ressalvas: "Contas bloqueadas", ~~o foco no T32,~~ a linha de erro da rota `/denunciar` e o p21 batem com a especificação. A espera pela vaga do teto de emissões (comportamento novo do `frontend`) foi aceita, com duas correções para o `frontend`. **(2026-11-19)** O foco no T32 ficou obsoleto pela ADR 0013 (o T32 e o seletor Encostar / QR code saíram; §11.19). Da §11.18 continua valendo o "Denunciar" em "Contas bloqueadas", que não depende do Conectar.
+>
 > **(atualizado em 2026-11-14) ADR 0013: o Conectar passou para NFC + QR code, sem Bluetooth.** O encostar por BLE (§11.1 a §11.18) deixou de valer na tela; o que ainda vale está listado na §11.19, com a revisão dos textos novos e a lista dos T1 a T48 e A1 a A8 que ficaram obsoletos.
 
 ### 11.1 Princípios
@@ -1191,7 +1193,7 @@ De qualquer estado, um erro de rede ou do servidor leva aos estados 18 a 20. O Q
 
 | # | Estado | Quando | O que a pessoa vê | Ações | Leitor de tela | Vibração (opcional) |
 |---|---|---|---|---|---|---|
-| 1 | Verificando | abre a aba; confere a permissão, o Bluetooth e o próprio token (no Android, a varredura começa uns 500 ms depois, P7) | título, introdução e seletor; a área do estado fica vazia, com Spinner 20 grey só depois de 300 ms | — | — | — |
+| 1 | Verificando | abre a aba; confere a permissão, o Bluetooth e o próprio token (no Android, a varredura começa uns 500 ms depois, P7). (Atualizado em 2026-10-31, PR 5, §11.20; na 4e, a espera aparece como o QR carregando.) Com o teto de emissões cheio (6 em 60 s, PROX-68), o token espera a vaga, e o Verificando dura essa espera: até uns 60 s no pior caso, sem texto. O "Tentar de novo" de 18 a 20 também passa por aqui, sem os tokens de antes (C4) | título, introdução e seletor; a área do estado fica vazia, com Spinner 20 grey só depois de 300 ms | — | — | — |
 | 2 | Explicação do Bluetooth | permissão nunca pedida | EmptyState `bluetooth` (T44; no Android ≤ 11, também o T24) | [Continuar] → pedido do sistema · ‹Usar QR code› | título e texto | — |
 | 3 | Bluetooth negado | negado, ou o sistema não pergunta mais | EmptyState `bluetooth-off` (T25) | [Abrir Ajustes] ‹Usar QR code›; na volta dos Ajustes, confere de novo | título e texto | — |
 | 4 | Bluetooth desligado | rádio desligado | EmptyState `bluetooth-off` (T26) | iOS [Abrir Ajustes] · Android [Ligar Bluetooth] · ‹Usar QR code›; ligou → Pronto sozinho, com o foco no título do Pronto (motivo `bluetooth`, §11.8) | título e texto | — |
@@ -1632,6 +1634,7 @@ O PO aprovou em 2026-10-30 todas as recomendações desta seção: as divergênc
 12. **Aviso aos 7 s** (2026-10-31, A3-3): quando não confirma, as pessoas seguram os celulares até o aviso, ou desistem antes e ficam sem saber o que houve? Medir o tempo até o QR em destaque (P9) num lugar cheio.
 13. **Cartão atrasado e cartão sem Conectar** (2026-10-31, §11.15): quem vê o 21 ou o 22 entende por que não há Conectar, e que precisa tocar em "Voltar" antes de encostar de novo? Quem vê o cartão de alguém de um encosto anterior, enquanto encosta em outra pessoa, se confunde com quem é quem?
 14. **O 17 como cartão atrasado** (2026-10-31, opcional da A3, não adotado agora; §11.15): as pessoas perdem o Toast T20 porque olhavam para outro lado e voltam ao Pronto sem saber o que houve com o cartão? Se sim, levar ao PO a troca do 17 pelo 21 no vencimento.
+15. **A espera pela vaga do teto de emissões** (2026-10-31, PR 5, §11.20; desde a ADR 0013, só o QR carregando): com a rede ruim e com a aba aberta e fechada várias vezes, quanto tempo o Verificando e o QR carregando chegam a durar? Se passar de uns 10 s com alguma frequência, levar ao PO um texto para o Verificando longo e o rótulo do QR carregando (S5).
 
 ### 11.13 Revisão da implementação (2026-10-30)
 
@@ -2228,6 +2231,10 @@ Revisão da branch `feat/denunciar-bloqueado` (sem commit), contra a §11.14 e a
 > **O que faltava:** a largura. Com o ⋯, a coluna do texto perde 52 pt, e, pela conta com a Inter 14, a data corta ("Bloqueio em 27 o…") nas telas de 390 pt ou menos; com o ano ("Bloqueio em 27 out 2025"), corta em todas. A conferir no catálogo e no aparelho. O resto do desenho estava completo; abaixo, com os detalhes que o `frontend` precisa.
 >
 > **Texto novo:** nenhum. **Componente novo:** nenhum. **No `packages/ui`:** só a prop opcional `subtitleLines` da `UserRow` (§6.14).
+>
+> **(atualizado em 2026-10-31) Implementado no PR 5.** A revisão está na §11.20 (era a §11.19 no `e3191ad`).
+>
+> **(2026-11-19) Depois da ADR 0013:** o "Denunciar" em "Contas bloqueadas" continua valendo. O foco no T32 ficou obsoleto (o `QrStart`, o T32 e o seletor Encostar / QR code saíram; §11.19), e, na tabela de impacto, as linhas do `QrStart` e do comentário dos T47 e T48 no `copy.ts` também.
 
 #### "Denunciar" em "Contas bloqueadas"
 
@@ -2250,10 +2257,10 @@ Revisão da branch `feat/denunciar-bloqueado` (sem commit), contra a §11.14 e a
 | (Desbloquear) | como está: `Button secondary sm`, rótulo "Desbloquear @{handle}", o `Alert` do `useUnblockAccount`; com o 204, a linha sai e aparece o Toast "Você desbloqueou @{handle}.". Fica fora do ⋯ porque é a ação principal da tela (X.2). Nunca fica desativado: nada da denúncia corre na lista |
 | ⋯ | `IconButton` `ellipsis`, área 44 × 44, à direita do (Desbloquear), em black, como em "Conexões". Rótulo "Mais opções para @{handle}", o de "Conexões". `testID` `bloqueados-mais-{handle}` |
 | A folha | `useActionSheet('blocked-menu')`, com o `element` na árvore da tela, como em `ConnectionsScreen` (`OwnListScreens.tsx:52-126`). Título "Perfil de @{handle}", o do menu ⋯ do perfil (`useModerationMenu`). Uma ação só, "Denunciar" (`REPORT_ACTION`), sem `destructive`, como no menu do perfil. Depois, o "Cancelar" de sempre |
-| "Denunciar" | `router.push(reportHref({ type: 'account', handle }))`, depois que a folha sai (o `useActionSheet` já espera o `onDismiss` no iOS). Abre a rota `/denunciar`: o modal da raiz, com o `ReportScreen` e o `ReportForm` em `errorMode="toast"`, **sem o T46** (quem bloqueou denuncia sem prazo, R1-PO-1). **Não** é o `Modal` do Conectar: aqui não há sessão a preservar, e a lista fica montada por baixo da rota |
+| "Denunciar" | `router.push(reportHref({ type: 'account', handle }))`, depois que a folha sai (o `useActionSheet` já espera o `onDismiss` no iOS). Abre a rota `/denunciar`: o modal da raiz, com o `ReportScreen` e o `ReportForm` em ~~`errorMode="toast"`~~ `errorMode="inline"` (atualizado em 2026-10-31, revisão do PR 5, §11.20: a linha de erro, pelo achado 🟡 abaixo), **sem o T46** (quem bloqueou denuncia sem prazo, R1-PO-1). **Não** é o `Modal` do Conectar: aqui não há sessão a preservar, e a lista fica montada por baixo da rota |
 | 202 | o de sempre da rota: Toast `REPORT_SENT_MESSAGE` ("Denúncia enviada. Obrigado por avisar.") e a rota fecha, de volta à lista. A linha fica, porque a conta continua bloqueada, e o ⋯ também; denunciar de novo segue as regras do servidor, como no perfil |
 | 404 (conta excluída) | o de sempre da rota: Toast `PROFILE_GONE_MESSAGE` ("Este perfil não está mais disponível.") e a rota fecha. Desde a R1-PO-1, é o único 404 possível aqui. **A linha fica até a próxima atualização da lista** (puxar ou reabrir a tela), porque a rota não devolve resultado a quem a abriu, e criar esse canal não compensa num caso raro. Nada de errado acontece: o "Desbloquear" continua funcionando (o `DELETE /me/blocks/:handle` responde 204 sempre), e o @ nunca é reutilizado (A-14), então a denúncia nunca vai para outra pessoa |
-| 429, 503, sem rede | o de sempre da rota: o formulário fica aberto, com o motivo e o texto, e o erro sai num Toast (ver o 🟡 abaixo) |
+| 429, 503, sem rede | o de sempre da rota: o formulário fica aberto, com o motivo e o texto, e o erro sai ~~num Toast (ver o 🟡 abaixo)~~ na linha de erro do formulário (`bodySm` danger, logo abaixo da pergunta, `testID` `denunciar-erro`), anunciada uma vez, sem região viva; o foco fica no "Enviar", e a linha some no envio seguinte, como o M11 do Conectar (atualizado em 2026-10-31, §11.20) |
 | Tipo de conta | vale para a pessoa e para o criador, como a tela (o `POST /v1/reports` serve aos dois) |
 | Carregando, vazio e erro | sem mudança (`OwnListScreen`) |
 
@@ -2277,9 +2284,12 @@ Revisão da branch `feat/denunciar-bloqueado` (sem commit), contra a §11.14 e a
   - A conferir no aparelho.
   - Se se confirmar, a correção é a rota usar `errorMode="inline"`, a linha de erro que já existe, sem texto novo.
   - O Tech Lead decide se entra no PR 5.
-- 🟢 **O anúncio do Toast da rota pode ser cortado pela volta do foco.** O Toast sai antes de a rota fechar (`ReportScreen.tsx:70-77`), como no caso da R2 (§11.13). Sugestão: mostrar o Toast do 202 e o do 404 com o `announceAfterMs` do `ToastProvider`. A conferir no aparelho; se o anúncio já sair inteiro, não precisa.
+  - **(atualizado em 2026-10-31) Resolvido no PR 5**, sem esperar o aparelho: a rota passou a usar `errorMode="inline"` (`ReportScreen.tsx:68-72`). Custa nada e tira o risco em toda entrada da rota (⋯ de post, de perfil, de comentário e "Contas bloqueadas"). Os Toasts do 202 e do 404 continuam, porque a rota fecha junto e eles ficam à vista (§11.20).
+- 🟢 **O anúncio do Toast da rota pode ser cortado pela volta do foco.** O Toast sai antes de a rota fechar (`ReportScreen.tsx:70-77`), como no caso da R2 (§11.13). Sugestão: mostrar o Toast do 202 e o do 404 com o `announceAfterMs` do `ToastProvider`. A conferir no aparelho; se o anúncio já sair inteiro, não precisa. (Atualizado em 2026-10-31.) **Continua aberto** depois do PR 5: hoje em `ReportScreen.tsx:73-80`.
 
 #### O foco no T32 (a S3 da §11.17)
+
+> **(2026-11-19) Obsoleto pela ADR 0013:** o `QrStart`, o T32 e o seletor Encostar / QR code saíram (§11.19). Na 4e, o foco do início vai à introdução (N1). Fica como histórico.
 
 **Confirmo, e entra neste PR.** No QR de um celular que consegue encostar, sair do 13 ("Cancelar pedido"), do 15 ("Conectar outra pessoa"), do 16 ("Tentar de novo" ou "Voltar") e dos estados 18 a 20 ("Tentar de novo") leva ao meu código (§11.15, caso 5), e o botão tocado some. O `QrStart` (`ConnectScreen.tsx:250-287`) só move o foco para a faixa T30, que só existe sem suporte. Com suporte, nada recebe o foco, e o leitor de tela fica sem posição (WCAG 2.4.3).
 
@@ -2411,6 +2421,109 @@ O T46 sai porque o formulário de denúncia agora abre pela folha do pedido, com
 1. ~~**PO:** aprovar as trocas N6, N9, N11, N12, N14, N16, N18, N20, N22 e N26 e as chaves novas N7 e N24.~~ **Aprovado e aplicado em 2026-11-14**, com a chave `turnOnNfcHint`. A N28 também foi aprovada pelo PO em 2026-11-14. O ícone da aba fica para depois do teste com usuários (decisão do PO na §11.10).
 2. **Aparelho (MAN-NFC):** conferir se dois Android **ambos** em "Mostrar meu código" se leem pelo `NDEF_DISCOVERED` do sistema. Se lerem, o N6 pode voltar a ser curto ("Ou encoste os celulares, costas com costas."). Conferir também o gesto real do iPhone (topo nas costas) e se a S2 anuncia no VoiceOver.
 3. ~~**`frontend`:** aplicar as trocas, as chaves novas e a S1 a S7. Os testes que procuram os textos antigos mudam junto (`testes`).~~ **Feito em 2026-11-14.** A N28, aprovada no mesmo dia, está sendo aplicada pelo `frontend`.
+
+### 11.20 Revisão da implementação do PR 5 (2026-10-31; portada em 2026-11-19)
+
+> **(2026-11-19) Portada do commit de passagem `e3191ad`, que nunca virou PR, para a `main` depois da ADR 0013.** No `e3191ad` esta seção era a §11.19; o número mudou porque a §11.19 da `main` é a revisão NFC + QR. Os achados C3, C4, S4, S5 e S6 continuam com o mesmo nome: as S1 a S7 da §11.19 são outras. As referências "ux.md §11.19" que vieram do `e3191ad` no código e nos testes (C3, C4, S4 e S6) passam a ser "§11.20".
+>
+> **O que vale depois da ADR 0013:**
+> - **Vale:** "Contas bloqueadas" (o ⋯ com "Denunciar" e a `UserRow.subtitleLines`), a linha de erro da rota `/denunciar`, o p21 na `NotificationRow`, o C3, o C4, a S4, a S5 (texto ainda pendente com o PO) e a S6.
+> - **Vale com outra tela:** a espera pela vaga do teto de emissões, o C3 e o C4. O Verificando (estado 1), o Pronto e o relato do encosto (`useTouch.ts`) saíram com o BLE. Na 4e há um token só, que serve ao QR e ao NFC, e a espera aparece como o QR carregando do "Mostrar meu código" (o `QRCodeCard` sem `value`). Onde o texto abaixo diz "Verificando", "Pronto" ou "T32", leia "QR carregando" e, para o foco do "Tentar de novo", a introdução (N1, `testID` `conectar-titulo`), que é para onde o início leva o foco na 4e. No C3, os chamadores do `refresh` passam a ser só o `withScreenOpen` (leitura do código pela câmera ou pelo NFC, no Conectar e no Aceitar). No C4, "os tokens de antes saem na parada" vale também para o código que o NFC emite: depois da parada, nem o QR nem o NFC mostram o código de antes (a conferir pelo `frontend` no código portado).
+> - **Obsoleto (ADR 0013):** o foco no T32 (o `QrStart`, o T32 e o seletor Encostar / QR code saíram; §11.19, tabela "T1 a T48") e o item 5 de "A conferir no aparelho". Ficam abaixo como histórico, riscados ou marcados.
+
+Revisão da branch `feat/fechamento-4d-dividas` (sem commit), contra a §11.18 e a §6.14. Li:
+- `OwnListScreens.tsx`, `app/conta/bloqueados.tsx`, a `UserRow` e o `Phase3Blocks.tsx` do catálogo;
+- no Conectar, `ConnectScreen.tsx` (o `QrStart`), `a11y.ts`, `useConnectSession.ts` (o `FOCUS_START_STATE`, o `resume` e o `withScreenOpen`), `hooks.ts`, `timing.ts` e `useTouch.ts` (o 409 no relato);
+- `ReportScreen.tsx`, `ReportForm.tsx` e `useModerationMenu.ts`;
+- a `NotificationRow`, o `notificationTextParts` do `packages/shared` e o p21.
+
+**Veredito: ⚠️ aprovado com ressalvas.** Os itens 1 a 4 batem com a especificação. O item 5, a espera pela vaga, foi aceito com duas correções 🟡 (C3 e C4), e há três sugestões 🟢. Nada bloqueia.
+
+**O que bate com a especificação**
+- **"Contas bloqueadas"** (`OwnListScreens.tsx:230-299`):
+  - o grupo (Desbloquear) + ⋯, com `gap` 8 e centralizado na vertical. O (Desbloquear) continua como estava, com o `Alert` e o Toast;
+  - o ⋯ é o `IconButton` `ellipsis`, 44 × 44 e em black, com o rótulo "Mais opções para @{handle}" e o `testID` `bloqueados-mais-{handle}`;
+  - a folha `blocked-menu` tem o título "Perfil de @{handle}", o "Denunciar" sem `destructive` e o "Cancelar", com o `element` na árvore da tela;
+  - "Denunciar" abre a rota pelo `reportHref` depois que a folha sai, sem o T46;
+  - a linha não é tocável. A ordem de leitura é a linha ("@caio.r, Bloqueio em 27 out", sem dica), depois "Desbloquear @caio.r", depois "Mais opções para @caio.r";
+  - os alvos: o `Button sm` completa os 44 com `hitSlop` só na vertical, então o espaço de 8 entre os dois alvos continua livre;
+  - o comentário do `useModerationMenu.ts:15-21` foi atualizado.
+- **`UserRow.subtitleLines`:**
+  - a prop é opcional, com padrão 1. Com 2, só o subtítulo usa `numberOfLines={2}`, a linha ganha `paddingVertical` 8, e o @ continua em 1 linha;
+  - com a data em 1 linha, a altura continua 64, porque o `minHeight` inclui o padding (22 + 2 + 20 + 16 = 60); com 2 linhas, fica em 80, como estimado (22 + 2 + 40 + 16), e o texto não encosta na linha de baixo;
+  - o catálogo tem as duas linhas, com a data curta e com a longa.
+- ~~**O foco no T32** (`ConnectScreen.tsx:254-278`), como na §11.18:~~ **(2026-11-19) Obsoleto pela ADR 0013:** o `QrStart` e o T32 saíram. Histórico:
+  - o T32 está num `View` acessível, sem role `header`, com o `testID` `conectar-qr-explicacao`, e recebe o foco com `startFocus.enabled && !unsupported`;
+  - sem suporte, continua a faixa T30; na abertura (`open`) e pelo seletor (`selector`), o foco não se move;
+  - conferi os caminhos: só o `restart` leva ao QR com suporte. O `bluetooth` e o `system` só chegam ao QR pelo `unsupported`, que tem a faixa.
+- **A rota `/denunciar` com a linha de erro** (`ReportScreen.tsx:68-81`; `ReportForm.tsx:113-116` e `:147-156`):
+  - a linha é `bodySm` danger, logo abaixo da pergunta, e fica à vista com o teclado aberto;
+  - é anunciada uma vez, sem região viva; o foco fica no "Enviar", e a linha some no envio seguinte;
+  - é o M11 do Conectar, agora em todas as entradas da rota. A §11.18 foi atualizada (o `errorMode`, a linha do 429 e o achado 🟡, resolvido).
+- **`NotificationRow` e o p21** (`NotificationRow.tsx:108-113`):
+  - o "N novas pessoas" sai em 600 (`bodyStrong`) e não é tocável; o resto da frase fica em `body`, e o tempo, em `caption` grey;
+  - o rótulo da linha é a frase inteira. Confere com o p21, e a §6.14 foi atualizada.
+- **Textos:** nenhum novo.
+
+**Item 5: a espera pela vaga do teto de emissões** (`hooks.ts`; não estava na §11)
+
+| Comportamento | Aval |
+|---|---|
+| A janela de 60 s vale para a sessão: sair da aba e ir para o segundo plano não zeram a contagem, e a conta seguinte começa com a janela vazia | ✅ Sem efeito visível. É o que mantém o app abaixo do limite do servidor, que é por conta |
+| O 1º pedido da visita, com a janela cheia (6 emissões em 60 s), espera a vaga em vez de levar o 429 | ✅ **Aceito, e é melhor que antes.** O 429 levava ao 20: "Muitas tentativas. Você poderá tentar de novo em alguns minutos." A tela culpava a pessoa por um limite que o próprio app atingiu, e o "alguns minutos" estava errado, porque a vaga abre em até 60 s. O "Tentar de novo" logo depois da parada pelo teto espera de alguns segundos a quase 30 s (no exemplo do C4, 27 s) |
+| Sem tokens (a tela acabou de montar), a tela fica no Verificando | ✅ **Aceito.** É o estado 1, que já "confere o próprio token" (§11.4, atualizada). No pior caso, com a aba aberta 7 vezes no mesmo minuto, a espera chega a uns 55 s, sem texto e sem anúncio. Aceito na v1, porque é raro e se resolve sozinho; fica para conferir (§11.12, item 15) |
+| Na espera, os tokens de antes continuam na tela (4.2 CA3) | ⚠️ **Só na volta do segundo plano.** Depois de uma parada (18 a 20), não (C4). O 4.2 CA3 pede renovar sem piscar com a tela aberta, e não pede mostrar um token vencido. Na volta do segundo plano, a tela volta no mesmo estado (4.3 CA3), e é raro a janela estar cheia nessa hora |
+| Anúncio | **Nenhum a mais.** O fim da espera já põe o foco no lugar certo. No "Tentar de novo" (`restart`), ele vai ao título do Pronto ou do EmptyState, ou ao T32 (2026-11-19: na 4e, à introdução N1 ou ao título do EmptyState). Na abertura da aba (`open`), o foco não se move (WCAG 3.2.2) |
+
+**Correções para o `frontend`**
+
+- 🟡 **C3: o `refresh` (409 "tela fechada") passa do teto e leva ao estado 20.**
+  - Onde: `apps/mobile/src/features/connect/hooks.ts:201-204` (`refresh`). Quem o chama:
+    - o `withScreenOpen` (`useConnectSession.ts:601-612`), ao resolver o QR lido, no Conectar e no Aceitar;
+    - o relato do encosto (`useTouch.ts:663-666`, `refreshScreen`).
+  - Problema: o `refresh` conta a emissão, mas não confere o teto.
+    - Na espera, a janela está cheia por definição, e o 409 é justamente o que se espera: os tokens da tela venceram ou ainda não existem.
+    - A 7ª emissão leva o 429, e a tela vai para o 20, o motivo errado que a espera quis evitar.
+    - O caminho mais provável é o QR: "Ler o código da outra pessoa" durante a espera, num celular sem suporte (que abre direto no QR) ou depois de trocar para o QR no Verificando.
+  - Correção:
+    - o `refresh` segue o teto, como o 1º pedido: com a janela cheia, espera a vaga, de preferência aproveitando a emissão que já está esperando (para não gastar duas);
+    - enquanto isso, a ação que o chamou continua no estado de carregando, como hoje enquanto a chamada não responde. Sem texto novo.
+  - Teste sugerido (o `testes` dá o ID): com a janela cheia, o 409 ao resolver o QR, no Conectar e no relato não leva à 7ª emissão nem ao estado 20, e a ação termina quando a vaga abre.
+- 🟡 **C4: o "Tentar de novo" de 18 a 20 reaproveita tokens que já venceram.**
+  - Onde: o `tokens` do `useProximityToken` (`hooks.ts:129` e `:143-199`), o `tokensReady` (`useConnectSession.ts:597-598`) e o `resume` (`:212-220`).
+  - Problema:
+    - na parada, os tokens de antes ficam guardados. No "Tentar de novo", o `tokensReady` já é verdadeiro e o Verificando termina na hora. O Pronto passa a anunciar, ou o QR a mostrar, um token que pode ter vencido durante a parada: a validade é de 30 s, e a parada vem depois de falhas;
+    - com a espera, isso pode durar uns 20 s. Exemplo: a aba aberta 4 vezes em poucos segundos (emissões aos 0, 2, 4 e 6 s) e a renovação falhando aos 26 e aos 29 s. A tela para aos 32 s, os tokens dos 6 s vencem aos 36 s, e a vaga só abre aos 60 s;
+    - nesse meio-tempo, a tela parece pronta, mas o encosto não confirma (vai para o estado 9, sem motivo visível para a pessoa). Quem lê o meu QR recebe o "Este código venceu…" e pede de novo o mesmo código.
+  - Correção:
+    - os tokens de antes saem na parada, e o "Tentar de novo" começa sem eles;
+    - no Encostar, o Verificando fica na tela até a nova emissão. No QR, o `QRCodeCard` mostra o carregando, e o T32, o T33 e o "Ler o código da outra pessoa" continuam como estão;
+    - o foco segue como hoje (`restart`). Na volta do segundo plano, sem parada, nada muda.
+  - Teste sugerido: depois da parada pelo teto, o "Tentar de novo" mostra o Verificando (no Encostar) ou o QR carregando (no QR) até a nova emissão. Depois, o Pronto aparece com o foco no título, ou o QR aparece com o código novo.
+- 🟢 **S4: a data de "Contas bloqueadas" pode quebrar no meio.**
+  - Onde: `OwnListScreens.tsx:216-218` (`blockedLabel`).
+  - Pela minha conta, a 390 pt a coluna do texto tem uns 123 pt, e "Bloqueio em 27 out" pede uns 124. A quebra provável é "Bloqueio em 27" / "out", com o dia longe do mês.
+  - Sugestão: espaço não separável (U+00A0) entre o dia, o mês e o ano, só neste rótulo, para a quebra ficar em "Bloqueio em" / "27 out". O leitor de tela lê igual.
+  - Conferir antes no catálogo, a 390 e a 360 pt. Os testes que procuram "Bloqueio em 27 out" pelo texto passam a usar o mesmo caractere (o `testes`).
+- 🟢 **S5: o QR carregando tem o rótulo do código pronto.**
+  - Onde: `packages/ui/src/components/QRCodeCard/QRCodeCard.tsx:92` e `:125-135`.
+  - Enquanto o `value` é `null`, o rótulo continua "Seu código para conectar, @{handle}", com role `image`, sobre um Spinner. Com a espera (e com o C4), o carregando pode durar dezenas de segundos, e quem usa leitor de tela pode mostrar um código que ainda não existe.
+  - Sugestão, se o Tech Lead adotar: enquanto carrega, `accessibilityState={{ busy: true }}` e o rótulo "Carregando o seu código" (texto novo, a aprovar pelo PO). Se não adotar, fica para o item 15 da §11.12.
+- 🟢 **S6:** o modo `toast` do `ReportForm` ficou sem uso, porque as duas entradas usam `inline`. O `frontend` decide se o mantém para uma entrada futura fora de um modal; o comportamento não muda.
+
+**Continua aberto da §11.18:** o 🟢 do anúncio dos Toasts do 202 e do 404 da rota, que pode ser cortado pela volta do foco.
+
+**A conferir no aparelho**
+1. "Contas bloqueadas" a 390 e a 360 pt e com a fonte grande: a data em 2 linhas, sem cortar, e o @ com reticências (S4).
+2. A volta do foco ao ⋯ da linha depois do "Cancelar" da folha e depois da rota (202, 404 e "Cancelar"), principalmente no Android (§11.18).
+3. O anúncio dos Toasts do 202 e do 404 da rota, com a volta do foco (§11.18, 🟢).
+4. A linha de erro da rota, no iOS e no Android: anunciada uma vez e à vista com o teclado aberto.
+5. ~~O foco no T32 depois de "Cancelar pedido", "Conectar outra pessoa", "Tentar de novo" (16) e "Tentar de novo" (18 a 20), no QR de um celular que consegue encostar.~~ **(2026-11-19) Obsoleto pela ADR 0013.**
+6. A espera pela vaga (§11.12, item 15).
+
+**Textos para o PO:** nenhum novo nesta revisão. Só se o Tech Lead adotar o S5: "Carregando o seu código", o rótulo do QR para o leitor de tela enquanto carrega.
+
+**(2026-11-19) Pendente com o PO:** o S5 e o texto "Carregando o seu código". O Tech Lead o levou ao PO em 2026-10-31 (README do `e3191ad`, "Fechamento do MVP"), e ainda não há decisão. Com a ADR 0013 o S5 pesa mais: o QR é agora a superfície principal do Conectar, e o QR carregando é a única forma visível da espera. Até a decisão, o `QRCodeCard` continua como está.
 
 ## 12. Fidelidade ao ux.md: os quatro itens do PR 6 (2026-10-31)
 
@@ -2576,4 +2689,19 @@ Se o PO quiser agora:
   - ponteiros na §4.9, na §5.1, na §5.3, na §6.13 (TopTabs, ReelTile e ProfileHeader), na §6.14 (a prop `subtitleLines` da `UserRow`) e na §10 (item 7).
 
   Nada foi apagado: o que mudou ficou riscado ou marcado.
+- Alterado em 2026-10-31, revisão da implementação do PR 5 (`feat/fechamento-4d-dividas`):
+  - §11.19 nova (desde 2026-11-19, §11.20): veredito ⚠️ aprovado com ressalvas; "Contas bloqueadas", o foco no T32, a linha de erro da rota `/denunciar` e o p21 conferidos; a espera pela vaga do teto de emissões aceita; as correções C3 e C4 e as sugestões S4 a S6 para o `frontend`; o que falta conferir no aparelho;
+  - §11.18: o `errorMode` da rota (de `toast` para `inline`), a linha do 429, 503 e sem rede, o achado 🟡 da rota marcado como resolvido, o 🟢 do anúncio dos Toasts mantido aberto e o ponteiro para a §11.19;
+  - §6.14: a divergência do p21 na `NotificationRow` marcada como resolvida;
+  - §11.4: o estado 1 (Verificando) com a espera pela vaga e o "Tentar de novo" sem os tokens de antes (C4);
+  - §11.12: o item 15 (a espera pela vaga);
+  - topo da §11: o ponteiro para a §11.19 (desde 2026-11-19, §11.20).
+
+  Nada foi apagado: o que mudou ficou riscado ou marcado com "(atualizado em 2026-10-31)".
+- Alterado em 2026-11-19 (branch `feat/fase-4d-portada`, porte do `e3191ad` para a `main` depois da ADR 0013):
+  - a revisão do PR 5 entra como §11.20, depois da §11.19 da `main` (revisão NFC + QR), que fica inteira;
+  - §11.20: a nota do porte (o que vale, o que vale com outra tela e o que ficou obsoleto), o foco no T32 riscado e o S5 marcado como pendente com o PO;
+  - topo da §11, §11.18 (topo e "O foco no T32"), §11.4 (estado 1), §11.12 (item 15) e §6.14: os ponteiros para a §11.20 e as marcas de obsoleto pela ADR 0013.
+
+  Nada foi apagado: o que mudou ficou riscado ou marcado com "(2026-11-19)".
 - Previsto para a Fase 0 (Dev): `packages/ui/theme.ts`, `packages/ui/icons/HouseFill.tsx`, `packages/ui/avatar/color.ts`, componentes da seção 6.13–6.14, `packages/ui/catalog/fixtures/*`, `apps/mobile/src/app/dev/catalog.tsx`.

@@ -1,8 +1,8 @@
 import { PROXIMITY_RENEW_INTERVAL_S, PROXIMITY_TOKEN_TTL_S } from '@sussurro/shared';
 import { act, renderHook } from '@testing-library/react-native';
 
-import { haltReasonFor } from './errors';
-import { useProximityToken } from './hooks';
+import { haltReasonFor, TokenWaitCancelled } from './errors';
+import { forgetTokenIssues, useProximityToken, useProximityTokenSessionScope } from './hooks';
 import { connectTiming } from './timing';
 import { ApiClient } from '../../lib/api/client';
 import { createMemorySessionStore } from '../../lib/session/secure-session-store';
@@ -57,6 +57,8 @@ async function advance(ms: number) {
 
 beforeEach(() => {
   jest.useFakeTimers({ now: new Date('2026-10-30T12:00:00.000Z') });
+  // A janela das emissões é da sessão, no módulo (PROX-68): cada teste começa com ela vazia.
+  forgetTokenIssues();
 });
 
 afterEach(() => {
@@ -77,7 +79,7 @@ describe('token de proximidade (4.2, ADR 0013 §1)', () => {
 
     await advance(19_999);
     expect(api.callsTo('POST /v1/proximity/tokens')).toHaveLength(1);
-    // Os anteriores continuam até os novos chegarem (o QR e o anúncio nunca ficam vazios).
+    // O anterior continua até o novo chegar (o QR e o NFC nunca ficam vazios).
     expect(result.current.token).toBe(MY_TOKENS[0]);
 
     await advance(1);
@@ -138,7 +140,7 @@ describe('token de proximidade (4.2, ADR 0013 §1)', () => {
       const { result } = await renderHook(() => useProximityToken(http, true, onError));
       await advance(0);
       await advance(20_000);
-      // A renovação dos 20 s falhou: o token de antes continua (valem até os 30 s).
+      // A renovação dos 20 s falhou: o token de antes continua (vale até os 30 s).
       expect(calls).toBe(2);
       expect(result.current.token).toBe(MY_TOKENS[0]);
       await advance(3000);
@@ -268,6 +270,332 @@ describe('token de proximidade (4.2, ADR 0013 §1)', () => {
     expect(server.rateLimited).toBe(0);
   });
 
+  it('PROX-68 (teto): a janela vale para a sessão inteira — sair da aba (a tela desmonta) e voltar não zera a contagem; o 1º pedido da tela nova sai e conta, e a tentativa que seria a 7ª em 60 s não sai', async () => {
+    const api = createFakeApi();
+    // 0 s certo; 20 e 23 s sem rede; a aba fecha aos 24 s (a tela desmonta) e abre de novo aos 25 s
+    // (1º pedido da tela nova, certo); 45 e 48 s sem rede. Aos 51 s, a tentativa seria a 7ª emissão
+    // em 60 s (0, 20, 23, 25, 45 e 48), contando as da tela anterior.
+    const server = limitedServer(api, ['ok', 'fail', 'fail', 'ok'], offline);
+    const onError = jest.fn();
+    const http = client(api);
+    const before = await renderHook(() => useProximityToken(http, true, jest.fn()));
+    await advance(0);
+    await advance(24_000);
+    expect(server.calls).toBe(3);
+    await before.unmount();
+    await advance(1000);
+    await renderHook(() => useProximityToken(http, true, onError));
+    await advance(0);
+    expect(server.calls).toBe(4);
+    await advance(26_000 - 1);
+    expect(server.calls).toBe(6);
+    expect(onError).not.toHaveBeenCalled();
+    await advance(1);
+    expect(server.calls).toBe(6);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(haltReasonFor(onError.mock.calls[0]?.[0])).toBe('offline');
+    expect(server.rateLimited).toBe(0);
+  });
+
+  it('PROX-68 (teto; C4): o "Tentar de novo" logo depois da parada pelo teto não leva 429 — o 1º pedido da visita espera a vaga, sem o token de antes (saiu na parada), e sai quando a emissão mais antiga deixa a janela', async () => {
+    const api = createFakeApi();
+    // [certo, falha ×3, certo, falha]: a tela para aos 52 s com a janela cheia (0, 20, 23, 26, 29 e
+    // 49). "Tentar de novo" aos 53 s: na hora, seria a 7ª emissão em 60 s, e o servidor responderia
+    // 429 (o estado 20, outro motivo). A vaga abre aos 60 s, quando a de 0 s sai.
+    const server = limitedServer(api, ['ok', 'fail', 'fail', 'fail', 'ok', 'fail', 'ok'], offline);
+    const onError = jest.fn();
+    const http = client(api);
+    const { result, rerender } = await renderHook(
+      ({ active, halted }: { active: boolean; halted: boolean }) =>
+        useProximityToken(http, active, onError, halted),
+      { initialProps: { active: true, halted: false } },
+    );
+    await advance(0);
+    await advance(52_000);
+    expect(server.calls).toBe(6);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(haltReasonFor(onError.mock.calls[0]?.[0])).toBe('offline');
+    expect(result.current.token).not.toBeNull();
+    // A tela para (inativa e parada): o token de antes, que pode vencer na parada, sai.
+    await rerender({ active: false, halted: true });
+    expect(result.current.token).toBeNull();
+    await advance(1000);
+    // "Tentar de novo" 1 s depois: começa sem token (o QR carregando, o NFC sem emitir).
+    await rerender({ active: true, halted: false });
+    await advance(0);
+    expect(server.calls).toBe(6);
+    expect(result.current.token).toBeNull();
+    await advance(7000 - 1);
+    expect(server.calls).toBe(6);
+    expect(result.current.token).toBeNull();
+    await advance(1);
+    expect(server.calls).toBe(7);
+    expect(result.current.token).not.toBeNull();
+    expect(server.rateLimited).toBe(0);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('PROX-68 (C4): na volta do segundo plano (sem parada), o token de antes continua até o novo chegar', async () => {
+    const api = createFakeApi();
+    configureConnect(api);
+    const http = client(api);
+    const { result, rerender } = await renderHook(
+      ({ active }: { active: boolean }) => useProximityToken(http, active, jest.fn(), false),
+      { initialProps: { active: true } },
+    );
+    await advance(0);
+    expect(result.current.token).toBe(MY_TOKENS[0]);
+    await rerender({ active: false });
+    await advance(5000);
+    expect(result.current.token).toBe(MY_TOKENS[0]);
+    await rerender({ active: true });
+    // A tela volta no mesmo estado: o token nunca some, e a emissão da volta o troca.
+    expect(result.current.token).not.toBeNull();
+    await advance(0);
+    expect(result.current.token).toBe(MY_TOKENS[1]);
+  });
+
+  it('PROX-68 (C4): a resposta que chega com a tela já parada não traz o token de volta', async () => {
+    const api = createFakeApi();
+    let answer: (reply: FakeReply) => void = () => undefined;
+    let calls = 0;
+    api.on('POST /v1/proximity/tokens', () => {
+      calls += 1;
+      if (calls === 1) return { status: 201, body: proximityToken(0) };
+      return new Promise<FakeReply>((resolve) => {
+        answer = resolve;
+      });
+    });
+    const http = client(api);
+    const { result, rerender } = await renderHook(
+      ({ halted }: { halted: boolean }) => useProximityToken(http, !halted, jest.fn(), halted),
+      { initialProps: { halted: false } },
+    );
+    await advance(0);
+    // Um 409 de "tela fechada" pede um token fora do ciclo; a resposta demora.
+    void result.current.refresh().catch(() => undefined);
+    await advance(0);
+    expect(calls).toBe(2);
+    await rerender({ halted: true });
+    expect(result.current.token).toBeNull();
+    await act(async () => {
+      answer({ status: 201, body: proximityToken(1) });
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.token).toBeNull();
+  });
+
+  it('PROX-68 (teto; C3): a aba aberta 6 vezes em 25 s — a renovação da 6ª visita, que seria a 7ª emissão em 60 s, espera a vaga; nenhum 429, a tela não para', async () => {
+    const api = createFakeApi();
+    const server = limitedServer(
+      api,
+      Array.from({ length: 12 }, () => 'ok' as const),
+      offline,
+    );
+    const onError = jest.fn();
+    const http = client(api);
+    // Visitas aos 0, 5, 10, 15, 20 e 25 s: cada uma pede um token ao abrir (6 emissões).
+    for (let visit = 0; visit < 5; visit++) {
+      const shown = await renderHook(() => useProximityToken(http, true, onError));
+      await advance(0);
+      await advance(5000);
+      await shown.unmount();
+    }
+    expect(server.calls).toBe(5);
+    await renderHook(() => useProximityToken(http, true, onError));
+    await advance(0);
+    expect(server.calls).toBe(6);
+    // A renovação aos 45 s seria a 7ª em 60 s (0, 5, 10, 15, 20 e 25): espera a de 0 s sair, aos
+    // 60 s.
+    await advance(20_000);
+    expect(server.calls).toBe(6);
+    await advance(15_000 - 1);
+    expect(server.calls).toBe(6);
+    await advance(1);
+    expect(server.calls).toBe(7);
+    expect(server.rateLimited).toBe(0);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('PROX-68 (teto; C3): o refresh (409) com a janela cheia espera a vaga e aproveita a emissão que já espera — uma emissão só, sem 429, e o refresh termina quando a vaga abre', async () => {
+    const api = createFakeApi();
+    const server = limitedServer(
+      api,
+      Array.from({ length: 12 }, () => 'ok' as const),
+      offline,
+    );
+    const onError = jest.fn();
+    const http = client(api);
+    // Seis visitas em 25 s enchem a janela; a 7ª, aos 30 s, espera a vaga (aos 60 s).
+    for (let visit = 0; visit < 6; visit++) {
+      const shown = await renderHook(() => useProximityToken(http, true, onError));
+      await advance(0);
+      await advance(5000);
+      await shown.unmount();
+    }
+    expect(server.calls).toBe(6);
+    const { result } = await renderHook(() => useProximityToken(http, true, onError));
+    await advance(0);
+    expect(server.calls).toBe(6);
+    expect(result.current.token).toBeNull();
+    // O 409 "tela fechada" (ao ler um código, por exemplo) pede um token: espera a mesma vaga.
+    const done = jest.fn();
+    const failed = jest.fn();
+    result.current.refresh().then(done, failed);
+    await advance(30_000 - 1);
+    expect(server.calls).toBe(6);
+    expect(done).not.toHaveBeenCalled();
+    await advance(1);
+    // Uma emissão só, para o 1º pedido da visita e para o refresh.
+    expect(server.calls).toBe(7);
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(failed).not.toHaveBeenCalled();
+    expect(result.current.token).not.toBeNull();
+    expect(server.rateLimited).toBe(0);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('PROX-68 (teto; C3): o refresh (409) com a janela cheia e nenhuma emissão pendente espera a vaga em vez de sair (sem 429); a renovação de 20 s que chega na espera aproveita a mesma emissão', async () => {
+    const api = createFakeApi();
+    const server = limitedServer(
+      api,
+      Array.from({ length: 12 }, () => 'ok' as const),
+      offline,
+    );
+    const onError = jest.fn();
+    const http = client(api);
+    // Visitas aos 0, 5, 10, 15 e 20 s; a 6ª, aos 25 s, fica aberta com o token (6 emissões).
+    for (let visit = 0; visit < 5; visit++) {
+      const shown = await renderHook(() => useProximityToken(http, true, onError));
+      await advance(0);
+      await advance(5000);
+      await shown.unmount();
+    }
+    const { result } = await renderHook(() => useProximityToken(http, true, onError));
+    await advance(0);
+    expect(server.calls).toBe(6);
+    expect(result.current.token).not.toBeNull();
+    // Aos 30 s, um 409 "tela fechada" pede um token fora do ciclo, sem nenhuma emissão pendente, com a
+    // janela (0 a 25 s) cheia: espera a de 0 s sair, aos 60 s.
+    await advance(5000);
+    const done = jest.fn();
+    const failed = jest.fn();
+    result.current.refresh().then(done, failed);
+    await advance(0);
+    expect(server.calls).toBe(6);
+    // A renovação dos 45 s chega com o refresh esperando: espera a mesma emissão, sem outra.
+    await advance(30_000 - 1);
+    expect(server.calls).toBe(6);
+    expect(done).not.toHaveBeenCalled();
+    await advance(1);
+    expect(server.calls).toBe(7);
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(failed).not.toHaveBeenCalled();
+    expect(result.current.token).not.toBeNull();
+    expect(server.rateLimited).toBe(0);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('PROX-68 (teto; C3): o refresh pedido com a tela já inativa (o 409 que chega com o app em segundo plano) e a janela cheia não fica esperando: falha na hora com TokenWaitCancelled, e nenhuma emissão sai depois', async () => {
+    const api = createFakeApi();
+    const server = limitedServer(
+      api,
+      Array.from({ length: 12 }, () => 'ok' as const),
+      offline,
+    );
+    const http = client(api);
+    for (let visit = 0; visit < 5; visit++) {
+      const shown = await renderHook(() => useProximityToken(http, true, jest.fn()));
+      await advance(0);
+      await advance(5000);
+      await shown.unmount();
+    }
+    const { result, rerender } = await renderHook(
+      ({ active }: { active: boolean }) => useProximityToken(http, active, jest.fn()),
+      { initialProps: { active: true } },
+    );
+    await advance(0);
+    expect(server.calls).toBe(6);
+    // O app vai para o segundo plano; depois, a resposta 409 de uma ação em voo pede um token.
+    await rerender({ active: false });
+    const failed = jest.fn();
+    result.current.refresh().catch(failed);
+    await advance(0);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(failed.mock.calls[0]?.[0]).toBeInstanceOf(TokenWaitCancelled);
+    // Ninguém cancelaria uma espera aberta agora: a emissão sairia com o app em segundo plano.
+    await advance(60_000);
+    expect(server.calls).toBe(6);
+  });
+
+  it('PROX-68 (teto; C3): a espera do refresh é cancelada quando a tela fecha — a emissão não sai depois, e o refresh falha com TokenWaitCancelled (em silêncio na tela)', async () => {
+    const api = createFakeApi();
+    const server = limitedServer(
+      api,
+      Array.from({ length: 12 }, () => 'ok' as const),
+      offline,
+    );
+    const http = client(api);
+    for (let visit = 0; visit < 6; visit++) {
+      const shown = await renderHook(() => useProximityToken(http, true, jest.fn()));
+      await advance(0);
+      await advance(5000);
+      await shown.unmount();
+    }
+    const waiting = await renderHook(() => useProximityToken(http, true, jest.fn()));
+    await advance(0);
+    const failed = jest.fn();
+    waiting.result.current.refresh().catch(failed);
+    await advance(0);
+    expect(failed).not.toHaveBeenCalled();
+    await waiting.unmount();
+    await advance(0);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(failed.mock.calls[0]?.[0]).toBeInstanceOf(TokenWaitCancelled);
+    await advance(60_000);
+    expect(server.calls).toBe(6);
+  });
+
+  it('PROX-68 (teto): a janela é da sessão — o mesmo id não a limpa; no fim da sessão (useProximityTokenSessionScope com outro id) ela é esquecida, e o 1º pedido da conta seguinte sai na hora', async () => {
+    const api = createFakeApi();
+    // Sem o limite no servidor falso: ele é por conta, e a conta muda no meio do teste.
+    const replies = [true, false, false, false, true, false, true];
+    const sentAt: number[] = [];
+    api.on('POST /v1/proximity/tokens', () => {
+      const ok = replies[sentAt.length] ?? false;
+      sentAt.push(Date.now());
+      return ok ? { status: 201, body: proximityToken(sentAt.length) } : offline();
+    });
+    const start = Date.now();
+    const onError = jest.fn();
+    const http = client(api);
+    const { rerender } = await renderHook(
+      ({ owner, active }: { owner: string | null; active: boolean }) => {
+        useProximityTokenSessionScope(owner);
+        return useProximityToken(http, active, onError);
+      },
+      { initialProps: { owner: 'conta-a', active: true } },
+    );
+    await advance(0);
+    await advance(52_000);
+    // A janela de A está cheia (0, 20, 23, 26, 29 e 49 s): a tentativa dos 52 s não saiu.
+    expect(sentAt).toHaveLength(6);
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    // A mesma conta, numa visita nova: a janela continua, e o pedido espera a vaga.
+    await rerender({ owner: 'conta-a', active: false });
+    await rerender({ owner: 'conta-a', active: true });
+    await advance(1000);
+    expect(sentAt).toHaveLength(6);
+
+    // A sessão termina (sair) e outra conta entra: a janela de A é esquecida.
+    await rerender({ owner: null, active: false });
+    await rerender({ owner: 'conta-b', active: true });
+    await advance(0);
+    expect(sentAt).toHaveLength(7);
+    expect((sentAt[6] ?? 0) - start).toBe(53_000);
+  });
+
   it('PROX-68 (teto): a renovação normal, a cada 20 s e sem falha, nunca chega ao teto (5 min, 16 emissões, sem erro)', async () => {
     const api = createFakeApi();
     const server = limitedServer(
@@ -305,6 +633,44 @@ describe('token de proximidade (4.2, ADR 0013 §1)', () => {
     expect(onError).toHaveBeenCalledTimes(1);
     await advance(60_000);
     expect(calls).toBe(failingCall);
+  });
+
+  it('PROX-68 (MÉDIO do seguranca): o refresh pedido depois de a tela desmontar com active ainda true (sair da aba) não emite, mesmo com vaga: falha com TokenWaitCancelled', async () => {
+    const api = createFakeApi();
+    configureConnect(api);
+    const http = client(api);
+    const { result, unmount } = await renderHook(() => useProximityToken(http, true, jest.fn()));
+    await advance(0);
+    expect(api.callsTo('POST /v1/proximity/tokens')).toHaveLength(1);
+    const { refresh } = result.current;
+    // A tela desmonta sem passar por um render com `active = false`.
+    await unmount();
+    const failed = jest.fn();
+    refresh().catch(failed);
+    await advance(60_000);
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(failed.mock.calls[0]?.[0]).toBeInstanceOf(TokenWaitCancelled);
+    expect(api.callsTo('POST /v1/proximity/tokens')).toHaveLength(1);
+  });
+
+  it('PROX-68 (MÉDIO do seguranca): o refresh pedido com a tela inativa (segundo plano) também não emite com vaga; na volta, a renovação sai normalmente', async () => {
+    const api = createFakeApi();
+    configureConnect(api);
+    const http = client(api);
+    const { result, rerender } = await renderHook(
+      ({ active }: { active: boolean }) => useProximityToken(http, active, jest.fn()),
+      { initialProps: { active: true } },
+    );
+    await advance(0);
+    await rerender({ active: false });
+    const failed = jest.fn();
+    result.current.refresh().catch(failed);
+    await advance(0);
+    expect(failed.mock.calls[0]?.[0]).toBeInstanceOf(TokenWaitCancelled);
+    expect(api.callsTo('POST /v1/proximity/tokens')).toHaveLength(1);
+    await rerender({ active: true });
+    await advance(0);
+    expect(api.callsTo('POST /v1/proximity/tokens')).toHaveLength(2);
   });
 
   it('refresh: pede o token fora do ciclo (depois de um 409 de tela fechada)', async () => {

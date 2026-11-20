@@ -41,7 +41,10 @@ export interface PostPhotoProps {
   onLike?: () => void;
   onOpenComments?: () => void;
   onOpenAuthor?: () => void;
-  /** Menu `ellipsis` (hoje só "Excluir publicação", nos próprios posts). */
+  /**
+   * Menu `ellipsis`: "Excluir publicação" nos próprios posts; "Denunciar" e "Bloquear" nos de outras
+   * contas (D-UX14).
+   */
   onMore?: () => void;
   /** Largura do post; padrão: a largura da tela. */
   width?: number;

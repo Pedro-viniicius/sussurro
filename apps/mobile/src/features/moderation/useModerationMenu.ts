@@ -15,8 +15,9 @@ export const BLOCK_ACTION = 'Bloquear';
 /**
  * Menu ⋯ de publicações e perfis de outras contas (D-UX14): "Denunciar" vem antes de "Bloquear",
  * porque depois do bloqueio as publicações da conta viram 404 e o perfil fecha, e este menu não
- * volta a aparecer para ela. O servidor ainda aceita denunciar a conta que você bloqueou
- * (R1-PO-1), mas o app só oferece isso no Bloqueado do Conectar (ux.md §11.14). O `element`
+ * volta a aparecer para ela. O servidor ainda aceita denunciar a conta que você bloqueou, sem prazo
+ * (R1-PO-1), e o app oferece isso no ⋯ de cada linha de "Contas bloqueadas" (ux.md §11.18), que
+ * abre a mesma rota `/denunciar`. O `element`
  * precisa estar na árvore da tela.
  */
 export function useModerationMenu(): {

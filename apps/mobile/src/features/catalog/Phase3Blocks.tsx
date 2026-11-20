@@ -2,6 +2,7 @@ import { REPORT_REASON_LABELS, REPORT_REASONS, type ReportReason } from '@sussur
 import {
   Button,
   followButtonLabel,
+  IconButton,
   ProfileHeader,
   RadioOptionList,
   SearchBar,
@@ -61,10 +62,32 @@ function FollowButton({ handle }: { handle: string }) {
   );
 }
 
+/** A ação de "Contas bloqueadas" (ux.md §11.18): (Desbloquear) e ⋯, com 8 entre eles. */
+function BlockedActions({ handle }: { handle: string }) {
+  return (
+    <View style={styles.actions}>
+      <Button
+        variant="secondary"
+        size="sm"
+        label="Desbloquear"
+        accessibilityLabel={`Desbloquear @${handle}`}
+        onPress={noop}
+      />
+      <IconButton
+        icon="ellipsis"
+        accessibilityLabel={`Mais opções para @${handle}`}
+        onPress={noop}
+      />
+    </View>
+  );
+}
+
 function UserRowBlock() {
   return (
     <Block title="UserRow">
-      <Caption>Busca (p15), "Criadores que sigo" e bloqueados</Caption>
+      <Caption>
+        Busca (p15), "Criadores que sigo" e bloqueados (subtítulo em até 2 linhas, com a data longa)
+      </Caption>
       <View style={styles.card}>
         <UserRow
           handle="estudioaurora"
@@ -81,10 +104,19 @@ function UserRowBlock() {
           onPress={noop}
           action={<Button variant="secondary" size="sm" label="Seguindo" onPress={noop} />}
         />
+        {/* Como em "Contas bloqueadas": a data com espaço não separável (U+00A0, ux.md §11.20). */}
         <UserRow
           handle="caio.r"
-          subtitle="Bloqueio em 27 out"
-          action={<Button variant="secondary" size="sm" label="Desbloquear" onPress={noop} />}
+          subtitle={'Bloqueio em 27 out'}
+          subtitleLines={2}
+          action={<BlockedActions handle="caio.r" />}
+        />
+        <UserRow
+          handle="helena.souza.fotografia"
+          subtitle={'Bloqueio em 3 set 2025'}
+          subtitleLines={2}
+          action={<BlockedActions handle="helena.souza.fotografia" />}
+          testID="catalog-user-row-blocked-long"
         />
       </View>
     </Block>
@@ -179,4 +211,5 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     paddingBottom: theme.space[12],
   },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: theme.space[8] },
 });

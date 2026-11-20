@@ -68,6 +68,12 @@ describe('app.config', () => {
     }
   });
 
+  it('lojas.md §3: conformidade de exportação — só a criptografia padrão do sistema (isenta), em todas as variantes', () => {
+    for (const variant of ['development', 'preview', 'production'] as const) {
+      expect(buildAppConfig(variant).ios?.config).toEqual({ usesNonExemptEncryption: false });
+    }
+  });
+
   it('CA3 (0.7): só retrato; marca no ícone e no splash', () => {
     const config = buildAppConfig('production');
     expect(config.orientation).toBe('portrait');

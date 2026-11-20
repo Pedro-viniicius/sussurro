@@ -242,7 +242,6 @@ function ReportSheet({ session }: { session: ConnectSession }) {
         <ReportForm
           key={report.run}
           target={{ type: 'account', handle: report.handle }}
-          errorMode="inline"
           questionRef={questionRef}
           errorTestID="conectar-denunciar-erro"
           onClose={actions.closeReport}

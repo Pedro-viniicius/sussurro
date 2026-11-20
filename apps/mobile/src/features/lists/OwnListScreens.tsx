@@ -4,18 +4,21 @@ import {
   followButtonLabel,
   formatShortDate,
   IconButton,
+  theme,
   useActionSheet,
   UserRow,
 } from '@sussurro/ui';
 import { router } from 'expo-router';
 import { useCallback, useMemo } from 'react';
-import { Alert } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 
 import { OwnListScreen } from './OwnListScreen';
 import { useCursorList } from './useCursorList';
 import { useAuth, useSignedInUser } from '../auth/AuthProvider';
 import { DISCONNECT_ACTION, useRemoveConnection } from '../connect/useRemoveConnection';
+import { reportHref } from '../moderation/report-target';
 import { useUnblockAccount } from '../moderation/useBlockAccount';
+import { REPORT_ACTION } from '../moderation/useModerationMenu';
 import { ROUTES } from '../navigation/routes';
 import { profileHref } from '../posts/navigation';
 import { useDisconnectedAuthors, useHiddenAuthors } from '../posts/post-store';
@@ -209,50 +212,100 @@ export function FollowingScreen() {
   );
 }
 
-/** "Bloqueio em 27 out": só o @ e a data (a lista não traz nome nem foto, X.2). */
+/** Espaço não separável (U+00A0): a linha não quebra entre o dia, o mês e o ano. */
+const NO_BREAK_SPACE = ' ';
+
+/**
+ * "Bloqueio em 27 out": só o @ e a data (a lista não traz nome nem foto, X.2). Com o ⋯, a data
+ * pode ir para a 2ª linha; o espaço não separável deixa a quebra em "Bloqueio em" / "27 out", sem
+ * separar o dia do mês (ux.md §11.20, S4). O leitor de tela lê igual.
+ */
 function blockedLabel(item: BlockedAccount): string {
-  return `Bloqueio em ${formatShortDate(item.blockedAt)}`;
+  return `Bloqueio em ${formatShortDate(item.blockedAt).replaceAll(' ', NO_BREAK_SPACE)}`;
 }
 
-/** Contas bloqueadas (`GET /me/blocks`, X.2), na tela Conta, para os dois tipos de conta. */
+/**
+ * Contas bloqueadas (`GET /me/blocks`, X.2), na tela Conta, para os dois tipos de conta. Cada linha
+ * tem o (Desbloquear), a ação principal da tela, e o ⋯ com "Denunciar" (R1-PO-1, ux.md §11.18): o
+ * servidor aceita denunciar quem você bloqueou, sem prazo, e esta lista é onde essas contas
+ * continuam visíveis depois que o perfil e o menu ⋯ dele somem.
+ *
+ * "Denunciar" abre a rota `/denunciar`, o formulário de sempre, com a lista
+ * montada por baixo. O 202 e o 404 seguem o que a rota já faz (Toast e volta à lista); a linha fica,
+ * porque a conta continua bloqueada, até a lista ser atualizada.
+ */
 export function BlockedAccountsScreen() {
   const { api } = useAuth();
   const unblock = useUnblockAccount();
+  const menu = useActionSheet('blocked-menu');
   const fetchPage = useCallback((cursor?: string) => fetchBlocks(api, cursor), [api]);
   const list = useCursorList(fetchPage, byHandle);
   const { remove } = list;
 
+  const openMenu = (handle: string) => {
+    menu.show({
+      title: `Perfil de @${handle}`,
+      actions: [
+        {
+          label: REPORT_ACTION,
+          onPress: () => {
+            router.push(reportHref({ type: 'account', handle }));
+          },
+        },
+      ],
+    });
+  };
+
   return (
-    <OwnListScreen
-      title="Contas bloqueadas"
-      testID="tela-bloqueados"
-      list={list}
-      visibleItems={list.items}
-      keyOf={byHandle}
-      renderRow={(item) => (
-        <UserRow
-          handle={item.handle}
-          subtitle={blockedLabel(item)}
-          action={
-            <Button
-              variant="secondary"
-              size="sm"
-              label="Desbloquear"
-              accessibilityLabel={`Desbloquear @${item.handle}`}
-              onPress={() => {
-                unblock(item.handle, () => {
-                  remove(item.handle);
-                });
-              }}
-            />
-          }
-        />
-      )}
-      empty={{
-        icon: 'lock',
-        title: 'Nenhuma conta bloqueada',
-        description: 'Quando você bloqueia alguém, a conta aparece aqui.',
-      }}
-    />
+    <>
+      <OwnListScreen
+        title="Contas bloqueadas"
+        testID="tela-bloqueados"
+        list={list}
+        visibleItems={list.items}
+        keyOf={byHandle}
+        renderRow={(item) => (
+          <UserRow
+            handle={item.handle}
+            subtitle={blockedLabel(item)}
+            subtitleLines={2}
+            action={
+              <View style={styles.actions}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  label="Desbloquear"
+                  accessibilityLabel={`Desbloquear @${item.handle}`}
+                  onPress={() => {
+                    unblock(item.handle, () => {
+                      remove(item.handle);
+                    });
+                  }}
+                />
+                <IconButton
+                  icon="ellipsis"
+                  accessibilityLabel={`Mais opções para @${item.handle}`}
+                  onPress={() => {
+                    openMenu(item.handle);
+                  }}
+                  testID={`bloqueados-mais-${item.handle}`}
+                />
+              </View>
+            }
+          />
+        )}
+        empty={{
+          icon: 'lock',
+          title: 'Nenhuma conta bloqueada',
+          description: 'Quando você bloqueia alguém, a conta aparece aqui.',
+        }}
+      />
+      {menu.element}
+    </>
   );
 }
+
+const styles = StyleSheet.create({
+  /** (Desbloquear) e ⋯ lado a lado, com o mínimo de 8 entre os alvos (ux.md §7.2 e §11.18). */
+  actions: { flexDirection: 'row', alignItems: 'center', gap: theme.space[8] },
+});

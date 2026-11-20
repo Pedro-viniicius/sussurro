@@ -1,12 +1,20 @@
-import { proximityQrPayload } from '@sussurro/shared';
+import { ErrorCode, type Me, proximityQrPayload } from '@sussurro/shared';
 import { qrMatrix } from '@sussurro/ui';
 import { fireEvent, userEvent } from '@testing-library/react-native';
 import { act, screen, waitFor } from 'expo-router/testing-library';
-import { AccessibilityInfo, Linking } from 'react-native';
+import {
+  AccessibilityInfo,
+  Alert,
+  type AlertButton,
+  AppState,
+  type AppStateStatus,
+  Linking,
+} from 'react-native';
 
 import { COPY } from './copy';
 import { savePendingQrToken, takePendingQrToken } from './pending-qr-link';
 import { connectTiming } from './timing';
+import { errorMessage } from '../../lib/error-messages';
 import { cameraMock } from '../../test-utils/camera-mock';
 import {
   apiError,
@@ -15,9 +23,16 @@ import {
   connectionRequest,
   MY_TOKENS,
   nearbyPerson,
+  proximityToken,
   resolver,
 } from '../../test-utils/connect-fixtures';
-import { creatorMe, type FakeApi, personalMe } from '../../test-utils/fake-api';
+import {
+  creatorMe,
+  type FakeApi,
+  type FakeReply,
+  personalMe,
+  session,
+} from '../../test-utils/fake-api';
 import { renderApp } from '../../test-utils/render-app';
 
 const SAVED_TIMING = { ...connectTiming };
@@ -39,6 +54,27 @@ async function scan(data: string) {
 async function openCamera() {
   await userEvent.press(await screen.findByRole('radio', { name: COPY.modeRead }));
   await userEvent.press(await screen.findByRole('button', { name: COPY.useCamera }));
+}
+
+async function advance(ms: number) {
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(ms);
+  });
+}
+
+/** Captura os ouvintes do AppState para o teste mandar o app ao segundo plano e de volta. */
+function captureAppState() {
+  const listeners: ((state: AppStateStatus) => void)[] = [];
+  jest.spyOn(AppState, 'addEventListener').mockImplementation((type, listener) => {
+    if (type === 'change') listeners.push(listener);
+    return { remove: () => undefined };
+  });
+  return async (state: AppStateStatus) => {
+    await act(async () => {
+      for (const listener of listeners) listener(state);
+      await Promise.resolve();
+    });
+  };
 }
 
 function qrPathOf(testID: string): unknown {
@@ -112,6 +148,147 @@ describe('Conectar por QR code (4.7, D3 e D7; ADR 0013 §5)', () => {
     // Leitura cruzada: Caio precisa ler o código de A para confirmar.
     expect(screen.getByText(COPY.waitingQr('Caio'))).toBeOnTheScreen();
     expect(screen.getByTestId('qr-card-qr')).toBeTruthy();
+  });
+
+  it('PROX-68 (C4): o "Tentar de novo" da parada (20) começa sem o código de antes — em "Mostrar meu código", o QR fica no carregando até a nova emissão, com o T33 na tela; depois, o código novo', async () => {
+    let holdTokens = false;
+    let release: () => void = () => undefined;
+    let issued = 0;
+    await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: '/pessoal/conectar',
+      configure: (fake) => {
+        configureQr(fake);
+        fake.on('POST /v1/proximity/resolve', apiError(429, 'RATE_LIMITED'));
+        fake.on('POST /v1/proximity/tokens', () => {
+          const reply: FakeReply = { status: 201, body: proximityToken(issued) };
+          issued += 1;
+          if (!holdTokens) return reply;
+          return new Promise<FakeReply>((resolve) => {
+            release = () => {
+              resolve(reply);
+            };
+          });
+        });
+      },
+    });
+    await waitFor(() => {
+      expect(qrPathOf('qr-card-qr')).toBe(qrMatrix(proximityQrPayload(MY_TOKENS[0])).path);
+    });
+    await openCamera();
+    await scan(proximityQrPayload(CAIO_TOKEN));
+    expect(await screen.findByRole('header', { name: COPY.pausedTitle })).toBeOnTheScreen();
+
+    holdTokens = true;
+    await userEvent.press(screen.getByRole('button', { name: COPY.tryAgain }));
+    await userEvent.press(await screen.findByRole('radio', { name: COPY.modeShow }));
+    expect(await screen.findByTestId('qr-card-carregando')).toBeOnTheScreen();
+    await advance(1000);
+    expect(screen.getByTestId('qr-card-carregando')).toBeOnTheScreen();
+    expect(screen.queryByTestId('qr-card-qr')).toBeNull();
+    expect(screen.getByText(COPY.qrHint)).toBeOnTheScreen();
+
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(qrPathOf('qr-card-qr')).toBe(qrMatrix(proximityQrPayload(MY_TOKENS[1])).path);
+    });
+    expect(screen.queryByTestId('qr-card-carregando')).not.toBeOnTheScreen();
+  });
+
+  it('PROX-68 (C4): na volta do segundo plano (sem parada), o QR continua com o código de antes até a nova emissão, sem o carregando', async () => {
+    const setAppState = captureAppState();
+    let holdTokens = false;
+    let release: () => void = () => undefined;
+    let issued = 0;
+    await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: '/pessoal/conectar',
+      configure: (fake) => {
+        configureQr(fake);
+        fake.on('POST /v1/proximity/tokens', () => {
+          const reply: FakeReply = { status: 201, body: proximityToken(issued) };
+          issued += 1;
+          if (!holdTokens) return reply;
+          return new Promise<FakeReply>((resolve) => {
+            release = () => {
+              resolve(reply);
+            };
+          });
+        });
+      },
+    });
+    await waitFor(() => {
+      expect(qrPathOf('qr-card-qr')).toBe(qrMatrix(proximityQrPayload(MY_TOKENS[0])).path);
+    });
+    holdTokens = true;
+    await setAppState('background');
+    await advance(5000);
+    await setAppState('active');
+    await advance(1000);
+    // A emissão da volta ainda não respondeu: o código de antes (válido por 30 s) continua.
+    expect(screen.queryByTestId('qr-card-carregando')).toBeNull();
+    expect(qrPathOf('qr-card-qr')).toBe(qrMatrix(proximityQrPayload(MY_TOKENS[0])).path);
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(qrPathOf('qr-card-qr')).toBe(qrMatrix(proximityQrPayload(MY_TOKENS[1])).path);
+    });
+  });
+
+  it('PROX-68 (teto; C3): o 409 de "tela fechada" na leitura pela câmera, com a janela cheia, espera a vaga; o app vai para o segundo plano, a espera é cancelada em silêncio (sem erro, sem Toast) e nenhuma emissão sai depois', async () => {
+    const setAppState = captureAppState();
+    let resolves = 0;
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: '/pessoal/conectar',
+      configure: (fake) => {
+        configureQr(fake);
+        const resolve = resolver();
+        fake.on('POST /v1/proximity/resolve', (call) => {
+          resolves += 1;
+          return resolves === 1 ? apiError(409, 'PROXIMITY_SCREEN_CLOSED') : resolve(call);
+        });
+      },
+    });
+    const tokenCalls = () => api.callsTo('POST /v1/proximity/tokens').length;
+    await waitFor(() => {
+      expect(tokenCalls()).toBe(1);
+    });
+    // Mais cinco visitas no mesmo minuto (Perfil e de volta): a janela de 60 s fica cheia (6).
+    for (let visit = 2; visit <= 6; visit++) {
+      await userEvent.press(screen.getByRole('tab', { name: 'Perfil' }));
+      expect(await screen.findByRole('header', { name: 'helena' })).toBeOnTheScreen();
+      await userEvent.press(screen.getByRole('tab', { name: 'Conectar' }));
+      await waitFor(() => {
+        expect(tokenCalls()).toBe(visit);
+      });
+    }
+    await openCamera();
+    await scan(proximityQrPayload(CAIO_TOKEN));
+    await advance(1000);
+    // O resolve deu 409, e a renovação do token espera a vaga (nenhum 7º pedido).
+    expect(resolves).toBe(1);
+    expect(tokenCalls()).toBe(6);
+
+    await setAppState('background');
+    await advance(1000);
+    await setAppState('active');
+    await advance(1000);
+    // A espera foi cancelada: a tela não para (o 19 seria o motivo errado) e nada de "Algo deu
+    // errado", nem na leitura nem num Toast.
+    expect(screen.queryByRole('header', { name: COPY.unavailableTitle })).toBeNull();
+    expect(screen.queryByRole('header', { name: COPY.pausedTitle })).toBeNull();
+    expect(screen.queryByRole('header', { name: COPY.offlineTitle })).toBeNull();
+    expect(screen.queryByText(errorMessage(ErrorCode.INTERNAL_ERROR))).toBeNull();
+    expect(screen.queryByTestId('qr-erro')).toBeNull();
+    expect(resolves).toBe(1);
+    expect(tokenCalls()).toBe(6);
+    expect(api.callsTo('POST /v1/connections/requests')).toHaveLength(0);
   });
 
   it('4.7 CA4: QR que não é do Sussurro ou vencido → mensagem amigável e nada é criado', async () => {
@@ -349,4 +526,215 @@ describe('Conectar bloqueado para criador (4.8)', () => {
     });
     expect(await screen.findByRole('header', { name: COPY.unavailableTitle })).toBeOnTheScreen();
   });
+});
+
+describe('Conectar: o token depois de sair da tela e no fim da sessão (PROX-68; MÉDIO do seguranca)', () => {
+  const HELENA = personalMe();
+  const MARINA = personalMe({
+    id: '01a189e0-af57-7000-85fe-2054e618feb1',
+    email: 'marina@example.com',
+    handle: 'marina',
+    name: 'Marina Costa',
+  });
+  const tokenCalls = (api: FakeApi) => api.callsTo('POST /v1/proximity/tokens').length;
+  const requestCalls = (api: FakeApi) => api.callsTo('POST /v1/connections/requests').length;
+
+  beforeEach(() => {
+    // Confirma o "Sair da conta?" (o botão destrutivo).
+    jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons?: AlertButton[]) => {
+      buttons?.find((button) => button.style === 'destructive')?.onPress?.();
+    });
+  });
+
+  /** Entra com `user` em Entrar (a API falsa devolve a sessão dele) e espera o Início. */
+  async function signInAs(api: FakeApi, user: Me) {
+    api.on('POST /v1/auth/login', () => ({ status: 200, body: session(user) }));
+    await waitFor(() => {
+      expect(screen).toHavePathname('/entrar');
+    });
+    await fireEvent.changeText(screen.getByLabelText('E-mail'), user.email);
+    await fireEvent.changeText(screen.getByLabelText('Senha'), 'cafe-coado-42');
+    await userEvent.press(screen.getByRole('button', { name: 'Entrar' }));
+    expect(await screen.findByTestId('tela-inicio')).toBeOnTheScreen();
+  }
+
+  /** Sai do Conectar pela aba Perfil (a tela desmonta). */
+  async function goToProfile() {
+    await userEvent.press(screen.getByRole('tab', { name: 'Perfil' }));
+    expect(await screen.findByRole('header', { name: HELENA.handle })).toBeOnTheScreen();
+  }
+
+  /** Helena lê o QR de Caio, toca em "Conectar", e o pedido fica em voo até `answer`; sai da aba. */
+  async function connectByQrInFlight() {
+    let answer: (reply: FakeReply) => void = () => undefined;
+    const rendered = await renderApp({
+      signedInAs: HELENA,
+      initialUrl: '/pessoal/conectar',
+      configure: (fake) => {
+        configureConnect(fake);
+        fake.on(
+          'POST /v1/connections/requests',
+          () =>
+            new Promise<FakeReply>((resolve) => {
+              answer = resolve;
+            }),
+        );
+        fake.on('POST /v1/auth/logout', { status: 204 });
+      },
+    });
+    await openCamera();
+    await scan(proximityQrPayload(CAIO_TOKEN));
+    await userEvent.press(
+      await screen.findByRole('button', { name: COPY.connectWithLabel('Caio Ribeiro', 'caio.r') }),
+    );
+    await waitFor(() => {
+      expect(requestCalls(rendered.api)).toBe(1);
+    });
+    await goToProfile();
+    return {
+      api: rendered.api,
+      answer: (reply: FakeReply) => {
+        answer(reply);
+      },
+    };
+  }
+
+  it('PROX-68: o 409 do pedido por QR que chega depois de sair da aba não emite token nem repete o pedido, e nada aparece', async () => {
+    const { api, answer } = await connectByQrInFlight();
+    const tokensBefore = tokenCalls(api);
+    await act(async () => {
+      answer(apiError(409, 'PROXIMITY_SCREEN_CLOSED'));
+      await Promise.resolve();
+    });
+    await advance(60_000);
+    expect(tokenCalls(api)).toBe(tokensBefore);
+    expect(requestCalls(api)).toBe(1);
+    expect(screen.getByRole('header', { name: HELENA.handle })).toBeOnTheScreen();
+  });
+
+  it('PROX-68: sai da aba, sai da conta e Marina entra; o 409 do pedido de Helena chega depois → nada sai com a sessão de Marina (nem a emissão, nem o pedido repetido)', async () => {
+    const { api, answer } = await connectByQrInFlight();
+    await userEvent.press(screen.getByRole('button', { name: 'Sair da conta' }));
+    await signInAs(api, MARINA);
+    const callsBefore = api.calls.length;
+    await act(async () => {
+      answer(apiError(409, 'PROXIMITY_SCREEN_CLOSED'));
+      await Promise.resolve();
+    });
+    await advance(60_000);
+    // Depois da troca, nenhuma emissão nem pedido de conexão (Marina nem abriu o Conectar).
+    const after = api.calls.slice(callsBefore).map((call) => call.key);
+    expect(after.filter((key) => key.startsWith('POST /v1/proximity/'))).toEqual([]);
+    expect(after.filter((key) => key === 'POST /v1/connections/requests')).toEqual([]);
+    expect(requestCalls(api)).toBe(1);
+  });
+
+  it('PROX-68 (BAIXO do seguranca): a renovação em voo, o app vai para o segundo plano e o 409 do pedido por QR chega → o pedido não é repetido com a tela inativa, nem quando a emissão em voo responde', async () => {
+    const setAppState = captureAppState();
+    let answer: (reply: FakeReply) => void = () => undefined;
+    let releaseToken: () => void = () => undefined;
+    let issued = 0;
+    const { api } = await renderApp({
+      signedInAs: HELENA,
+      initialUrl: '/pessoal/conectar',
+      configure: (fake) => {
+        configureConnect(fake);
+        // 1º pedido certo; a renovação dos 20 s fica em voo até o `releaseToken`.
+        fake.on('POST /v1/proximity/tokens', () => {
+          const reply: FakeReply = { status: 201, body: proximityToken(issued) };
+          issued += 1;
+          if (issued === 1) return reply;
+          return new Promise<FakeReply>((resolve) => {
+            releaseToken = () => {
+              resolve(reply);
+            };
+          });
+        });
+        fake.on(
+          'POST /v1/connections/requests',
+          () =>
+            new Promise<FakeReply>((resolve) => {
+              answer = resolve;
+            }),
+        );
+      },
+    });
+    await waitFor(() => {
+      expect(tokenCalls(api)).toBe(1);
+    });
+    await openCamera();
+    await scan(proximityQrPayload(CAIO_TOKEN));
+    await userEvent.press(
+      await screen.findByRole('button', { name: COPY.connectWithLabel('Caio Ribeiro', 'caio.r') }),
+    );
+    await waitFor(() => {
+      expect(requestCalls(api)).toBe(1);
+    });
+    // A renovação sai e fica em voo; depois, o app vai para o segundo plano (a tela continua
+    // montada, mas inativa).
+    await advance(20_000);
+    expect(tokenCalls(api)).toBe(2);
+    await setAppState('background');
+    await act(async () => {
+      answer(apiError(409, 'PROXIMITY_SCREEN_CLOSED'));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      releaseToken();
+      await Promise.resolve();
+    });
+    await advance(60_000);
+    expect(requestCalls(api)).toBe(1);
+    expect(tokenCalls(api)).toBe(2);
+  });
+
+  it.each<{ when: string; next: Me }>([
+    { when: 'entrou outra conta', next: MARINA },
+    { when: 'entrou de novo a mesma conta', next: HELENA },
+  ])(
+    'PROX-68: sem sair, a 7ª visita no mesmo minuto espera a vaga (o QR no carregando, nenhum 7º pedido, nenhum 429); "Sair da conta" e $when → o 1º pedido sai na hora (o RootNavigator esquece a janela)',
+    async ({ next }) => {
+      const { api } = await renderApp({
+        signedInAs: HELENA,
+        initialUrl: '/pessoal/conectar',
+        configure: (fake) => {
+          configureConnect(fake);
+          fake.on('POST /v1/auth/logout', { status: 204 });
+        },
+      });
+      await waitFor(() => {
+        expect(tokenCalls(api)).toBe(1);
+      });
+      const firstAt = Date.now();
+      // Cinco visitas novas no mesmo minuto: cada uma pede um token ao abrir (6 emissões).
+      for (let visit = 2; visit <= 6; visit++) {
+        await goToProfile();
+        await userEvent.press(screen.getByRole('tab', { name: 'Conectar' }));
+        await waitFor(() => {
+          expect(tokenCalls(api)).toBe(visit);
+        });
+      }
+      // A 7ª visita: a janela de 60 s está cheia, e o 1º pedido espera a vaga.
+      await goToProfile();
+      await userEvent.press(screen.getByRole('tab', { name: 'Conectar' }));
+      expect(await screen.findByTestId('conectar-mostrar')).toBeOnTheScreen();
+      await advance(1000);
+      expect(tokenCalls(api)).toBe(6);
+      expect(screen.getByTestId('qr-card-carregando')).toBeOnTheScreen();
+      expect(Date.now() - firstAt).toBeLessThan(connectTiming.tokenIssueWindowMs - 10_000);
+
+      // Sai da conta e entra de novo: a janela da sessão anterior é esquecida.
+      await goToProfile();
+      await userEvent.press(screen.getByRole('button', { name: 'Sair da conta' }));
+      await signInAs(api, next);
+      await userEvent.press(screen.getByRole('tab', { name: 'Conectar' }));
+      await advance(0);
+      await waitFor(() => {
+        expect(tokenCalls(api)).toBe(7);
+      });
+      // Tudo antes de a emissão mais antiga sair da janela: sem a limpeza, o 7º pedido esperaria.
+      expect(Date.now() - firstAt).toBeLessThan(connectTiming.tokenIssueWindowMs);
+      expect(await screen.findByTestId('qr-card-qr')).toBeOnTheScreen();
+    },
+  );
 });

@@ -22,7 +22,7 @@ import {
   MY_TOKENS,
   proximityToken,
 } from '../../test-utils/connect-fixtures';
-import { type FakeApi, personalMe } from '../../test-utils/fake-api';
+import { type FakeApi, type FakeReply, personalMe } from '../../test-utils/fake-api';
 import { renderApp } from '../../test-utils/render-app';
 
 const SAVED_TIMING = { ...connectTiming };
@@ -539,6 +539,57 @@ describe('Conectar: erros e ciclo de vida (estados 18 a 20)', () => {
     await waitFor(() => {
       expect(nfc.emitted).toBe(proximityQrPayload(MY_TOKENS[0]));
     });
+  });
+
+  it('PROX-68 (C4): na parada (20), o token de antes sai — o "Tentar de novo" mostra o QR carregando e não emite o código antigo por NFC até a nova emissão; depois, o QR e o NFC com o código novo', async () => {
+    let calls = 0;
+    let release: () => void = () => undefined;
+    const { nfc } = await openConnect({
+      configure: (fake) => {
+        configureNfc(fake);
+        // 1º pedido certo; a renovação dos 20 s leva 429 (a tela para); a emissão do "Tentar de
+        // novo" demora até o `release`.
+        fake.on('POST /v1/proximity/tokens', () => {
+          calls += 1;
+          if (calls === 1) return { status: 201, body: proximityToken(0) };
+          if (calls === 2) return apiError(429, 'RATE_LIMITED');
+          return new Promise<FakeReply>((resolve) => {
+            release = () => {
+              resolve({ status: 201, body: proximityToken(1) });
+            };
+          });
+        });
+      },
+    });
+    await waitFor(() => {
+      expect(nfc.emitted).toBe(proximityQrPayload(MY_TOKENS[0]));
+    });
+    await advance(20_000);
+    expect(await screen.findByRole('header', { name: COPY.pausedTitle })).toBeOnTheScreen();
+    expect(nfc.emitted).toBeNull();
+    const emittedBefore = nfc.emittedHistory.length;
+    focus.mockClear();
+
+    await userEvent.press(screen.getByRole('button', { name: COPY.tryAgain }));
+    expect(await screen.findByTestId('conectar-mostrar')).toBeOnTheScreen();
+    await advance(1000);
+    expect(calls).toBe(3);
+    // Sem token, o QR fica no carregando e o NFC não emite: nada do código que pode ter vencido.
+    expect(screen.getByTestId('qr-card-carregando')).toBeOnTheScreen();
+    expect(screen.queryByTestId('qr-card-qr')).toBeNull();
+    expect(nfc.emitted).toBeNull();
+    expect(nfc.emittedHistory.slice(emittedBefore)).toEqual([]);
+    expect(focusedTestIds()).toContain('conectar-titulo');
+
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    expect(await screen.findByTestId('qr-card-qr')).toBeOnTheScreen();
+    await waitFor(() => {
+      expect(nfc.emitted).toBe(proximityQrPayload(MY_TOKENS[1]));
+    });
+    expect(nfc.emittedHistory.slice(emittedBefore)).toEqual([proximityQrPayload(MY_TOKENS[1])]);
   });
 
   it('estado 20 (bloqueio de 15 min, PROX-20): 429 nos tokens → "Muitas tentativas" (T22), sem emitir', async () => {

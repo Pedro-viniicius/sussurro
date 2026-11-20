@@ -36,7 +36,7 @@ export type PublishKind = 'photo' | 'reel';
 
 export interface PublishJob {
   id: string;
-  /** Conta que publicou (sair da conta esconde as faixas dela). */
+  /** Conta que publicou: sair da conta (ou trocar de conta) para os envios dela e tira as faixas. */
   ownerId: string;
   kind: PublishKind;
   stage: PublishStage;
@@ -215,12 +215,17 @@ export function PublishingProvider({ children }: { children: ReactNode }) {
         payload.poster = poster;
         update(jobId, { thumbUri: poster.uri });
       }
+      // Descartado (o ✕ ou a conta que saiu) durante a capa ou a exclusão: nada mais sai com o
+      // token de agora. Lido sempre de novo, como o `stopped()` do `run`.
+      const stopped = (): boolean => job.discarded;
+      if (stopped()) return null;
       if (job.replacesPostId !== null) {
         const replaced = job.replacesPostId;
         await deleteIgnoringMissing(() => deletePost(api, replaced));
         // O tile "Falhou" sai do perfil na hora.
         store.remove(replaced);
         job.replacesPostId = null;
+        if (stopped()) return null;
       }
       const draft =
         payload.kind === 'photo'
@@ -528,6 +533,22 @@ export function PublishingProvider({ children }: { children: ReactNode }) {
   );
 
   const userId = user?.id;
+
+  // O provedor não remonta na troca de conta (BAIXO do `seguranca`). Quando a conta sai (ou outra
+  // entra), os envios da anterior param: o `stopped()` é conferido entre as etapas, então o
+  // `publish` e a consulta do processamento não saem com o token de outra conta (o servidor
+  // responderia 404, e ela veria um Toast solto) nem sem sessão. A faixa sai junto. O rascunho
+  // fica no servidor até a limpeza de 24 h; o reel já publicado termina de processar no worker.
+  useEffect(() => {
+    const owner = userId ?? '';
+    for (const job of jobsRef.current) {
+      if (job.ownerId === owner) continue;
+      const entry = data.current.get(job.id);
+      if (entry !== undefined) entry.discarded = true;
+      finish(job.id);
+    }
+  }, [finish, userId]);
+
   const value = useMemo(
     () => ({
       jobs: jobs.filter((job) => job.ownerId === userId),

@@ -10,6 +10,12 @@ export interface UserRowProps {
   name?: string;
   /** Linha cinza abaixo do @ (ex.: "Estúdio Aurora · 5.067 seguidores"). */
   subtitle?: string;
+  /**
+   * Até quantas linhas o subtítulo ocupa antes das reticências: 1 por padrão; 2 em "Contas
+   * bloqueadas", onde o (Desbloquear) e o ⋯ deixam pouco espaço para a data (ux.md §11.18). Com 2,
+   * a linha ganha `paddingVertical` 8. O @ fica sempre em 1 linha.
+   */
+  subtitleLines?: 1 | 2;
   avatarUri?: string | null;
   /** Semente da cor do avatar sem foto. */
   seed?: string;
@@ -24,12 +30,14 @@ export interface UserRowProps {
 
 /**
  * Linha de conta (busca, listas próprias e bloqueados; ux.md §6.14): Avatar 44, @ `bodyStrong`,
- * subtítulo `bodySm` grey e uma ação à direita. Altura mínima 64.
+ * subtítulo `bodySm` grey e uma ação à direita. Altura mínima 64 (com o subtítulo em 2 linhas, até
+ * 80).
  */
 export function UserRow({
   handle,
   name,
   subtitle,
+  subtitleLines = 1,
   avatarUri,
   seed,
   onPress,
@@ -53,7 +61,7 @@ export function UserRow({
           {handle}
         </Text>
         {subtitle === undefined ? null : (
-          <Text variant="bodySm" color="grey" numberOfLines={1}>
+          <Text variant="bodySm" color="grey" numberOfLines={subtitleLines}>
             {subtitle}
           </Text>
         )}
@@ -61,7 +69,7 @@ export function UserRow({
     </>
   );
   return (
-    <View style={styles.row} testID={testID}>
+    <View style={[styles.row, subtitleLines === 2 && styles.twoLines]} testID={testID}>
       {onPress === undefined ? (
         <View style={styles.main} accessible accessibilityLabel={label}>
           {content}
@@ -90,6 +98,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.layout.screenX,
     gap: theme.space[12],
   },
+  /** O subtítulo em 2 linhas: a linha passa de 64 a 80, sem encostar no texto da de baixo. */
+  twoLines: { paddingVertical: theme.space[8] },
   main: {
     flex: 1,
     minHeight: theme.layout.hitMin,

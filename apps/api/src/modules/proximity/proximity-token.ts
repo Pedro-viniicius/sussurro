@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 
-import { PROXIMITY_TOKEN_BYTES } from '@sussurro/shared';
+import { PROXIMITY_TOKEN_BYTES, PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN } from '@sussurro/shared';
 
 import type { RateLimitRule } from '../../common/rate-limit/rate-limiter.service.js';
 
@@ -22,8 +22,13 @@ const MINUTE = 60_000;
  * (R11).
  */
 export const PROXIMITY_LIMITS = {
-  // A rotação é a cada 20 s (3 por minuto): sobra folga para reabrir a tela.
-  tokens: { name: 'prox-tokens:user', limit: 6, windowMs: MINUTE },
+  // A rotação é a cada 20 s (3 por minuto): sobra folga para reabrir a tela. O número fica no
+  // `packages/shared`, que o app também usa para não pedir acima dele (PROX-68).
+  tokens: {
+    name: 'prox-tokens:user',
+    limit: PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN,
+    windowMs: MINUTE,
+  },
   // Uma chamada por código lido (QR ou NFC).
   resolve: { name: 'prox-resolve:user', limit: 30, windowMs: MINUTE },
   requestsPerMinute: { name: 'conn-requests:user:min', limit: 10, windowMs: MINUTE },

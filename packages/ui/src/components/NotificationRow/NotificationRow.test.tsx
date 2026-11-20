@@ -15,6 +15,12 @@ const COMMENTED: NotificationTextSegment[] = [
   { kind: 'quote', value: '“Que luz bonita!”' },
 ];
 
+/** O formato do `notificationTextParts` para os seguidores agregados (p21). */
+const FOLLOWERS: NotificationTextSegment[] = [
+  { kind: 'count', value: '3 novas pessoas' },
+  { kind: 'text', value: ' começaram a seguir você.' },
+];
+
 describe('NotificationRow (p09, p21; ux.md §6.14)', () => {
   it('texto com o @ em 600, o tempo inline em caption grey e a miniatura do post', async () => {
     await renderUi(
@@ -104,7 +110,7 @@ describe('NotificationRow (p09, p21; ux.md §6.14)', () => {
   it('NOT-05: seguidores agregados com o avatar "+N" em blueLight, sem ninguém nomeado e sem toque', async () => {
     await renderUi(
       <NotificationRow
-        parts={[{ kind: 'text', value: '3 novas pessoas começaram a seguir você.' }]}
+        parts={FOLLOWERS}
         time="10 min"
         avatar={{ kind: 'aggregate', count: 3, label: '+3' }}
         accessibilityLabel="3 novas pessoas começaram a seguir você. há 10 minutos"
@@ -123,10 +129,38 @@ describe('NotificationRow (p09, p21; ux.md §6.14)', () => {
     ).toBeOnTheScreen();
   });
 
+  it('NOT-05 (p21): o "N novas pessoas" em 600, como o @, mas nunca tocável e sem o testID do @', async () => {
+    const onPressHandle = jest.fn();
+    await renderUi(
+      <NotificationRow
+        parts={FOLLOWERS}
+        time="10 min"
+        avatar={{ kind: 'aggregate', count: 3, label: '+3' }}
+        accessibilityLabel="3 novas pessoas começaram a seguir você. há 10 minutos"
+        // Mesmo que alguém passe o toque do @, o pedaço `count` não o usa.
+        onPressHandle={onPressHandle}
+        testID="seguidores"
+      />,
+    );
+    const count = screen.getByText('3 novas pessoas');
+    expect(count).toHaveStyle({ fontFamily: theme.fonts.semibold });
+    expect(count.props.onPress).toBeUndefined();
+    expect(screen.getByTestId('seguidores-count')).toBe(count);
+    expect(screen.queryByTestId('seguidores-handle')).not.toBeOnTheScreen();
+    expect(screen.getByText('começaram a seguir você.')).toHaveStyle({
+      fontFamily: theme.fonts.regular,
+    });
+    await userEvent.press(count);
+    expect(onPressHandle).not.toHaveBeenCalled();
+  });
+
   it('acima de 99 seguidores usa o rótulo do app ("99+")', async () => {
     await renderUi(
       <NotificationRow
-        parts={[{ kind: 'text', value: '150 novas pessoas começaram a seguir você.' }]}
+        parts={[
+          { kind: 'count', value: '150 novas pessoas' },
+          { kind: 'text', value: ' começaram a seguir você.' },
+        ]}
         time="agora"
         avatar={{ kind: 'aggregate', count: 150, label: '99+' }}
         accessibilityLabel="150 novas pessoas começaram a seguir você. agora"
