@@ -164,17 +164,26 @@ Divergências visuais do protótipo, com recomendação do UX (`ux.md` §9):
 - [ ] Contas: **Apple Developer** (US$ 99/ano; pode demorar dias para aprovar). O Sentry pode esperar (D4). (atualizado em 2026-10-31) **GitHub** e **Expo** feitos: o CI roda desde o PR #1, e o projeto do EAS existe desde 2026-10-30.
 - [ ] Informar os aparelhos disponíveis (iPhones e Androids, com versões de SO).
 
-### 9.1 Próximos passos (atualizado em 2026-11-19)
+### 9.1 Próximos passos (atualizado em 2026-11-20)
 
-Em ordem. Todos dependem do PO (contas, aparelhos, site); o código e o CI já estão prontos na `main`.
+Na `main` desde 2026-11-20:
+- Fase 4d portada (PR #21; o MÉDIO de segurança da 4d está fechado);
+- S5 e `ux.md` §12 (b) e (c) (PR #22);
+- Dependabot em dia (#16 a #20).
+
+O código e o CI estão prontos, e o que falta depende do PO (contas, aparelhos, site). Em ordem:
 
 | # | Passo | Por quê | Quem | Referência |
 |---|---|---|---|---|
 | 1 | Publicar no site a Política de Privacidade nova (NFC + QR, sem Bluetooth nem localização) | A página publicada ainda descreve o Bluetooth; política divergente do app é motivo de rejeição nas lojas | PO (repositório do site) | `docs/deploy/politica-privacidade-nfc.md` |
-| 2 | Dev build EAS novo (Android e iOS) | O módulo nativo mudou; o Swift nunca foi compilado | PO (`eas build`, conta Apple) | README, Fase 4e |
-| 3 | Roteiros MAN-NFC-01 a 04 em aparelho, mais MAN-QR-01 e MAN-CON-01 | Validar o NFC de verdade (HCE por fabricante, gesto do iPhone, VoiceOver) | PO + `testes` | `testes.md` §8; matriz mínima na §3 |
+| 2 | Dev build EAS do iOS | O Swift do módulo NFC nunca foi compilado. O Android já tem build (2026-11-20, commit `80c3236`, com a 4d, o S5 e o §12). No iOS, o build não interativo falhou por falta de credenciais | PO (`! cd apps/mobile && pnpm eas build --profile development --platform ios`, login Apple) | README, Fase 4e |
+| 3 | Roteiros em aparelho: MAN-NFC-01 a 04, MAN-QR-01, MAN-CON-01, MAN-A11Y-01 (QR carregando, S5) e MAN-A11Y-02 (foco depois do recarregamento do Início, Toasts do "Processando") | Validar o NFC de verdade (HCE por fabricante, gesto do iPhone) e o leitor de tela (VoiceOver e TalkBack) | PO + `testes` | `testes.md` §8; matriz mínima na §3; `ux.md` §12.7 |
 | 4 | Conferir o AAB final (`bundletool dump manifest`) | O CI confere o manifesto do prebuild; o AAB do EAS tem a configuração e os segredos de produção | PO + `devops` | `lojas.md`, "Permissões" |
 | 5 | Fechar a Fase 4 e criar a tag `fase-4` | Depois dos passos 2 a 4 verdes | PO | `CLAUDE.md`, convenções |
+
+Dívidas registradas, sem bloquear a tag:
+- O BAIXO do `seguranca` no PR #22 (`frontend`): ao sair da conta, uma consulta em série pode sair sem token, e o aviso "sessão expirou" aparece logo depois de um "Sair" voluntário. Nada vaza.
+- Sem rate limit global nos GET autenticados da API (`backend`, passada de hardening).
 
 ## 10. Definition of Ready e Definition of Done
 
