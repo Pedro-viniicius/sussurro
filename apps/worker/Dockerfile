@@ -3,7 +3,7 @@
 #   docker buildx build --platform linux/arm64 -f apps/worker/Dockerfile -t sussurro-worker:<sha> .
 
 # --- build: instala só o worker e as dependências dele, compila e separa as de produção ---
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS build
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS build
 
 ENV CI=true \
     PNPM_HOME=/pnpm \
@@ -25,7 +25,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm --filter @sussurro/worker deploy --prod --store-dir /pnpm/store /app
 
 # --- runtime ---
-FROM node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS runtime
+FROM node:26.13.0-trixie-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072 AS runtime
 
 # Bundle de CAs do RDS: a DATABASE_URL usa sslmode=verify-full, e a CA do RDS não está no Node.
 ENV NODE_ENV=production \
