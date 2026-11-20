@@ -52,6 +52,13 @@ updates:
     schedule: { interval: weekly }
     cooldown:
       default-days: 14
+    ignore:
+      # Paridade com a produção: o ElastiCache do Terraform só aceita Valkey 8.x
+      # (modules/elasticache, engine_version ^8). Major do Valkey é upgrade manual, junto com o
+      # ElastiCache e o service do ci.yml (o job "quality" exige a mesma imagem nos dois). PR #9
+      # (8.1 → 9.1) fechado por isso em 2026-11-20.
+      - dependency-name: valkey/valkey
+        update-types: ['version-update:semver-major']
   # Fase 7 (infra.md §8): imagens base dos Dockerfiles (tag + digest) e providers do Terraform.
   - package-ecosystem: docker
     directories: ['/apps/api', '/apps/worker']
