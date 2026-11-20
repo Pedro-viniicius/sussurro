@@ -12,6 +12,7 @@ import {
   PROXIMITY_RECENT_TTL_S,
   PROXIMITY_RENEW_INTERVAL_S,
   PROXIMITY_RESOLVE_MAX_TOKENS,
+  PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN,
   PROXIMITY_TOKEN_LENGTH,
   PROXIMITY_TOKEN_TTL_S,
   ProximityResolveRequestSchema,
@@ -101,6 +102,15 @@ describe('token de proximidade (ADR 0003)', () => {
     expect(PROXIMITY_RECENT_TTL_S).toBe(120);
     expect(PROXIMITY_RENEW_INTERVAL_S).toBe(20);
     expect(PROXIMITY_RENEW_INTERVAL_S).toBeLessThan(PROXIMITY_TOKEN_TTL_S);
+  });
+
+  it('[PROX-20] [PROX-68] limite de 6 emissões por minuto no servidor: a rotação de 20 s gasta 3 e sobram outras 3 para reabrir a tela', () => {
+    expect(PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN).toBe(6);
+    expect(Number.isInteger(PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN)).toBe(true);
+    // A tela aberta por 60 s: uma emissão a cada 20 s, a primeira ao abrir.
+    const rotationsPerMinute = 60 / PROXIMITY_RENEW_INTERVAL_S;
+    expect(rotationsPerMinute).toBe(3);
+    expect(rotationsPerMinute * 2).toBeLessThanOrEqual(PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN);
   });
 
   it('(ADR 0013) nada do encosto por Bluetooth sobra no contrato', () => {

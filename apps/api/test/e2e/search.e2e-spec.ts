@@ -1,4 +1,5 @@
 // E2E da busca de criadores (histórias 3.1 e 3.2; testes.md §6.3; A-04, A-31).
+import { sql } from '@sussurro/db';
 import { createUser, follow } from '@sussurro/db/testing';
 import {
   type CreatorSearchResult,
@@ -7,7 +8,9 @@ import {
 } from '@sussurro/shared';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { FollowsRepository } from '../../src/modules/follows/follows.repository.js';
 import { directUser } from '../support/auth.js';
+import { hasColumn, withShadowIdColumn } from '../support/shadow-column.js';
 import { createTestApp, type TestApp } from '../support/test-app.js';
 
 let t: TestApp;
@@ -199,6 +202,44 @@ describe('GET /search/creators: resultado (BUS-03 a BUS-08, BUS-10)', () => {
         },
       ],
     });
+  });
+});
+
+describe('busca: followedByMe com a coluna de fora (R25)', () => {
+  it('[BUS-10] (R25) o followedByMe lê o users.id de fora: com uma coluna id em follows (só numa transação desfeita no fim), o criador seguido continua true e o outro, false', async () => {
+    const followed = await createUser(t.database.db, {
+      handle: 'estudioaurora',
+      accountType: 'creator',
+    });
+    const other = await createUser(t.database.db, {
+      handle: 'estudiovinil',
+      accountType: 'creator',
+    });
+    const viewer = await createUser(t.database.db);
+    await follow(t.database.db, viewer, followed);
+    const expected = { estudioaurora: true, estudiovinil: false };
+    const followedByHandle = (rows: readonly { handle: string; followedByMe: boolean }[]) =>
+      Object.fromEntries(rows.map((row) => [row.handle, row.followedByMe]));
+
+    // Controle, com a tabela das migrations.
+    const plain = await t.app
+      .get(FollowsRepository)
+      .searchCreators(viewer.id, 'estudio', 20, sql`true`);
+    expect(followedByHandle(plain)).toEqual(expected);
+    expect(plain.map((row) => row.id)).toEqual([followed.id, other.id]);
+
+    // Com `follows.id`, um `"id"` sem a tabela seria o da subconsulta (sempre falso).
+    const shadowed = await withShadowIdColumn(t.database.db, 'follows', (tx) =>
+      new FollowsRepository({ db: tx, close: () => Promise.resolve() }).searchCreators(
+        viewer.id,
+        'estudio',
+        20,
+        sql`true`,
+      ),
+    );
+    expect(followedByHandle(shadowed)).toEqual(expected);
+    // A transação foi desfeita: a tabela voltou a ser a das migrations.
+    expect(await hasColumn(t.database.db, 'follows', 'id')).toBe(false);
   });
 });
 

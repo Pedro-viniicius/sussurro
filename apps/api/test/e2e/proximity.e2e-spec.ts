@@ -1,9 +1,9 @@
 // E2E dos tokens de proximidade e do resolve do código lido por QR ou NFC (histórias 4.2 e 4.4 no
 // servidor; ADR 0003 e ADR 0013; testes.md PROX-01, 02, 04, 05, 08, 20, 21, 25, 27, PROX-31 e
-// A-17). As validades de 30 e 120 s correm no relógio de teste e no fake em memória do Redis (sem
-// `sleep`). (ADR 0013) O encosto por Bluetooth (`POST /proximity/touches`) saiu: a rota responde
-// o 404 de qualquer rota desconhecida.
-import { eq, users } from '@sussurro/db';
+// A-17; R25 no PROX-05). As validades de 30 e 120 s correm no relógio de teste e no fake em memória
+// do Redis (sem `sleep`). (ADR 0013) O encosto por Bluetooth (`POST /proximity/touches`) saiu: a
+// rota responde o 404 de qualquer rota desconhecida.
+import { eq, sql, type UserRow, users } from '@sussurro/db';
 import { block, connect, createUser, TEST_PASSWORD } from '@sussurro/db/testing';
 import {
   ErrorResponseSchema,
@@ -27,6 +27,7 @@ import {
   resolveTokens,
   UNKNOWN_TOKEN,
 } from '../support/proximity.js';
+import { hasColumn, withShadowIdColumn } from '../support/shadow-column.js';
 import { createTestApp, type TestApp } from '../support/test-app.js';
 
 let t: TestApp;
@@ -341,6 +342,40 @@ describe('POST /proximity/resolve (4.4)', () => {
     } finally {
       nearby.mockRestore();
     }
+  });
+
+  it('[PROX-05] (R25) o alreadyConnected do resolve lê o users.id de fora: com uma coluna id em connections (só numa transação desfeita no fim), as conexões dos dois lados do par ordenado continuam true e quem não é conexão, false', async () => {
+    // Quem chama no meio dos ids: uma conexão em que ele é o `user_b_id` (com a de id menor) e
+    // outra em que é o `user_a_id` (com a de id maior), para os dois ramos do `exists`.
+    const people: UserRow[] = [];
+    for (let index = 0; index < 4; index++) {
+      people.push(await createUser(t.database.db));
+    }
+    const [lower, viewer, higher, stranger] = people.sort((first, second) =>
+      first.id < second.id ? -1 : 1,
+    ) as [UserRow, UserRow, UserRow, UserRow];
+    await connect(t.database.db, viewer, lower);
+    await connect(t.database.db, viewer, higher);
+    const ids = [lower.id, higher.id, stranger.id];
+    const expected = { [lower.id]: true, [higher.id]: true, [stranger.id]: false };
+    const connectedById = (rows: readonly { id: string; connected: boolean }[]) =>
+      Object.fromEntries(rows.map((row) => [row.id, row.connected]));
+
+    // Controle, com a tabela das migrations.
+    const plain = await t.app.get(ProximityRepository).findNearby(viewer.id, ids, sql`true`);
+    expect(connectedById(plain)).toEqual(expected);
+
+    // Com `connections.id`, um `"id"` sem a tabela seria o da subconsulta (sempre falso).
+    const shadowed = await withShadowIdColumn(t.database.db, 'connections', (tx) =>
+      new ProximityRepository({ db: tx, close: () => Promise.resolve() }).findNearby(
+        viewer.id,
+        ids,
+        sql`true`,
+      ),
+    );
+    expect(connectedById(shadowed)).toEqual(expected);
+    // A transação foi desfeita: a tabela voltou a ser a das migrations.
+    expect(await hasColumn(t.database.db, 'connections', 'id')).toBe(false);
   });
 
   it('[PROX-20] 31º resolve no minuto → 429; o resolve de outra pessoa não é afetado', async () => {

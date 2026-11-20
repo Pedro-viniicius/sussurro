@@ -16,6 +16,7 @@ export { MIGRATIONS_FOLDER, runMigrations } from './migrate.ts';
 export * as schema from './schema/index.ts';
 export * from './schema/index.ts';
 export { findPgError, PgErrorCode, type PgErrorInfo } from './errors.ts';
+export { qualified } from './qualified.ts';
 // Operadores do Drizzle reexportados: a API e o worker usam a mesma cópia do drizzle-orm do schema.
 export {
   and,

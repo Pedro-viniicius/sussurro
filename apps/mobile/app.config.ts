@@ -146,6 +146,11 @@ export function buildAppConfig(
     ios: {
       bundleIdentifier: id,
       supportsTablet: false,
+      // Conformidade de exportação (docs/deploy/lojas.md §3): o app só usa a criptografia padrão do
+      // sistema (HTTPS e o Keychain do `expo-secure-store`), que é isenta. Vira o
+      // `ITSAppUsesNonExemptEncryption: false` do Info.plist, e o App Store Connect não pergunta a
+      // cada build.
+      config: { usesNonExemptEncryption: false },
       infoPlist: isDev
         ? {
             NSAppTransportSecurity: { NSAllowsLocalNetworking: true },

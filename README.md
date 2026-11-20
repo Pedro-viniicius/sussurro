@@ -903,4 +903,27 @@ Plano do Tech Lead de 2026-10-31, a partir do inventário do `arquiteto`, aprova
   - FEED-16;
   - os PRs negativos F0-CI-02/04.
 
-**PR #5** (Fase 4d e dívidas registradas) e **PR #6** (fidelidade ao `ux.md`): em andamento.
+**Fase 4d e dívidas registradas** (planejada como "PR #5"; os números #5 e #6 acabaram indo para o Dependabot). (atualizado em 2026-11-20) O trabalho tinha parado num commit de passagem (`e3191ad`, 2026-10-31, branch `feat/fechamento-4d-dividas`), sem PR. Foi portado para a `main` depois da Fase 4e (NFC + QR, ADR 0013), na branch `feat/fase-4d-portada`:
+
+- Entrou:
+  - `dados`: R25, com o `qualified()` do `@sussurro/db` no `findNearby` e no `searchCreators`;
+  - `backend`: `PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN` (6) no `packages/shared`, e o pedaço `count` do `notificationTextParts`;
+  - `frontend`:
+    - a janela de emissões de token dura a sessão, e toda emissão espera a vaga numa só (`nextIssue`);
+    - nenhum `refresh` emite com a tela do Conectar inativa: era o MÉDIO aberto pelo `seguranca` na 4d, agora fechado;
+    - o código sai na parada (C4), e o NFC não emite o código antigo;
+    - a "época" da sessão no `client.ts`;
+    - o `PublishingProvider` descarta os envios da conta anterior;
+    - "Denunciar" em "Contas bloqueadas", com o erro na linha do `/denunciar`;
+    - `usesNonExemptEncryption: false`;
+    - o `count` na `NotificationRow`.
+- Ficou de fora, porque era do BLE ou do encostar que a ADR 0013 tirou: `useTouch`, os estados 21 e 22 (cartão atrasado, T47 e T48, PROX-69 e 70) e o foco no T32 (o seletor saiu).
+- Docs:
+  - `ux.md`: a revisão da 4d entrou como §11.20 (a §11.19 é a dos textos NFC + QR);
+  - `testes.md`: PROX-05, 20, 65 e 68, AUTH-15, MID-15, BUS-10, NOT-05 e MAN-MOD-01.
+- Revisões:
+  - `testes`: aprovado (backend e dados), com mutações mortas no limite de emissões e no R25;
+  - `ux-ui`: conflito resolvido; o S5 ("Carregando o seu código" para o leitor de tela) fica com o PO;
+  - `seguranca`: aprovado. O MÉDIO da 4d está fechado, e o único BAIXO foi corrigido no próprio PR.
+
+**Fidelidade ao `ux.md` §12** (planejada como "PR #6"): ainda não começou. É fazer (b), o Início recarregar depois de seguir, de deixar de seguir e de uma conexão nova, e (c), o tile "Processando" consultar sozinho.

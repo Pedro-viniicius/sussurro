@@ -84,3 +84,13 @@ timing.pollIntervalMs = 1;
 timing.searchDebounceMs = 0;
 timing.pushPromptDelayMs = 0;
 actionSheetTiming.iosDismissFallbackMs = 0;
+
+// A janela das emissões de tokens do Conectar fica no módulo e é da sessão (PROX-68): cada teste
+// começa com ela vazia, sem depender da desmontagem do `RootNavigator` no fim do teste anterior (nem
+// valer só para quem chama `forgetTokenIssues`). O `require` fica no `beforeEach`, depois dos
+// `jest.mock` e dos imports do arquivo de teste: é a mesma instância do módulo que o teste usa.
+beforeEach(() => {
+  (
+    require('./src/features/connect/hooks') as { forgetTokenIssues: () => void }
+  ).forgetTokenIssues();
+});

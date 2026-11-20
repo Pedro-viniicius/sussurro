@@ -1,4 +1,8 @@
-import { ErrorCode, ProximityTokenSchema } from '@sussurro/shared';
+import {
+  ErrorCode,
+  PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN,
+  ProximityTokenSchema,
+} from '@sussurro/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { hashProximityToken, PROXIMITY_LIMITS } from './proximity-token.js';
@@ -132,8 +136,11 @@ describe('ProximityService: emissão (ADR 0013 §1)', () => {
     expect(first.token).not.toBe(second.token);
   });
 
-  it('[PROX-20] o limite de 6 por minuto conta a emissão', async () => {
+  it('[PROX-20] o limite de 6 por minuto (PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN) conta a emissão', async () => {
     const { service } = setup();
+    // O número é o do `packages/shared`, o mesmo que o app usa para não pedir acima dele (PROX-68).
+    expect(PROXIMITY_LIMITS.tokens.limit).toBe(PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN);
+    expect(PROXIMITY_LIMITS.tokens.windowMs).toBe(60_000);
     for (let index = 0; index < PROXIMITY_LIMITS.tokens.limit; index++) {
       await service.issueToken(viewer(A));
     }

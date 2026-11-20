@@ -85,6 +85,51 @@ describe('textos das notificações (p09, p21)', () => {
     );
   });
 
+  it('[NOT-05] (controle) pedaços de curtida, comentário, resposta e conexão: o @ em `handle`, sem `count` (só os seguidores têm o pedaço `count`)', () => {
+    expect(notificationTextParts({ ...base, type: 'post_liked', actor, post })).toEqual([
+      { kind: 'handle', value: 'lucasf' },
+      { kind: 'text', value: ' curtiu sua foto.' },
+    ]);
+    expect(
+      notificationTextParts({ ...base, type: 'post_commented', actor, post, excerpt: 'Oi' }),
+    ).toEqual([
+      { kind: 'handle', value: 'lucasf' },
+      { kind: 'text', value: ' comentou na sua foto: ' },
+      { kind: 'quote', value: '“Oi”' },
+    ]);
+    expect(
+      notificationTextParts({ ...base, type: 'comment_replied', actor, post, excerpt: 'Oi' }),
+    ).toEqual([
+      { kind: 'handle', value: 'lucasf' },
+      { kind: 'text', value: ' respondeu seu comentário: ' },
+      { kind: 'quote', value: '“Oi”' },
+    ]);
+    expect(notificationTextParts({ ...base, type: 'connection_created', actor })).toEqual([
+      { kind: 'text', value: 'Você e ' },
+      { kind: 'handle', value: 'lucasf' },
+      { kind: 'text', value: ' estão conectados.' },
+    ]);
+  });
+
+  it('[NOT-05] seguidores (p21): "N novas pessoas" no pedaço `count`, sem @; juntos, os pedaços dão o texto do push', () => {
+    expect(notificationTextParts({ ...base, type: 'new_followers', count: 1 })).toEqual([
+      { kind: 'count', value: '1 nova pessoa' },
+      { kind: 'text', value: ' começou a seguir você.' },
+    ]);
+    expect(notificationTextParts({ ...base, type: 'new_followers', count: 3 })).toEqual([
+      { kind: 'count', value: '3 novas pessoas' },
+      { kind: 'text', value: ' começaram a seguir você.' },
+    ]);
+    for (const count of [1, 2, 99, 100, 1234]) {
+      const notification: Notification = { ...base, type: 'new_followers', count };
+      const parts = notificationTextParts(notification);
+      // Ninguém nomeado: nenhum pedaço é um @ (6.3, NOT-02).
+      expect(parts.map((part) => part.kind)).toEqual(['count', 'text']);
+      expect(notificationPlainText(notification)).toBe(followersText(count));
+      expect(notificationPlainText(notification)).toBe(pushBody({ type: 'new_followers', count }));
+    }
+  });
+
   it('trecho do comentário: uma linha, até 80 caracteres, com "…" quando cortado', () => {
     expect(notificationExcerpt('  Que luz\n\nbonita!  ')).toBe('Que luz bonita!');
     const long = 'a'.repeat(200);

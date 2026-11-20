@@ -22,7 +22,7 @@ import {
 } from './api';
 import { COPY, firstName } from './copy';
 import { isSimulationEnabled } from './dev-tools';
-import { type HaltReason, haltReasonFor, nativeErrorCode } from './errors';
+import { type HaltReason, haltReasonFor, nativeErrorCode, TokenWaitCancelled } from './errors';
 import { vibrate } from './haptics';
 import { usePolling, useProximityToken } from './hooks';
 import { useNfc } from './NfcProvider';
@@ -225,8 +225,14 @@ export function useConnectSession({
     acceptingRef.current = accepting;
   });
 
-  /** Erro que para a tela (429, Redis fora, sem rede, e-mail): `true` se parou. */
+  /**
+   * Erro que para a tela (429, Redis fora, sem rede, e-mail): `true` se parou. A espera pela vaga
+   * das emissões cancelada (`TokenWaitCancelled`) também volta `true`, sem parar de novo: ela só
+   * acontece porque a tela já parou, foi para o segundo plano ou fechou, e quem esperava termina
+   * sem Toast nem mensagem (PROX-68).
+   */
   const halt = useCallback((error: unknown): boolean => {
+    if (error instanceof TokenWaitCancelled) return true;
     const reason = haltReasonFor(error);
     if (reason === null) return false;
     dispatch({ type: 'halt', reason });
@@ -235,19 +241,55 @@ export function useConnectSession({
     return true;
   }, []);
 
-  const { token, refresh: refreshOwnToken } = useProximityToken(api, active, (error) => {
-    if (!halt(error)) dispatch({ type: 'halt', reason: 'unavailable' });
-  });
+  // Com a tela parada (18 a 20), o token de antes sai: o "Tentar de novo" começa com o QR no
+  // carregando e o NFC sem emitir, até a nova emissão (C4).
+  const { token, refresh: refreshOwnToken } = useProximityToken(
+    api,
+    active,
+    (error) => {
+      if (!halt(error)) dispatch({ type: 'halt', reason: 'unavailable' });
+    },
+    state.halt !== null,
+  );
   const tokenReady = token !== null;
 
-  /** Repete uma vez depois de renovar o token se o servidor disse "tela fechada" (409). */
+  /** A tela Conectar ainda está montada (sair da aba ou da conta a desmonta). */
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  /** A tela está ativa (em primeiro plano e sem parada), lido depois de qualquer `await`. */
+  const activeRef = useRef(active);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+
+  /**
+   * Repete uma vez depois de renovar o token se o servidor disse "tela fechada" (409). Com a janela
+   * das emissões cheia, a renovação espera a vaga (PROX-68), e a ação fica no carregando.
+   *
+   * O 409 que chega depois de a tela desmontar (sair da aba, sair da conta) não renova nem repete,
+   * e o mesmo vale se ela desmontar durante a renovação (MÉDIO do `seguranca`): a repetição sairia
+   * com a sessão de agora, que pode ser de outra conta, e criaria um pedido que ninguém fez. Com a
+   * tela inativa (parada ou em segundo plano), o mesmo: o `refresh` não emite (`useProximityToken`),
+   * e a repetição não sai nem quando o `refresh` aproveita uma emissão que já estava em voo antes da
+   * inativação (BAIXO do `seguranca`). A ação termina em silêncio (`TokenWaitCancelled`, que o
+   * `halt` trata).
+   */
   const withScreenOpen = useCallback(
     async <T>(call: () => Promise<T>): Promise<T> => {
+      /** Lido sempre de novo: a tela pode desmontar ou ficar inativa durante qualquer `await`. */
+      const closed = (): boolean => !mountedRef.current || !activeRef.current;
       try {
         return await call();
       } catch (error) {
         if (!isApiError(error, 'PROXIMITY_SCREEN_CLOSED')) throw error;
+        if (closed()) throw new TokenWaitCancelled();
         await refreshOwnToken();
+        if (closed()) throw new TokenWaitCancelled();
         return call();
       }
     },

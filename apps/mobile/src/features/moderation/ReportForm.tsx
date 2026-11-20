@@ -6,7 +6,7 @@ import {
   type ReportReason,
   type ReportTarget,
 } from '@sussurro/shared';
-import { Icon, Input, RadioOptionList, ScreenHeader, Text, theme, useToast } from '@sussurro/ui';
+import { Icon, Input, RadioOptionList, ScreenHeader, Text, theme } from '@sussurro/ui';
 import { type Ref, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -52,17 +52,11 @@ export interface ReportFormProps {
   onSent: () => void;
   /** 404 (o alvo sumiu ou deixou de ser visível): quem abriu mostra o aviso e fecha. */
   onGone: () => void;
-  /**
-   * Onde aparece o erro do envio (429, 503, sem rede): num Toast, na rota `/denunciar`; ou numa
-   * linha do próprio formulário (`inline`), no `Modal` do Conectar, porque o Toast ficaria atrás
-   * dele (ux.md §11.14).
-   */
-  errorMode: 'toast' | 'inline';
   /** Nota abaixo da pergunta, com o relógio (o T46 no formulário aberto pelo cartão 11, 14 ou 22). */
   note?: string | undefined;
   /** O cabeçalho da pergunta, para quem abriu mover o foco até ele (Conectar, M8). */
   questionRef?: Ref<ViewInstance> | undefined;
-  /** `testID` da linha de erro (`inline`). */
+  /** `testID` da linha de erro. */
   errorTestID?: string | undefined;
 }
 
@@ -71,23 +65,25 @@ export interface ReportFormProps {
  * caracteres com contador e "Enviar". Serve à rota `/denunciar` e ao cartão do Conectar (ux.md
  * §11.14), com o mesmo conteúdo e os mesmos textos. Quem abre decide o que fazer depois do 202 e do
  * 404; os outros erros mantêm o formulário, com o motivo e o texto, para tentar de novo.
+ *
+ * O erro do envio (429, 503, sem rede) sai numa linha do próprio formulário, e não num Toast: as
+ * duas entradas são modais (a rota `/denunciar` é um modal nativo, e o Conectar usa um `Modal`), e
+ * no iOS o Toast da raiz ficaria atrás deles (ux.md §11.14, §11.18 e §11.20, S6).
  */
 export function ReportForm({
   target,
   onClose,
   onSent,
   onGone,
-  errorMode,
   note,
   questionRef,
   errorTestID,
 }: ReportFormProps) {
   const { api } = useAuth();
-  const toast = useToast();
   const [reason, setReason] = useState<ReportReason | null>(null);
   const [details, setDetails] = useState('');
   const [sending, setSending] = useState(false);
-  /** O erro do envio na linha do formulário (`inline`); some no envio seguinte. */
+  /** O erro do envio na linha do formulário; some no envio seguinte. */
   const [error, setError] = useState<string | null>(null);
 
   const tooLong = countChars(details) > REPORT_DETAILS_MAX_LENGTH;
@@ -109,13 +105,9 @@ export function ReportForm({
           return;
         }
         const message = messageForError(failure);
-        if (errorMode === 'inline') {
-          // A linha é anunciada uma vez, nos dois sistemas, sem região viva (ux.md §11.14, M11).
-          setError(message);
-          AccessibilityInfo.announceForAccessibility(message);
-        } else {
-          toast.show({ message, variant: 'error' });
-        }
+        // A linha é anunciada uma vez, nos dois sistemas, sem região viva (ux.md §11.14, M11).
+        setError(message);
+        AccessibilityInfo.announceForAccessibility(message);
       });
   };
 

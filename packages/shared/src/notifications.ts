@@ -231,11 +231,19 @@ function onOwnPost(type: PostType): string {
   return type === 'photo' ? 'na sua foto' : `no ${ownPostLabel(type)}`;
 }
 
+/** "1 nova pessoa" / "3 novas pessoas": o pedaço em destaque do texto dos seguidores (p21). */
+function followersCountText(count: number): string {
+  return count === 1 ? '1 nova pessoa' : `${String(count)} novas pessoas`;
+}
+
+/** O resto da frase dos seguidores, depois de `followersCountText`. */
+function followersRestText(count: number): string {
+  return count === 1 ? ' começou a seguir você.' : ' começaram a seguir você.';
+}
+
 /** NOT-05: "1 nova pessoa começou a seguir você." / "3 novas pessoas começaram a seguir você." */
 export function followersText(count: number): string {
-  return count === 1
-    ? '1 nova pessoa começou a seguir você.'
-    : `${String(count)} novas pessoas começaram a seguir você.`;
+  return followersCountText(count) + followersRestText(count);
 }
 
 /** Avatar agregado da notificação de seguidores (p21): "+3"; acima de 99, "99+". */
@@ -273,18 +281,24 @@ export function pushBody(input: PushTextInput): string {
 // --- texto da notificação no app (p09, p21) ------------------------------------------------------
 
 /**
- * Um pedaço do texto: o @ (em 600, tocável quando `actor.profileVisible`), texto comum ou o trecho
- * do comentário entre aspas.
+ * Um pedaço do texto:
+ * - `handle`: o @ do ator (em 600, tocável quando `actor.profileVisible`);
+ * - `count`: nos seguidores agregados, "N novas pessoas" (em 600, como o @, mas nunca tocável: não
+ *   há ninguém nomeado nem perfil a abrir, p21);
+ * - `text`: texto comum;
+ * - `quote`: o trecho do comentário entre aspas.
  */
 export interface NotificationTextPart {
-  kind: 'handle' | 'text' | 'quote';
+  kind: 'handle' | 'count' | 'text' | 'quote';
   value: string;
 }
 
 /**
  * Texto de uma notificação no app, em pedaços: "marinac curtiu sua foto.", "lucasf comentou na sua
  * foto: “Que luz bonita!”", "tomas respondeu seu comentário: “…”", "Você e caio.r estão
- * conectados." e "3 novas pessoas começaram a seguir você.".
+ * conectados." e "3 novas pessoas começaram a seguir você." (com "3 novas pessoas" no pedaço
+ * `count`). Juntos, os pedaços dão sempre a mesma frase (`notificationPlainText`); a dos
+ * seguidores é a do push (`followersText`).
  */
 export function notificationTextParts(notification: Notification): NotificationTextPart[] {
   switch (notification.type) {
@@ -312,7 +326,10 @@ export function notificationTextParts(notification: Notification): NotificationT
         { kind: 'text', value: ' estão conectados.' },
       ];
     case 'new_followers':
-      return [{ kind: 'text', value: followersText(notification.count) }];
+      return [
+        { kind: 'count', value: followersCountText(notification.count) },
+        { kind: 'text', value: followersRestText(notification.count) },
+      ];
   }
 }
 

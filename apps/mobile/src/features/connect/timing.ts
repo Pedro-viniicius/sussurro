@@ -1,4 +1,4 @@
-import { CONNECTION_POLL_INTERVAL_S } from '@sussurro/shared';
+import { CONNECTION_POLL_INTERVAL_S, PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN } from '@sussurro/shared';
 
 /**
  * Tempos da tela Conectar (ux.md §11.4 e ADR 0013 §5). Objeto mutável só para os testes encurtarem
@@ -24,11 +24,13 @@ export const connectTiming = {
   tokenRetries: 3,
   /**
    * Teto das emissões de tokens (PROX-68): o servidor aceita 6 por minuto por conta (o limite
-   * `prox-tokens:user` da API, PROX-20) e responde 429 acima disso, que a tela mostra como "Muitas
-   * tentativas". O app conta as próprias emissões numa janela móvel de 60 s, e a tentativa de novo
-   * que passaria do teto não sai. A renovação normal (3 por minuto) nunca chega a ele.
+   * `prox-tokens:user` da API, PROX-20, com o número no `packages/shared`) e responde 429 acima
+   * disso, que a tela mostra como "Muitas tentativas". O app conta as próprias emissões da sessão
+   * numa janela móvel de 60 s (`hooks.ts`): a tentativa de novo que passaria do teto não sai, e o 1º
+   * pedido da visita, a renovação e o `refresh` do 409 esperam a vaga, numa emissão só. A
+   * renovação normal (3 por minuto) nunca chega a ele.
    */
-  tokenIssueLimit: 6,
+  tokenIssueLimit: PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN,
   tokenIssueWindowMs: 60_000,
   /** Deep link do código sem sessão: o token é descartado depois de 30 s (4.7 CA6). */
   pendingLinkTtlMs: 30_000,

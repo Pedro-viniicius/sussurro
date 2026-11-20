@@ -356,8 +356,11 @@ describe('Notificações do criador (p21, 6.3)', () => {
         notificationsApi(fake, [one, three]);
       },
     });
-    expect(await screen.findByText('1 nova pessoa começou a seguir você.')).toBeOnTheScreen();
-    expect(screen.getByText('3 novas pessoas começaram a seguir você.')).toBeOnTheScreen();
+    // O "N novas pessoas" vem num pedaço próprio (`count`, em 600); o rótulo da linha tem a frase.
+    expect(await screen.findByText('1 nova pessoa')).toBeOnTheScreen();
+    expect(screen.getByText('3 novas pessoas')).toBeOnTheScreen();
+    expect(screen.getByLabelText(/^1 nova pessoa começou a seguir você\. /)).toBeOnTheScreen();
+    expect(screen.getByLabelText(/^3 novas pessoas começaram a seguir você\. /)).toBeOnTheScreen();
     expect(screen.getByText('+1', { includeHiddenElements: true })).toBeOnTheScreen();
     expect(screen.getByText('+3', { includeHiddenElements: true })).toBeOnTheScreen();
     // A linha de seguidores não é tocável (não há post nem pessoa).
@@ -378,7 +381,7 @@ describe('Notificações do criador (p21, 6.3)', () => {
     });
     const tab = await screen.findByRole('tab', { name: 'Notificações, há novidades' });
     await userEvent.press(tab);
-    await screen.findByText('2 novas pessoas começaram a seguir você.');
+    await screen.findByText('2 novas pessoas');
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: 'Notificações' })).toBeSelected();
     });

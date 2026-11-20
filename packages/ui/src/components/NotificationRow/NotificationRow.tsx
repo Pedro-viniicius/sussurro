@@ -8,10 +8,12 @@ import { Text } from '../Text/Text';
 
 /**
  * Um pedaço do texto (o mesmo formato do `notificationTextParts` do `packages/shared`, que o
- * `packages/ui` não importa): o @ em 600, texto comum ou o trecho do comentário entre aspas.
+ * `packages/ui` não importa): o @ em 600 (tocável com `onPressHandle`), o "N novas pessoas" dos
+ * seguidores agregados em 600 (nunca tocável: não há ninguém nomeado, p21), texto comum ou o
+ * trecho do comentário entre aspas.
  */
 export interface NotificationTextSegment {
-  kind: 'handle' | 'text' | 'quote';
+  kind: 'handle' | 'count' | 'text' | 'quote';
   value: string;
 }
 
@@ -46,8 +48,8 @@ const PROFILE_ACTION = 'profile';
 
 /**
  * Linha de notificação (p09, p21; ux.md §6.14): Avatar 44 (ou o "+N" agregado), texto `body` com o
- * @ em 600 e o tempo inline em `caption` grey, miniatura 44 com raio 6 à direita e o ponto azul
- * das não lidas.
+ * @ (ou o "N novas pessoas") em 600 e o tempo inline em `caption` grey, miniatura 44 com raio 6 à
+ * direita e o ponto azul das não lidas.
  */
 export function NotificationRow({
   parts,
@@ -88,24 +90,36 @@ export function NotificationRow({
       )}
       <View style={styles.texts}>
         <Text variant="body">
-          {parts.map((part, index) =>
-            part.kind === 'handle' ? (
-              <Text
-                key={index}
-                variant="bodyStrong"
-                testID={`${testID}-handle`}
-                {...(onPressHandle === undefined
-                  ? {}
-                  : { onPress: onPressHandle, suppressHighlighting: true })}
-              >
-                {part.value}
-              </Text>
-            ) : (
-              <Text key={index} variant="body">
-                {part.value}
-              </Text>
-            ),
-          )}
+          {parts.map((part, index) => {
+            switch (part.kind) {
+              case 'handle':
+                return (
+                  <Text
+                    key={index}
+                    variant="bodyStrong"
+                    testID={`${testID}-handle`}
+                    {...(onPressHandle === undefined
+                      ? {}
+                      : { onPress: onPressHandle, suppressHighlighting: true })}
+                  >
+                    {part.value}
+                  </Text>
+                );
+              case 'count':
+                return (
+                  <Text key={index} variant="bodyStrong" testID={`${testID}-count`}>
+                    {part.value}
+                  </Text>
+                );
+              case 'text':
+              case 'quote':
+                return (
+                  <Text key={index} variant="body">
+                    {part.value}
+                  </Text>
+                );
+            }
+          })}
           <Text variant="caption" color="grey">
             {` ${time}`}
           </Text>

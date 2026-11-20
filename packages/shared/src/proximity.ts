@@ -20,6 +20,13 @@ export const PROXIMITY_TOKEN_TTL_S = 30;
 export const PROXIMITY_RECENT_TTL_S = 120;
 /** O app renova o token (o QR e o NFC) a cada 20 s com a tela Conectar aberta. */
 export const PROXIMITY_RENEW_INTERVAL_S = 20;
+/**
+ * Limite de emissões (`POST /proximity/tokens`) por conta e por minuto no servidor; a 7ª dá 429
+ * (PROX-20). Cada emissão traz um token só, o mesmo no QR e no NFC (ADR 0013). A rotação a cada
+ * 20 s gasta 3 por minuto, e a folga cobre reabrir a tela. O app guarda as próprias emissões e não
+ * pede acima deste limite (PROX-68).
+ */
+export const PROXIMITY_TOKEN_ISSUE_LIMIT_PER_MIN = 6;
 /** Tokens por chamada de `POST /proximity/resolve` (PROX-05). */
 export const PROXIMITY_RESOLVE_MAX_TOKENS = 20;
 /**

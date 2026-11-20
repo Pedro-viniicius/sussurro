@@ -131,6 +131,19 @@ describe('CatalogScreen', () => {
       phase3.getByRole('button', { name: 'Seguindo @estudioaurora, toque para deixar de seguir' }),
     ).toBeOnTheScreen();
     expect(phase3.getAllByRole('radio')).toHaveLength(8);
+    // ux.md §11.18: "Contas bloqueadas" com o (Desbloquear) e o ⋯, e a data longa em até 2 linhas.
+    const blocked = within(phase3.getByTestId('catalog-user-row-blocked-long'));
+    expect(
+      blocked.getAllByRole('button').map((node) => String(node.props.accessibilityLabel)),
+    ).toEqual([
+      'Desbloquear @helena.souza.fotografia',
+      'Mais opções para @helena.souza.fotografia',
+    ]);
+    // O espaço não separável (U+00A0) entre o dia, o mês e o ano (ux.md §11.20, S4).
+    const longDate = blocked.getByText('Bloqueio em 3 set 2025');
+    expect(longDate.props.numberOfLines).toBe(2);
+    // O `getByText` normaliza os espaços: o texto cru confere o caractere.
+    expect(longDate.props.children).toBe('Bloqueio em 3 set 2025');
     await userEvent.press(phase3.getByRole('button', { name: 'Abrir menu ⋯' }));
     expect(screen.getByRole('button', { name: 'Denunciar' })).toBeOnTheScreen();
     await userEvent.press(screen.getByRole('button', { name: 'Cancelar' }));
@@ -199,12 +212,12 @@ describe('CatalogScreen', () => {
     const phase6 = within(screen.getByTestId('catalog-section-fase6'));
     expect(phase6.getByRole('header', { name: 'NotificationRow' })).toBeOnTheScreen();
     expect(phase6.getByTestId('catalog-coracao-dot')).toBeOnTheScreen();
-    expect(phase6.getByText('2 novas pessoas começaram a seguir você.')).toBeOnTheScreen();
+    expect(phase6.getByText('2 novas pessoas')).toBeOnTheScreen();
     const p09 = within(screen.getByTestId('catalog-notificacoes-p09'));
     expect(p09.getByText('“Que luz bonita!”')).toBeOnTheScreen();
     expect(p09.getByText('Isso é tudo por enquanto.')).toBeOnTheScreen();
     const p21 = within(screen.getByTestId('catalog-notificacoes-p21'));
-    expect(p21.getByText('5 novas pessoas começaram a seguir você.')).toBeOnTheScreen();
+    expect(p21.getByText('5 novas pessoas')).toBeOnTheScreen();
     expect(p21.getByText(' comentou no seu reel: ')).toBeOnTheScreen();
     // Sem DSN nos testes: o erro de teste não sai.
     await userEvent.press(phase6.getByRole('button', { name: 'Enviar erro de teste' }));

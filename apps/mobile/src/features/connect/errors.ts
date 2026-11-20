@@ -4,6 +4,20 @@ import { ApiError, NetworkError } from '../../lib/api/errors';
 export type HaltReason = 'paused' | 'unavailable' | 'offline' | 'emailNotVerified';
 
 /**
+ * A renovação dos tokens não saiu porque a tela Conectar parou (18 a 20), foi para o segundo plano
+ * ou fechou: antes de a vaga do teto abrir (PROX-68), ou antes mesmo de pedir (o 409 "tela fechada"
+ * que chega com a tela inativa ou desmontada). Não é um erro para mostrar: quem esperava (o
+ * `refresh` e o `withScreenOpen`) termina em silêncio, como se a tela já tivesse parado (o `halt`
+ * do `useConnectSession` o trata assim).
+ */
+export class TokenWaitCancelled extends Error {
+  constructor() {
+    super('A espera pela vaga das emissões de tokens foi cancelada.');
+    this.name = 'TokenWaitCancelled';
+  }
+}
+
+/**
  * Erro que para a tela: 429 (limite ou bloqueio de 15 min) → "Muitas tentativas"; Redis fora ou
  * 5xx → "Conectar está indisponível agora"; criador (403, nunca deveria chegar aqui) também; sem
  * rede → "Sem internet"; e-mail não confirmado. `null`: o erro é tratado onde aconteceu (Toast ou

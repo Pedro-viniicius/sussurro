@@ -1,14 +1,14 @@
 import { MAX_REEL_DURATION_S, MAX_VIDEO_BYTES, type Post } from '@sussurro/shared';
-import { userEvent } from '@testing-library/react-native';
+import { fireEvent, userEvent } from '@testing-library/react-native';
 import { useNetworkState } from 'expo-network';
-import { screen, waitFor, within } from 'expo-router/testing-library';
+import { act, screen, waitFor, within } from 'expo-router/testing-library';
 import { Alert, type AlertButton } from 'react-native';
 
 import { SHARE_OFFLINE_MESSAGE } from './CreateScreen';
 import { PUBLISHED_MESSAGE } from './PublishingProvider';
 import { REEL_PROBLEM_MESSAGE } from './reel-selection';
 import { NetworkError } from '../../lib/api/errors';
-import { creatorMe, type FakeApi, personalMe } from '../../test-utils/fake-api';
+import { creatorMe, type FakeApi, personalMe, session } from '../../test-utils/fake-api';
 import { createFakeMedia, type FakeMedia, pickedVideo } from '../../test-utils/fake-media';
 import {
   AUTHORS,
@@ -549,5 +549,268 @@ describe('tile "Falhou" no próprio perfil (história 5.6)', () => {
     await waitFor(() => {
       expect(screen.queryByText('Falhou')).not.toBeOnTheScreen();
     });
+  });
+});
+
+describe('Criar: a troca de conta no meio do envio (BAIXO do seguranca)', () => {
+  const MARINA = personalMe({
+    id: '01a189e0-af57-7000-85fe-2054e618feb1',
+    email: 'marina@example.com',
+    handle: 'marina',
+    name: 'Marina Costa',
+  });
+
+  async function advance(ms: number) {
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  /** Helena sai pelo Perfil e Marina entra em Entrar (a API falsa devolve a sessão dela). */
+  async function switchToMarina(api: FakeApi) {
+    await userEvent.press(screen.getByRole('button', { name: 'Sair da conta' }));
+    api.on('POST /v1/auth/login', () => ({ status: 200, body: session(MARINA) }));
+    await waitFor(() => {
+      expect(screen).toHavePathname('/entrar');
+    });
+    await fireEvent.changeText(screen.getByLabelText('E-mail'), MARINA.email);
+    await fireEvent.changeText(screen.getByLabelText('Senha'), 'cafe-coado-42');
+    await userEvent.press(screen.getByRole('button', { name: 'Entrar' }));
+    expect(await screen.findByTestId('tela-inicio')).toBeOnTheScreen();
+  }
+
+  it('MID-15 (AUTH-15; BAIXO do seguranca): Helena sai com o vídeo do reel subindo e entra de novo → o envio antigo foi descartado: a faixa não volta no Perfil e nada mais sai dele', async () => {
+    const media = createFakeMedia();
+    let finishUpload: () => void = () => undefined;
+    const uploading = new Promise<void>((resolve) => {
+      finishUpload = resolve;
+    });
+    const uploadVideo = media.ports.uploadVideo;
+    media.ports.uploadVideo = async (...args) => {
+      await uploading;
+      return uploadVideo(...args);
+    };
+    const postId = uuid();
+    const helena = personalMe();
+    confirmAlerts();
+    const { api } = await openReelMode({
+      media,
+      configure: (fake) => {
+        reelFlow(fake, [postId], {});
+        fake.on('POST /v1/auth/logout', { status: 204 });
+      },
+    });
+    await pickVideo(media);
+    await userEvent.press(share());
+    expect(await screen.findByTestId('publishing-banners')).toBeOnTheScreen();
+
+    await userEvent.press(screen.getByRole('button', { name: 'Sair da conta' }));
+    api.on('POST /v1/auth/login', () => ({ status: 200, body: session(helena) }));
+    await waitFor(() => {
+      expect(screen).toHavePathname('/entrar');
+    });
+    await fireEvent.changeText(screen.getByLabelText('E-mail'), helena.email);
+    await fireEvent.changeText(screen.getByLabelText('Senha'), 'cafe-coado-42');
+    await userEvent.press(screen.getByRole('button', { name: 'Entrar' }));
+    expect(await screen.findByTestId('tela-inicio')).toBeOnTheScreen();
+    finishUpload();
+    await advance(30_000);
+    await userEvent.press(screen.getByRole('tab', { name: 'Perfil' }));
+    await waitFor(() => {
+      expect(screen).toHavePathname('/pessoal/perfil');
+    });
+    // Sem o `finish` na troca, a faixa "Enviando" do envio descartado voltaria, parada para sempre.
+    expect(screen.queryByTestId('publishing-banners')).not.toBeOnTheScreen();
+    expect(media.uploads).toHaveLength(0);
+    expect(api.callsTo(`POST /v1/posts/${postId}/publish`)).toHaveLength(0);
+    expect(screen.queryByText(PUBLISHED_MESSAGE)).not.toBeOnTheScreen();
+  });
+
+  it('MID-15 (AUTH-15; BAIXO do seguranca): Helena sai com o vídeo do reel subindo e Marina entra → o envio de Helena para: sem a capa, sem o publish com o token de Marina, sem Toast e sem faixa', async () => {
+    const media = createFakeMedia();
+    // O PUT do vídeo só termina quando o teste mandar.
+    let finishUpload: () => void = () => undefined;
+    const uploading = new Promise<void>((resolve) => {
+      finishUpload = resolve;
+    });
+    const uploadVideo = media.ports.uploadVideo;
+    media.ports.uploadVideo = async (...args) => {
+      await uploading;
+      return uploadVideo(...args);
+    };
+    const postId = uuid();
+    confirmAlerts();
+    const { api } = await openReelMode({
+      media,
+      configure: (fake) => {
+        reelFlow(fake, [postId], {});
+        fake.on('POST /v1/auth/logout', { status: 204 });
+      },
+    });
+    await pickVideo(media);
+    await userEvent.press(share());
+    await waitFor(() => {
+      expect(screen).toHavePathname('/pessoal/perfil');
+    });
+    expect(await screen.findByTestId('publishing-banners')).toBeOnTheScreen();
+
+    await switchToMarina(api);
+    finishUpload();
+    await advance(30_000);
+    // Nada do envio de Helena sai com a sessão de Marina.
+    expect(media.uploads).toHaveLength(0);
+    expect(api.callsTo(`POST /v1/posts/${postId}/publish`)).toHaveLength(0);
+    expect(api.callsTo(`GET /v1/posts/${postId}`)).toHaveLength(0);
+    expect(screen.queryByText(PUBLISHED_MESSAGE)).not.toBeOnTheScreen();
+    expect(screen.queryByTestId('publishing-banners')).not.toBeOnTheScreen();
+  });
+
+  it('MID-15 (AUTH-15; BAIXO do seguranca): Helena sai com o reel processando e Marina entra → a consulta do post para (nenhum GET com o token de Marina), sem Toast e sem faixa', async () => {
+    const media = createFakeMedia();
+    const postId = uuid();
+    confirmAlerts();
+    const { api } = await openReelMode({
+      media,
+      configure: (fake) => {
+        reelFlow(fake, [postId], { [postId]: ['processing'] });
+        fake.on('POST /v1/auth/logout', { status: 204 });
+      },
+    });
+    await pickVideo(media);
+    await userEvent.press(share());
+    expect(await screen.findByText('Processando o reel…')).toBeOnTheScreen();
+    await waitFor(() => {
+      expect(api.callsTo(`GET /v1/posts/${postId}`).length).toBeGreaterThanOrEqual(1);
+    });
+
+    await switchToMarina(api);
+    const polls = api.callsTo(`GET /v1/posts/${postId}`).length;
+    await advance(60_000);
+    // Sem o descarte, a consulta seguiria a cada até 10 s, com o token de Marina.
+    expect(api.callsTo(`GET /v1/posts/${postId}`)).toHaveLength(polls);
+    expect(screen.queryByText(PUBLISHED_MESSAGE)).not.toBeOnTheScreen();
+    expect(screen.queryByTestId('publishing-banners')).not.toBeOnTheScreen();
+  });
+
+  it('MID-15 (AUTH-15; BAIXO do seguranca): no "Tentar de novo" com a URL do vídeo vencida (rascunho novo, sem reel a trocar), Helena sai com a capa sendo gerada e Marina entra → nenhum rascunho sai com o token de Marina, sem envio e sem faixa', async () => {
+    const media = createFakeMedia();
+    // O PUT do vídeo falha uma vez; depois, a URL vence e o "Tentar de novo" pede um rascunho novo,
+    // que começa pela capa (`newDraft`). A capa só termina quando o teste mandar.
+    let failures = 1;
+    media.failVideoUploads(() => {
+      if (failures === 0) return null;
+      failures -= 1;
+      return new NetworkError();
+    });
+    let holdPoster = false;
+    let finishPoster: () => void = () => undefined;
+    const posterGate = new Promise<void>((resolve) => {
+      finishPoster = resolve;
+    });
+    const createPoster = media.ports.createPoster;
+    media.ports.createPoster = async (video) => {
+      if (holdPoster) await posterGate;
+      return createPoster(video);
+    };
+    const postId = uuid();
+    confirmAlerts();
+    const { api } = await openReelMode({
+      media,
+      configure: (fake) => {
+        reelFlow(fake, [postId], {});
+        fake.on('POST /v1/auth/logout', { status: 204 });
+        // As URLs do rascunho valem 60 s (a margem do app é de 30 s).
+        fake.on('POST /v1/posts/drafts', ({ body }) => {
+          const { video, poster } = body as {
+            video: { sizeBytes: number; mime: 'video/mp4' | 'video/quicktime' };
+            poster: { sizeBytes: number };
+          };
+          return {
+            status: 201,
+            body: reelDraft({
+              postId,
+              videoSize: video.sizeBytes,
+              videoMime: video.mime,
+              posterSize: poster.sizeBytes,
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            }),
+          };
+        });
+      },
+    });
+    await pickVideo(media);
+    await userEvent.press(share());
+    expect(await screen.findByText('Não foi possível publicar.')).toBeOnTheScreen();
+    expect(api.callsTo('POST /v1/posts/drafts')).toHaveLength(1);
+    // A URL do vídeo vence (menos de 30 s de folga): o "Tentar de novo" recria o rascunho.
+    await advance(31_000);
+    holdPoster = true;
+    await userEvent.press(screen.getByRole('button', { name: 'Tentar de novo' }));
+    await advance(0);
+    expect(media.posters).toHaveLength(1);
+
+    await switchToMarina(api);
+    finishPoster();
+    await advance(30_000);
+    // Sem o `stopped()` depois da capa, o rascunho do reel de Helena seria criado na conta de Marina.
+    expect(api.callsTo('POST /v1/posts/drafts')).toHaveLength(1);
+    expect(media.videoUploads).toHaveLength(0);
+    expect(api.callsTo(`POST /v1/posts/${postId}/publish`)).toHaveLength(0);
+    expect(screen.queryByText(PUBLISHED_MESSAGE)).not.toBeOnTheScreen();
+    expect(screen.queryByTestId('publishing-banners')).not.toBeOnTheScreen();
+  });
+
+  it('MID-15 (AUTH-15; BAIXO do seguranca): no "Tentar de novo" de um reel que falhou, Helena sai durante a exclusão do reel antigo e Marina entra → o rascunho novo não sai com o token de Marina', async () => {
+    const media = createFakeMedia();
+    const failedId = uuid();
+    const newId = uuid();
+    let releaseDelete: () => void = () => undefined;
+    confirmAlerts();
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: '/pessoal/perfil',
+      media,
+      configure: (fake) => {
+        reelFlow(fake, [newId], { [newId]: ['published'] });
+        fake.on('POST /v1/auth/logout', { status: 204 });
+        // A exclusão do reel que falhou só responde quando o teste mandar.
+        fake.on(
+          `DELETE /v1/posts/${failedId}`,
+          () =>
+            new Promise((resolve) => {
+              releaseDelete = () => {
+                resolve({ status: 204 });
+              };
+            }),
+        );
+        fake.on('GET /v1/users/helena/posts', ({ query }) => ({
+          status: 200,
+          body: {
+            items: query.type === 'reel' ? [ownReel(failedId, 'failed', 'Pão de quinta')] : [],
+            nextCursor: null,
+          },
+        }));
+      },
+    });
+    await userEvent.press(await screen.findByRole('tab', { name: 'Reels' }));
+    await userEvent.press(await screen.findByRole('button', { name: 'Reel não publicado' }));
+    media.queueVideo(pickedVideo());
+    await userEvent.press(
+      within(screen.getByTestId('reel-falhou-menu')).getByRole('button', {
+        name: 'Tentar de novo',
+      }),
+    );
+    await waitFor(() => {
+      expect(api.callsTo(`DELETE /v1/posts/${failedId}`)).toHaveLength(1);
+    });
+
+    await switchToMarina(api);
+    releaseDelete();
+    await advance(30_000);
+    // Sem o `stopped()` depois da exclusão, o rascunho novo seria criado na conta de Marina.
+    expect(api.callsTo('POST /v1/posts/drafts')).toHaveLength(0);
+    expect(media.videoUploads).toHaveLength(0);
+    expect(screen.queryByText(PUBLISHED_MESSAGE)).not.toBeOnTheScreen();
+    expect(screen.queryByTestId('publishing-banners')).not.toBeOnTheScreen();
   });
 });
