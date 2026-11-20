@@ -29,6 +29,40 @@ interface ProximityPlugin {
 const proximityPlugin =
   require('../../modules/sussurro-proximity/app.plugin.js') as ProximityPlugin;
 
+type ModResults = Record<string, unknown>;
+interface ModConfig {
+  mods?: Record<
+    string,
+    Record<
+      string,
+      (config: {
+        modRequest: object;
+        modResults: ModResults;
+      }) => Promise<{ modResults: ModResults }>
+    >
+  >;
+}
+
+/** O config plugin real do expo-secure-store (o mesmo que o prebuild aplica). */
+const withSecureStore = (
+  require('expo-secure-store/app.plugin') as {
+    default: (config: ModConfig, props: Record<string, unknown> | undefined) => ModConfig;
+  }
+).default;
+
+/** Roda um mod do plugin sobre `modResults`, como o prebuild faz (sem tocar no disco). */
+async function runSecureStoreMod(
+  props: Record<string, unknown> | undefined,
+  platform: 'android' | 'ios',
+  mod: 'manifest' | 'infoPlist',
+  modResults: ModResults,
+): Promise<ModResults> {
+  const config = withSecureStore({}, props);
+  const run = config.mods?.[platform]?.[mod];
+  if (run === undefined) throw new Error(`mod ${platform}.${mod} ausente`);
+  return (await run({ modRequest: {}, modResults })).modResults;
+}
+
 type Plugin = string | [string, Record<string, unknown>];
 
 function plugin(
@@ -72,6 +106,39 @@ describe('app.config', () => {
     for (const variant of ['development', 'preview', 'production'] as const) {
       expect(buildAppConfig(variant).ios?.config).toEqual({ usesNonExemptEncryption: false });
     }
+  });
+
+  it('lojas.md: versionName 1.0.0 em todas as variantes (o versionCode e o buildNumber ficam no EAS)', () => {
+    for (const variant of ['development', 'preview', 'production'] as const) {
+      expect(buildAppConfig(variant).version).toBe('1.0.0');
+    }
+  });
+
+  it('AUTH-16 (expo-secure-store): o refresh token fica fora do Auto Backup e da transferência; sem Face ID no iOS', async () => {
+    for (const variant of ['development', 'preview', 'production'] as const) {
+      expect(plugin(variant, 'expo-secure-store')).toEqual({
+        configureAndroidBackup: true,
+        faceIDPermission: false,
+      });
+    }
+    const options = plugin('production', 'expo-secure-store');
+
+    const manifest = await runSecureStoreMod(options, 'android', 'manifest', {
+      manifest: {
+        application: [{ $: { 'android:name': '.MainApplication', 'android:allowBackup': 'true' } }],
+      },
+    });
+    const application = (manifest.manifest as { application: ManifestEntry[] }).application[0];
+    expect(application?.$).toMatchObject({
+      'android:fullBackupContent': '@xml/secure_store_backup_rules',
+      'android:dataExtractionRules': '@xml/secure_store_data_extraction_rules',
+    });
+
+    // Sem o `faceIDPermission: false`, o plugin poria um NSFaceIDUsageDescription em inglês.
+    expect(await runSecureStoreMod(options, 'ios', 'infoPlist', {})).toEqual({});
+    expect(await runSecureStoreMod(undefined, 'ios', 'infoPlist', {})).toHaveProperty(
+      'NSFaceIDUsageDescription',
+    );
   });
 
   it('CA3 (0.7): só retrato; marca no ícone e no splash', () => {
