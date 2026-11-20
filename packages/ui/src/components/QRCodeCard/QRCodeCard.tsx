@@ -74,6 +74,12 @@ export interface QRCodeCardProps {
   size?: number;
   /** Descrição para o leitor de tela (o QR em si não tem texto). */
   accessibilityLabel?: string;
+  /**
+   * Descrição enquanto o QR carrega (`value` nulo), com `busy` (ux.md §11.20, S5): o leitor de
+   * tela não anuncia um código que ainda não existe. O texto vem do app; sem ele, fica o
+   * `accessibilityLabel`.
+   */
+  loadingAccessibilityLabel?: string;
   testID?: string;
 }
 
@@ -90,6 +96,7 @@ export function QRCodeCard({
   avatarSeed,
   size = 240,
   accessibilityLabel = `Seu código para conectar, @${handle}`,
+  loadingAccessibilityLabel,
   testID = 'qr-card',
 }: QRCodeCardProps) {
   const reduceMotion = useReducedMotion();
@@ -120,13 +127,18 @@ export function QRCodeCard({
     };
   }, [fade, layers.previous, reduceMotion]);
 
+  const loading = layers.current === null;
+
   return (
     <View style={styles.wrapper} testID={testID}>
       <View
         style={styles.card}
         accessible
         accessibilityRole="image"
-        accessibilityLabel={accessibilityLabel}
+        accessibilityLabel={
+          loading ? (loadingAccessibilityLabel ?? accessibilityLabel) : accessibilityLabel
+        }
+        accessibilityState={{ busy: loading }}
       >
         <View style={{ width: size, height: size }}>
           {layers.current === null ? (

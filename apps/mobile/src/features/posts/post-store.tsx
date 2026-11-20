@@ -26,6 +26,7 @@ export class PostStore {
   private disconnected: ReadonlySet<string> = new Set<string>();
   private readonly listeners = new Set<Listener>();
   private readonly createdListeners = new Set<CreatedListener>();
+  private feedStaleVersion = 0;
 
   /** Conta dona destes dados (um store novo a cada sessão). */
   constructor(readonly ownerId: string | null = null) {}
@@ -117,6 +118,21 @@ export class PostStore {
     this.posts.set(post.id, post);
     this.emit();
     for (const listener of this.createdListeners) listener(post);
+  }
+
+  /**
+   * Versão do Início (ux.md §12.2): sobe a cada ação que deixa o feed desatualizado (seguir dá
+   * certo, conexão nova). Cada aba do Início guarda a versão da última primeira página buscada e,
+   * com uma versão mais nova, busca de novo quando volta a ficar em foco e visível. Várias ações
+   * seguidas dão uma busca só.
+   */
+  get feedVersion(): number {
+    return this.feedStaleVersion;
+  }
+
+  /** Seguiu um criador ou conectou com alguém: o Início busca de novo na próxima volta ao foco. */
+  markFeedStale(): void {
+    this.feedStaleVersion += 1;
   }
 
   onCreated(listener: CreatedListener): () => void {

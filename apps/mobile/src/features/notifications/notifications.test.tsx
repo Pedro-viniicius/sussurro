@@ -58,42 +58,70 @@ async function refreshList() {
 
 describe('Notificações da pessoa (p09, 6.1)', () => {
   it('6.1 CA1/NOT-03/A-35: "Hoje", "Esta semana" e "Anteriores" pelo fuso do aparelho, com os textos e o fim', async () => {
-    const today = liked({ updatedAt: minutesAgo(20) });
-    const comment = commented({ updatedAt: minutesAgo(60) });
-    const reply = replied({ updatedAt: minutesAgo(180) });
-    const week = liked({
-      actor: actor({ handle: 'juprado', name: 'Juliana Prado' }),
-      post: notifiedPost({ type: 'text', thumbUrl: null }),
-      updatedAt: daysAgo(2),
-      read: true,
+    // Relógio fixo ao meio-dia (no fuso do aparelho, qualquer que seja): com a hora real, entre
+    // 00:00 e 00:20 o "há 20 minutos" caía no dia anterior e o "Hoje" sumia. Só o `Date` é falso;
+    // os timers continuam reais, para o `findBy`/`waitFor`.
+    jest.useFakeTimers({
+      now: new Date(2026, 10, 18, 12, 0, 0),
+      doNotFake: [
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'requestIdleCallback',
+        'cancelIdleCallback',
+        'setImmediate',
+        'clearImmediate',
+        'setInterval',
+        'clearInterval',
+        'setTimeout',
+        'clearTimeout',
+      ],
     });
-    const older = connected({ updatedAt: daysAgo(10), read: true });
-    await renderApp({
-      signedInAs: personalMe(),
-      initialUrl: PERSONAL,
-      configure: (fake) => {
-        notificationsApi(fake, [today, comment, reply, week, older], 3);
-      },
-    });
-    expect(await screen.findByRole('header', { name: 'Hoje' })).toBeOnTheScreen();
-    expect(screen.getByRole('header', { name: 'Esta semana' })).toBeOnTheScreen();
-    expect(screen.getByRole('header', { name: 'Anteriores' })).toBeOnTheScreen();
-    expect(screen.getByLabelText('marinac curtiu sua foto. há 20 minutos, nova')).toBeOnTheScreen();
-    expect(screen.getByText('“Que luz bonita!”')).toBeOnTheScreen();
-    expect(screen.getByText(' comentou na sua foto: ')).toBeOnTheScreen();
-    expect(screen.getByText(' respondeu seu comentário: ')).toBeOnTheScreen();
-    expect(screen.getByText(' curtiu seu texto.')).toBeOnTheScreen();
-    expect(screen.getByText(' estão conectados.')).toBeOnTheScreen();
-    // Foto com miniatura; texto sem miniatura.
-    expect(screen.getByTestId(`notificacao-${today.id}-thumb`)).toBeOnTheScreen();
-    expect(screen.queryByTestId(`notificacao-${week.id}-thumb`)).not.toBeOnTheScreen();
-    // Não lidas com o ponto; lidas sem.
-    expect(screen.getByTestId(`notificacao-${today.id}-unread`)).toBeOnTheScreen();
-    expect(screen.queryByTestId(`notificacao-${week.id}-unread`)).not.toBeOnTheScreen();
-    expect(screen.getByText(NOTIFICATIONS_END)).toBeOnTheScreen();
-    // Empilhada no Início, com a tab bar e o Início ativo (D-UX19).
-    expect(screen.getByRole('tab', { name: 'Início' })).toBeSelected();
-    expect(screen.getByRole('header', { name: 'Notificações' })).toBeOnTheScreen();
+    try {
+      const today = liked({ updatedAt: minutesAgo(20) });
+      const comment = commented({ updatedAt: minutesAgo(60) });
+      const reply = replied({ updatedAt: minutesAgo(180) });
+      const week = liked({
+        actor: actor({ handle: 'juprado', name: 'Juliana Prado' }),
+        post: notifiedPost({ type: 'text', thumbUrl: null }),
+        updatedAt: daysAgo(2),
+        read: true,
+      });
+      const older = connected({ updatedAt: daysAgo(10), read: true });
+      await renderApp({
+        signedInAs: personalMe(),
+        initialUrl: PERSONAL,
+        configure: (fake) => {
+          notificationsApi(fake, [today, comment, reply, week, older], 3);
+        },
+      });
+      expect(await screen.findByRole('header', { name: 'Hoje' })).toBeOnTheScreen();
+      expect(screen.getByRole('header', { name: 'Esta semana' })).toBeOnTheScreen();
+      expect(screen.getByRole('header', { name: 'Anteriores' })).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('marinac curtiu sua foto. há 20 minutos, nova'),
+      ).toBeOnTheScreen();
+      expect(screen.getByText('“Que luz bonita!”')).toBeOnTheScreen();
+      expect(screen.getByText(' comentou na sua foto: ')).toBeOnTheScreen();
+      expect(screen.getByText(' respondeu seu comentário: ')).toBeOnTheScreen();
+      expect(screen.getByText(' curtiu seu texto.')).toBeOnTheScreen();
+      expect(screen.getByText(' estão conectados.')).toBeOnTheScreen();
+      // Foto com miniatura; texto sem miniatura.
+      expect(screen.getByTestId(`notificacao-${today.id}-thumb`)).toBeOnTheScreen();
+      expect(screen.queryByTestId(`notificacao-${week.id}-thumb`)).not.toBeOnTheScreen();
+      // Não lidas com o ponto; lidas sem.
+      expect(screen.getByTestId(`notificacao-${today.id}-unread`)).toBeOnTheScreen();
+      expect(screen.queryByTestId(`notificacao-${week.id}-unread`)).not.toBeOnTheScreen();
+      expect(screen.getByText(NOTIFICATIONS_END)).toBeOnTheScreen();
+      // Empilhada no Início, com a tab bar e o Início ativo (D-UX19).
+      expect(screen.getByRole('tab', { name: 'Início' })).toBeSelected();
+      expect(screen.getByRole('header', { name: 'Notificações' })).toBeOnTheScreen();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('6.2 CA1/NOT-06: o ponto azul do coração some ao abrir; o POST /read leva o updatedAt da primeira', async () => {

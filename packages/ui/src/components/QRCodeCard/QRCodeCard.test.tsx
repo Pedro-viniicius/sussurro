@@ -26,6 +26,28 @@ describe('QRCodeCard (ux.md §4.10 e §6.14)', () => {
     expect(screen.getByTestId('qr-card-qr')).toBeTruthy();
   });
 
+  it('PROX-68 (ux.md §11.20, S5): enquanto carrega, o rótulo de carregando com busy; com o código, volta o rótulo do código pronto', async () => {
+    const loading = 'Carregando o seu código';
+    const { rerender } = await renderUi(
+      <QRCodeCard value={null} handle="helena" loadingAccessibilityLabel={loading} />,
+    );
+    const card = screen.getByRole('image', { name: loading });
+    expect(card).toBeBusy();
+    expect(screen.queryByRole('image', { name: 'Seu código para conectar, @helena' })).toBeNull();
+
+    await rerender(
+      <QRCodeCard value={FIRST} handle="helena" loadingAccessibilityLabel={loading} />,
+    );
+    const ready = screen.getByRole('image', { name: 'Seu código para conectar, @helena' });
+    expect(ready).not.toBeBusy();
+    expect(screen.queryByRole('image', { name: loading })).toBeNull();
+  });
+
+  it('PROX-68 (S5): sem o rótulo de carregando, fica o do código, mas com busy enquanto carrega', async () => {
+    await renderUi(<QRCodeCard value={null} handle="helena" />);
+    expect(screen.getByRole('image', { name: 'Seu código para conectar, @helena' })).toBeBusy();
+  });
+
   it('4.2 CA3: token renovado troca o QR sem quadro vazio (o anterior some por cima)', async () => {
     const { rerender } = await renderUi(<QRCodeCard value={FIRST} handle="helena" />);
     await rerender(<QRCodeCard value={SECOND} handle="helena" />);

@@ -1,15 +1,19 @@
-import { feedWindowLabel } from '@sussurro/shared';
+import { ErrorCode, feedWindowLabel } from '@sussurro/shared';
 import { userEvent } from '@testing-library/react-native';
+import { router } from 'expo-router';
 import { act, screen, waitFor, within } from 'expo-router/testing-library';
-import { Alert, type AlertButton } from 'react-native';
+import { Alert, type AlertButton, FlatList } from 'react-native';
 
 import { FEED_EMPTY_TITLE, FEED_ERROR_TITLE, LOAD_MORE_FAILED } from './FeedScreen';
 import { NetworkError } from '../../lib/api/errors';
-import { personalMe } from '../../test-utils/fake-api';
+import { errorMessage } from '../../lib/error-messages';
+import { type FakeApi, personalMe } from '../../test-utils/fake-api';
 import { AUTHORS, feedPage, photoPost, textPost } from '../../test-utils/post-fixtures';
+import { creatorProfile, deferredReply } from '../../test-utils/relation-fixtures';
 import { renderApp } from '../../test-utils/render-app';
 import { POST_DELETED_MESSAGE } from '../posts/useDeletePost';
 import { LIKE_ERROR_MESSAGE } from '../posts/useLike';
+import { UNFOLLOW_ERROR_MESSAGE } from '../relations/useFollowToggle';
 
 afterEach(() => {
   jest.restoreAllMocks();
@@ -349,5 +353,334 @@ describe('apagar publicação (história 2.9)', () => {
     expect(api.callsTo(`DELETE /v1/posts/${own.id}`)).toHaveLength(1);
     expect(await screen.findByText(POST_DELETED_MESSAGE)).toBeOnTheScreen();
     expect(screen.getByTestId(`post-${other.id}`)).toBeOnTheScreen();
+  });
+});
+
+describe('o Início depois de seguir e de deixar de seguir (ux.md §12.2)', () => {
+  const EMPTY_POSTS = { status: 200, body: { items: [], nextCursor: null } };
+
+  function feedCalls(api: FakeApi, type: 'photo' | 'text' | 'reel'): number {
+    return api.callsTo('GET /v1/feed').filter((call) => call.query.type === type).length;
+  }
+
+  async function go(path: string) {
+    await act(async () => {
+      router.push(path);
+      await Promise.resolve();
+    });
+  }
+
+  async function back() {
+    await act(async () => {
+      router.back();
+      await Promise.resolve();
+    });
+  }
+
+  it('FEED-18 (ux.md §12.2, b): seguir dois criadores e voltar ao Início busca a aba visível uma vez só, sem o indicador do puxar, e a lista volta ao topo; a aba escondida busca quando fica visível, e a nunca vista carrega do zero', async () => {
+    const marina = photoPost();
+    const marinaText = textPost();
+    const trilhas = photoPost({
+      author: {
+        handle: 'trilhasdosul',
+        name: 'Rafael Duarte',
+        avatarUrl: null,
+        accountType: 'creator',
+      },
+    });
+    const follows = new Set<string>();
+    let followed = 0;
+    let release: () => void = () => undefined;
+    const held = {
+      promise: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    };
+    const scroll = jest.spyOn(FlatList.prototype, 'scrollToOffset');
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      configure: (fake) => {
+        fake.on('GET /v1/feed', async ({ query }) => {
+          // A busca automática fica sem resposta até o teste soltar (o conteúdo de antes fica).
+          if (query.type === 'photo' && followed > 0) await held.promise;
+          return {
+            status: 200,
+            body: feedPage(
+              query.type === 'photo'
+                ? followed > 0
+                  ? [trilhas, marina]
+                  : [marina]
+                : query.type === 'text'
+                  ? [marinaText]
+                  : [],
+            ),
+          };
+        });
+        for (const handle of ['trilhasdosul', 'estudioaurora']) {
+          fake.on(`GET /v1/users/${handle}`, () => ({
+            status: 200,
+            body: creatorProfile({ handle, followedByMe: follows.has(handle) }),
+          }));
+          fake.on(`GET /v1/users/${handle}/posts`, EMPTY_POSTS);
+          fake.on(`PUT /v1/creators/${handle}/follow`, () => {
+            follows.add(handle);
+            followed += 1;
+            return { status: 200, body: { following: true } };
+          });
+        }
+      },
+    });
+    await screen.findByTestId(`post-${marina.id}`);
+    // A aba Textos fica montada (vista uma vez), e o Início volta a Fotos.
+    await userEvent.press(screen.getByRole('tab', { name: 'Textos' }));
+    expect(await screen.findByText(marinaText.text ?? '')).toBeOnTheScreen();
+    await userEvent.press(screen.getByRole('tab', { name: 'Fotos' }));
+    expect(feedCalls(api, 'photo')).toBe(1);
+    expect(feedCalls(api, 'text')).toBe(1);
+
+    await go('/pessoal/inicio/u/trilhasdosul');
+    await userEvent.press(await screen.findByRole('button', { name: 'Seguir @trilhasdosul' }));
+    await go('/pessoal/inicio/u/estudioaurora');
+    await userEvent.press(await screen.findByRole('button', { name: 'Seguir @estudioaurora' }));
+    await waitFor(() => {
+      expect(followed).toBe(2);
+    });
+    // Fora do Início, nada é buscado.
+    expect(feedCalls(api, 'photo')).toBe(1);
+    scroll.mockClear();
+
+    await back();
+    await back();
+    await waitFor(() => {
+      expect(feedCalls(api, 'photo')).toBe(2);
+    });
+    // Em voo: sem o indicador do puxar, com o conteúdo de antes na tela e sem rolar ainda.
+    const list = screen.getByTestId('feed-list-photo');
+    expect((list.props.refreshControl as { props: { refreshing: boolean } }).props.refreshing).toBe(
+      false,
+    );
+    expect(screen.getByTestId(`post-${marina.id}`)).toBeOnTheScreen();
+    expect(scroll).not.toHaveBeenCalled();
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    expect(await screen.findByTestId(`post-${trilhas.id}`)).toBeOnTheScreen();
+    expect(feedCalls(api, 'photo')).toBe(2);
+    expect(feedCalls(api, 'text')).toBe(1);
+    expect(scroll).toHaveBeenCalledWith({ offset: 0, animated: false });
+
+    // A aba escondida busca quando fica visível; a nunca vista carrega do zero, uma vez.
+    await userEvent.press(screen.getByRole('tab', { name: 'Textos' }));
+    await waitFor(() => {
+      expect(feedCalls(api, 'text')).toBe(2);
+    });
+    await userEvent.press(screen.getByRole('tab', { name: 'Reels' }));
+    expect(await screen.findByTestId('caught-up-reel')).toBeOnTheScreen();
+    expect(feedCalls(api, 'reel')).toBe(1);
+
+    // Outra volta ao foco, sem ação nova: nada é buscado.
+    await userEvent.press(screen.getByRole('tab', { name: 'Fotos' }));
+    await go('/pessoal/inicio/u/trilhasdosul');
+    await back();
+    await screen.findByTestId(`post-${trilhas.id}`);
+    expect(feedCalls(api, 'photo')).toBe(2);
+    expect(feedCalls(api, 'text')).toBe(2);
+  });
+
+  it('FEED-19 (ux.md §12.2, b): a busca automática que falha não mostra Toast e deixa o conteúdo de antes; a próxima volta ao foco tenta de novo', async () => {
+    const marina = photoPost();
+    const trilhas = photoPost({
+      author: {
+        handle: 'trilhasdosul',
+        name: 'Rafael Duarte',
+        avatarUrl: null,
+        accountType: 'creator',
+      },
+    });
+    let followed = false;
+    let down = false;
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      configure: (fake) => {
+        fake.on('GET /v1/feed', ({ query }) =>
+          down
+            ? { status: 503, body: { code: 'SERVICE_UNAVAILABLE', message: 'Indisponível.' } }
+            : {
+                status: 200,
+                body: feedPage(query.type === 'photo' && followed ? [trilhas, marina] : [marina]),
+              },
+        );
+        fake.on('GET /v1/users/trilhasdosul', () => ({
+          status: 200,
+          body: creatorProfile({ followedByMe: followed }),
+        }));
+        fake.on('GET /v1/users/trilhasdosul/posts', EMPTY_POSTS);
+        fake.on('PUT /v1/creators/trilhasdosul/follow', () => {
+          followed = true;
+          return { status: 200, body: { following: true } };
+        });
+      },
+    });
+    await screen.findByTestId(`post-${marina.id}`);
+    await go('/pessoal/inicio/u/trilhasdosul');
+    await userEvent.press(await screen.findByRole('button', { name: 'Seguir @trilhasdosul' }));
+    await waitFor(() => {
+      expect(followed).toBe(true);
+    });
+    down = true;
+    await back();
+    await waitFor(() => {
+      expect(feedCalls(api, 'photo')).toBe(2);
+    });
+    expect(screen.getByTestId(`post-${marina.id}`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`post-${trilhas.id}`)).toBeNull();
+    // Sem Toast: a pessoa não pediu nada.
+    expect(screen.queryByText(errorMessage(ErrorCode.SERVICE_UNAVAILABLE))).toBeNull();
+    expect(screen.queryByText(FEED_ERROR_TITLE)).toBeNull();
+
+    // A marca ficou: a próxima volta ao foco tenta de novo.
+    down = false;
+    await go('/pessoal/inicio/u/trilhasdosul');
+    await back();
+    expect(await screen.findByTestId(`post-${trilhas.id}`)).toBeOnTheScreen();
+    expect(feedCalls(api, 'photo')).toBe(3);
+  });
+
+  it('FEED-19 (ux.md §12.2, b): com o puxar para atualizar em voo, a volta ao foco com a marca não começa a busca automática; a resposta do puxar entra e o indicador desliga', async () => {
+    const marina = photoPost();
+    const trilhas = photoPost({
+      author: {
+        handle: 'trilhasdosul',
+        name: 'Rafael Duarte',
+        avatarUrl: null,
+        accountType: 'creator',
+      },
+    });
+    let followed = false;
+    let photoCalls = 0;
+    let release: () => void = () => undefined;
+    const pull = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      configure: (fake) => {
+        fake.on('GET /v1/feed', async ({ query }) => {
+          if (query.type !== 'photo') return { status: 200, body: feedPage([]) };
+          photoCalls += 1;
+          if (photoCalls === 1) return { status: 200, body: feedPage([marina]) };
+          if (photoCalls === 2) {
+            // O puxar: só responde quando o teste soltar.
+            await pull;
+            return { status: 200, body: feedPage([trilhas, marina]) };
+          }
+          // Uma busca automática que começasse agora falharia.
+          return { status: 503, body: { code: 'SERVICE_UNAVAILABLE', message: 'Indisponível.' } };
+        });
+        fake.on('GET /v1/users/trilhasdosul', () => ({
+          status: 200,
+          body: creatorProfile({ followedByMe: followed }),
+        }));
+        fake.on('GET /v1/users/trilhasdosul/posts', EMPTY_POSTS);
+        fake.on('PUT /v1/creators/trilhasdosul/follow', () => {
+          followed = true;
+          return { status: 200, body: { following: true } };
+        });
+      },
+    });
+    await screen.findByTestId(`post-${marina.id}`);
+    const refreshing = () =>
+      (
+        screen.getByTestId('feed-list-photo').props.refreshControl as {
+          props: { refreshing: boolean };
+        }
+      ).props.refreshing;
+
+    // Puxa para atualizar e, antes da resposta, abre um perfil, segue e volta.
+    await act(async () => {
+      (
+        screen.getByTestId('feed-list-photo').props.refreshControl as {
+          props: { onRefresh: () => void };
+        }
+      ).props.onRefresh();
+      await Promise.resolve();
+    });
+    expect(refreshing()).toBe(true);
+    await go('/pessoal/inicio/u/trilhasdosul');
+    await userEvent.press(await screen.findByRole('button', { name: 'Seguir @trilhasdosul' }));
+    await waitFor(() => {
+      expect(followed).toBe(true);
+    });
+    await back();
+    await screen.findByTestId(`post-${marina.id}`);
+    expect(feedCalls(api, 'photo')).toBe(2);
+
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    expect(await screen.findByTestId(`post-${trilhas.id}`)).toBeOnTheScreen();
+    expect(refreshing()).toBe(false);
+    expect(feedCalls(api, 'photo')).toBe(2);
+  });
+
+  it('FEED-17 (ux.md §12.2, b): deixar de seguir tira as publicações do criador do Início na hora, sem buscar; se a API falhar, elas voltam', async () => {
+    const bia = photoPost({ author: AUTHORS.cozinhadabia });
+    const marina = photoPost();
+    const firstDelete = deferredReply();
+    let deletes = 0;
+    const { api } = await renderApp({
+      signedInAs: personalMe(),
+      configure: (fake) => {
+        fake.on('GET /v1/feed', ({ query }) => ({
+          status: 200,
+          body: feedPage(query.type === 'photo' ? [bia, marina] : []),
+        }));
+        fake.on('GET /v1/users/cozinhadabia', {
+          status: 200,
+          body: creatorProfile({ handle: 'cozinhadabia', followedByMe: true }),
+        });
+        fake.on('GET /v1/users/cozinhadabia/posts', EMPTY_POSTS);
+        fake.on('DELETE /v1/creators/cozinhadabia/follow', () => {
+          deletes += 1;
+          return deletes === 1
+            ? firstDelete.handler()
+            : { status: 200, body: { following: false } };
+        });
+      },
+    });
+    await screen.findByTestId(`post-${bia.id}`);
+    const following = 'Seguindo @cozinhadabia, toque para deixar de seguir';
+
+    // Com o DELETE ainda sem resposta, a publicação já saiu (a troca otimista do "Seguindo").
+    await go('/pessoal/inicio/u/cozinhadabia');
+    await userEvent.press(await screen.findByRole('button', { name: following }));
+    await back();
+    await waitFor(() => {
+      expect(screen.queryByTestId(`post-${bia.id}`)).toBeNull();
+    });
+    expect(screen.getByTestId(`post-${marina.id}`)).toBeOnTheScreen();
+
+    // A API falhou: a publicação volta, com o Toast de hoje.
+    await firstDelete.resolve({
+      status: 500,
+      body: { code: 'INTERNAL_ERROR', message: 'Erro.' },
+    });
+    expect(await screen.findByTestId(`post-${bia.id}`)).toBeOnTheScreen();
+    expect(await screen.findByText(UNFOLLOW_ERROR_MESSAGE)).toBeOnTheScreen();
+
+    // Deixar de seguir que dá certo: sai e não volta; o Início nunca buscou de novo.
+    await go('/pessoal/inicio/u/cozinhadabia');
+    await userEvent.press(await screen.findByRole('button', { name: following }));
+    await waitFor(() => {
+      expect(deletes).toBe(2);
+    });
+    await back();
+    await waitFor(() => {
+      expect(screen.queryByTestId(`post-${bia.id}`)).toBeNull();
+    });
+    expect(screen.getByTestId(`post-${marina.id}`)).toBeOnTheScreen();
+    expect(feedCalls(api, 'photo')).toBe(1);
   });
 });

@@ -1,7 +1,7 @@
 import { ErrorCode, type Me, proximityQrPayload } from '@sussurro/shared';
 import { qrMatrix } from '@sussurro/ui';
 import { fireEvent, userEvent } from '@testing-library/react-native';
-import { act, screen, waitFor } from 'expo-router/testing-library';
+import { act, screen, waitFor, within } from 'expo-router/testing-library';
 import {
   AccessibilityInfo,
   Alert,
@@ -150,7 +150,7 @@ describe('Conectar por QR code (4.7, D3 e D7; ADR 0013 §5)', () => {
     expect(screen.getByTestId('qr-card-qr')).toBeTruthy();
   });
 
-  it('PROX-68 (C4): o "Tentar de novo" da parada (20) começa sem o código de antes — em "Mostrar meu código", o QR fica no carregando até a nova emissão, com o T33 na tela; depois, o código novo', async () => {
+  it('PROX-68 (C4; S5): o "Tentar de novo" da parada (20) começa sem o código de antes — em "Mostrar meu código", o QR fica no carregando até a nova emissão, com o T33 na tela e o rótulo "Carregando o seu código"; depois, o código novo', async () => {
     let holdTokens = false;
     let release: () => void = () => undefined;
     let issued = 0;
@@ -187,6 +187,8 @@ describe('Conectar por QR code (4.7, D3 e D7; ADR 0013 §5)', () => {
     expect(screen.getByTestId('qr-card-carregando')).toBeOnTheScreen();
     expect(screen.queryByTestId('qr-card-qr')).toBeNull();
     expect(screen.getByText(COPY.qrHint)).toBeOnTheScreen();
+    // S5 (ux.md §11.20): o leitor de tela ouve o carregando, não o código que ainda não existe.
+    expect(screen.getByRole('image', { name: COPY.qrLoading })).toBeBusy();
 
     await act(async () => {
       release();
@@ -196,6 +198,87 @@ describe('Conectar por QR code (4.7, D3 e D7; ADR 0013 §5)', () => {
       expect(qrPathOf('qr-card-qr')).toBe(qrMatrix(proximityQrPayload(MY_TOKENS[1])).path);
     });
     expect(screen.queryByTestId('qr-card-carregando')).not.toBeOnTheScreen();
+    expect(screen.getByRole('image', { name: 'Seu código para conectar, @helena' })).not.toBeBusy();
+  });
+
+  it('PROX-68 (ux.md §11.20, S5): à espera da emissão, o QR carregando diz "Carregando o seu código" ao leitor de tela, com busy; com o código pronto, volta o rótulo do código', async () => {
+    let release: () => void = () => undefined;
+    await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: '/pessoal/conectar',
+      configure: (fake) => {
+        configureQr(fake);
+        fake.on(
+          'POST /v1/proximity/tokens',
+          () =>
+            new Promise<FakeReply>((resolve) => {
+              release = () => {
+                resolve({ status: 201, body: proximityToken(0) });
+              };
+            }),
+        );
+      },
+    });
+    expect(await screen.findByTestId('qr-card-carregando')).toBeOnTheScreen();
+    expect(COPY.qrLoading).toBe('Carregando o seu código');
+    const loading = screen.getByRole('image', { name: COPY.qrLoading });
+    expect(loading).toBeBusy();
+    expect(screen.queryByRole('image', { name: 'Seu código para conectar, @helena' })).toBeNull();
+
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(qrPathOf('qr-card-qr')).toBe(qrMatrix(proximityQrPayload(MY_TOKENS[0])).path);
+    });
+    expect(screen.getByRole('image', { name: 'Seu código para conectar, @helena' })).not.toBeBusy();
+    expect(screen.queryByRole('image', { name: COPY.qrLoading })).toBeNull();
+  });
+
+  it('PROX-68 (ux.md §11.20, S5): no "Aguardando", o QR carregando também diz "Carregando o seu código", com busy; com o código pronto, volta o rótulo do código', async () => {
+    let release: () => void = () => undefined;
+    await renderApp({
+      signedInAs: personalMe(),
+      initialUrl: '/pessoal/conectar',
+      configure: (fake) => {
+        configureQr(fake);
+        // A 1ª emissão fica sem resposta: o QR de A segue no carregando até o "Aguardando".
+        fake.on(
+          'POST /v1/proximity/tokens',
+          () =>
+            new Promise<FakeReply>((resolve) => {
+              release = () => {
+                resolve({ status: 201, body: proximityToken(0) });
+              };
+            }),
+        );
+      },
+    });
+    await openCamera();
+    await scan(proximityQrPayload(CAIO_TOKEN));
+    await userEvent.press(
+      await screen.findByRole('button', { name: COPY.connectWithLabel('Caio Ribeiro', 'caio.r') }),
+    );
+    expect(
+      await screen.findByRole('header', { name: 'Aguardando Caio confirmar' }),
+    ).toBeOnTheScreen();
+    const waiting = within(screen.getByTestId('conectar-aguardando'));
+    expect(waiting.getByTestId('qr-card-carregando')).toBeOnTheScreen();
+    expect(waiting.getByRole('image', { name: COPY.qrLoading })).toBeBusy();
+    expect(waiting.queryByRole('image', { name: 'Seu código para conectar, @helena' })).toBeNull();
+
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(qrPathOf('qr-card-qr')).toBe(qrMatrix(proximityQrPayload(MY_TOKENS[0])).path);
+    });
+    expect(
+      waiting.getByRole('image', { name: 'Seu código para conectar, @helena' }),
+    ).not.toBeBusy();
+    expect(waiting.queryByRole('image', { name: COPY.qrLoading })).toBeNull();
   });
 
   it('PROX-68 (C4): na volta do segundo plano (sem parada), o QR continua com o código de antes até a nova emissão, sem o carregando', async () => {

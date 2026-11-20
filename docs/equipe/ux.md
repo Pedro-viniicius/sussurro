@@ -456,7 +456,7 @@ BLUETOOTH: EXPLICAÇÃO (antes do diálogo do SO)
 
 Regra geral de erro: mensagem humana + ação. Nunca mostrar `code` técnico na UI; o `code` vai para o Sentry. Erros sem ação na tela → Toast de erro.
 
-(atualizado em 2026-10-31) O Início depois de seguir, deixar de seguir e conectar (sem esperar o puxar para atualizar): §12.2.
+(atualizado em 2026-10-31) O Início depois de seguir, deixar de seguir e conectar (sem esperar o puxar para atualizar): §12.2. (2026-11-20) Aplicado; a revisão está na §12.7.
 
 ### 5.2 Conectar: máquina de estados
 > (atualizado em 2026-10-30) Substituída pela §11.4 (encostar os celulares). Daqui continuam valendo, com os textos da §11.9: Aguardando, Não confirmado, Conectados, Já conectados, Pausado, Indisponível, Offline e Criador. O resto descreve o que a Fase 4b implementou ("Por perto agora").
@@ -516,7 +516,7 @@ Faixa de publicação (topo do feed e do perfil próprio; criador: topo do perfi
 ```
 - Sucesso: a faixa some e aparece Toast "Publicado." O post aparece no topo do próprio perfil (e no feed, se D9 = sim).
 - Sair do app durante o upload: o upload continua enquanto o SO permitir; ao voltar, se o rascunho falhou, a faixa de falha aparece. Rascunhos órfãos são apagados pelo servidor em 24 h (arquitetura §5): o texto "Tentar de novo" some depois disso.
-- Reel processando na grade do autor: `ReelTile status="processing"`. Outras pessoas não veem até `published`. (atualizado em 2026-10-31) O tile de um reel de outra sessão se atualiza sozinho, com a aba Reels do próprio perfil à vista: §12.3.
+- Reel processando na grade do autor: `ReelTile status="processing"`. Outras pessoas não veem até `published`. (atualizado em 2026-10-31) O tile de um reel de outra sessão se atualiza sozinho, com a aba Reels do próprio perfil à vista: §12.3. (2026-11-20) Aplicado; a revisão está na §12.7.
 - Offline no Compartilhar: mantém o modal aberto, Toast "Sem internet. Sua publicação não foi enviada." (sem fila offline na v1).
 
 ### 5.4 Globais
@@ -1634,7 +1634,7 @@ O PO aprovou em 2026-10-30 todas as recomendações desta seção: as divergênc
 12. **Aviso aos 7 s** (2026-10-31, A3-3): quando não confirma, as pessoas seguram os celulares até o aviso, ou desistem antes e ficam sem saber o que houve? Medir o tempo até o QR em destaque (P9) num lugar cheio.
 13. **Cartão atrasado e cartão sem Conectar** (2026-10-31, §11.15): quem vê o 21 ou o 22 entende por que não há Conectar, e que precisa tocar em "Voltar" antes de encostar de novo? Quem vê o cartão de alguém de um encosto anterior, enquanto encosta em outra pessoa, se confunde com quem é quem?
 14. **O 17 como cartão atrasado** (2026-10-31, opcional da A3, não adotado agora; §11.15): as pessoas perdem o Toast T20 porque olhavam para outro lado e voltam ao Pronto sem saber o que houve com o cartão? Se sim, levar ao PO a troca do 17 pelo 21 no vencimento.
-15. **A espera pela vaga do teto de emissões** (2026-10-31, PR 5, §11.20; desde a ADR 0013, só o QR carregando): com a rede ruim e com a aba aberta e fechada várias vezes, quanto tempo o Verificando e o QR carregando chegam a durar? Se passar de uns 10 s com alguma frequência, levar ao PO um texto para o Verificando longo e o rótulo do QR carregando (S5).
+15. **A espera pela vaga do teto de emissões** (2026-10-31, PR 5, §11.20; desde a ADR 0013, só o QR carregando): com a rede ruim e com a aba aberta e fechada várias vezes, quanto tempo o Verificando e o QR carregando chegam a durar? Se passar de uns 10 s com alguma frequência, levar ao PO um texto para o Verificando longo e o rótulo do QR carregando (S5). (2026-11-20) O rótulo do QR carregando já existe: a S5 foi aprovada e aplicada (N29, "Carregando o seu código"). Se a espera passar de uns 10 s com frequência, o que falta é um texto **visível** para o QR carregando, que hoje é só o Spinner.
 
 ### 11.13 Revisão da implementação (2026-10-30)
 
@@ -2335,6 +2335,8 @@ Implementação sugerida: no `QrStart`, um segundo `useFocusOnShow(session.start
 > **Total:** 84 textos (81 chaves do `COPY`, mais 3 de fora). **10 trocas** e **2 chaves novas**, todas para o PO aprovar; os outros 74 textos ficam como estão.
 >
 > **Aplicado em 2026-11-14, com aprovação do PO:** as 10 trocas (N6, N9, N11, N12, N14, N16, N18, N20, N22 e N26), as chaves novas `waitingEmitHint` (N7) e `acceptReadNfc` (N24), mais a chave `turnOnNfcHint` = "Abre os ajustes do celular" (da S4), e as S1 a S7, pelo `frontend`. A **N28** (texto da câmera negada no aceite), proposta no fim desta seção, foi aprovada pelo PO no mesmo dia e está com o `frontend`.
+>
+> **(2026-11-20) Texto novo, aprovado pelo PO e aplicado:** a **N29** ("Carregando o seu código", o QR carregando para o leitor de tela), que veio da S5 da §11.20. Fica no fim desta seção, depois da N28.
 
 #### Os dois problemas de fundo que as trocas resolvem
 
@@ -2405,6 +2407,14 @@ Fora do aceite (em "Ler código"), o texto continua certo: lá o botão "Mostrar
 
 **Para o `frontend` (eu não altero código):** o `ConnectSessionView` já sabe o `accepting` e o nome (`ConnectScreen.tsx:460-464`, mesmo cálculo do `acceptHint`). Basta passar ao `QrScanner` uma prop opcional com a descrição da câmera negada (ou o próprio texto) e usar o `cameraDeniedText` quando ela não vier. O `cameraDeniedText` fica como está para o "Ler código". Teste sugerido (o `testes` dá o ID): no aceite com a câmera negada, a tela mostra o N28 e não mostra o `cameraDeniedText` nem o "Mostrar meu código" (complementa o teste da S7 em `connect-incoming.test.tsx:265-268`).
 
+#### N29: o QR carregando (2026-11-20, aprovada pelo PO e aplicada)
+
+> **Origem:** a S5 da §11.20 (2026-10-31), pendente com o PO desde então. O PO aprovou o texto em 2026-11-20, exatamente como proposto, e o `frontend` o aplicou no mesmo dia (PR "S5 + §12").
+
+| # | Constante | Onde aparece | Texto | Situação |
+|---|---|---|---|---|
+| N29 | **novo:** `qrLoading` (`apps/mobile/src/features/connect/copy.ts`), passado ao `QRCodeCard` como `loadingAccessibilityLabel` | só no leitor de tela: o rótulo do cartão do QR enquanto o código não chega (`busy`), no "Mostrar meu código" e no "Aguardando". Com o código, volta o rótulo "Seu código para conectar, @{handle}" | "Carregando o seu código" | **novo, aprovado e aplicado** · Diz o que está acontecendo, sem prometer um código que ainda não existe. Sem ponto, como os outros rótulos. Não aparece na tela: o carregando visível continua só o Spinner |
+
 #### T1 a T48: o que vale depois da ADR 0013
 
 | Situação | T* e A* |
@@ -2421,13 +2431,14 @@ O T46 sai porque o formulário de denúncia agora abre pela folha do pedido, com
 1. ~~**PO:** aprovar as trocas N6, N9, N11, N12, N14, N16, N18, N20, N22 e N26 e as chaves novas N7 e N24.~~ **Aprovado e aplicado em 2026-11-14**, com a chave `turnOnNfcHint`. A N28 também foi aprovada pelo PO em 2026-11-14. O ícone da aba fica para depois do teste com usuários (decisão do PO na §11.10).
 2. **Aparelho (MAN-NFC):** conferir se dois Android **ambos** em "Mostrar meu código" se leem pelo `NDEF_DISCOVERED` do sistema. Se lerem, o N6 pode voltar a ser curto ("Ou encoste os celulares, costas com costas."). Conferir também o gesto real do iPhone (topo nas costas) e se a S2 anuncia no VoiceOver.
 3. ~~**`frontend`:** aplicar as trocas, as chaves novas e a S1 a S7. Os testes que procuram os textos antigos mudam junto (`testes`).~~ **Feito em 2026-11-14.** A N28, aprovada no mesmo dia, está sendo aplicada pelo `frontend`.
+4. **(2026-11-20) N29:** aprovada pelo PO e aplicada no mesmo dia. Fica a conferência em aparelho da §12.7 (o `busy` e a troca do rótulo com o foco no cartão).
 
 ### 11.20 Revisão da implementação do PR 5 (2026-10-31; portada em 2026-11-19)
 
 > **(2026-11-19) Portada do commit de passagem `e3191ad`, que nunca virou PR, para a `main` depois da ADR 0013.** No `e3191ad` esta seção era a §11.19; o número mudou porque a §11.19 da `main` é a revisão NFC + QR. Os achados C3, C4, S4, S5 e S6 continuam com o mesmo nome: as S1 a S7 da §11.19 são outras. As referências "ux.md §11.19" que vieram do `e3191ad` no código e nos testes (C3, C4, S4 e S6) passam a ser "§11.20".
 >
 > **O que vale depois da ADR 0013:**
-> - **Vale:** "Contas bloqueadas" (o ⋯ com "Denunciar" e a `UserRow.subtitleLines`), a linha de erro da rota `/denunciar`, o p21 na `NotificationRow`, o C3, o C4, a S4, a S5 (texto ainda pendente com o PO) e a S6.
+> - **Vale:** "Contas bloqueadas" (o ⋯ com "Denunciar" e a `UserRow.subtitleLines`), a linha de erro da rota `/denunciar`, o p21 na `NotificationRow`, o C3, o C4, a S4, a S5 (~~texto ainda pendente com o PO~~ (2026-11-20) aprovada pelo PO e aplicada; ver o fim desta seção) e a S6.
 > - **Vale com outra tela:** a espera pela vaga do teto de emissões, o C3 e o C4. O Verificando (estado 1), o Pronto e o relato do encosto (`useTouch.ts`) saíram com o BLE. Na 4e há um token só, que serve ao QR e ao NFC, e a espera aparece como o QR carregando do "Mostrar meu código" (o `QRCodeCard` sem `value`). Onde o texto abaixo diz "Verificando", "Pronto" ou "T32", leia "QR carregando" e, para o foco do "Tentar de novo", a introdução (N1, `testID` `conectar-titulo`), que é para onde o início leva o foco na 4e. No C3, os chamadores do `refresh` passam a ser só o `withScreenOpen` (leitura do código pela câmera ou pelo NFC, no Conectar e no Aceitar). No C4, "os tokens de antes saem na parada" vale também para o código que o NFC emite: depois da parada, nem o QR nem o NFC mostram o código de antes (a conferir pelo `frontend` no código portado).
 > - **Obsoleto (ADR 0013):** o foco no T32 (o `QrStart`, o T32 e o seletor Encostar / QR code saíram; §11.19, tabela "T1 a T48") e o item 5 de "A conferir no aparelho". Ficam abaixo como histórico, riscados ou marcados.
 
@@ -2509,6 +2520,7 @@ Revisão da branch `feat/fechamento-4d-dividas` (sem commit), contra a §11.18 e
   - Onde: `packages/ui/src/components/QRCodeCard/QRCodeCard.tsx:92` e `:125-135`.
   - Enquanto o `value` é `null`, o rótulo continua "Seu código para conectar, @{handle}", com role `image`, sobre um Spinner. Com a espera (e com o C4), o carregando pode durar dezenas de segundos, e quem usa leitor de tela pode mostrar um código que ainda não existe.
   - Sugestão, se o Tech Lead adotar: enquanto carrega, `accessibilityState={{ busy: true }}` e o rótulo "Carregando o seu código" (texto novo, a aprovar pelo PO). Se não adotar, fica para o item 15 da §11.12.
+  - **(2026-11-20) Aprovado pelo PO e aplicado** (PR "S5 + §12"), com o texto exatamente como proposto. Ver o fim desta seção.
 - 🟢 **S6:** o modo `toast` do `ReportForm` ficou sem uso, porque as duas entradas usam `inline`. O `frontend` decide se o mantém para uma entrada futura fora de um modal; o comportamento não muda.
 
 **Continua aberto da §11.18:** o 🟢 do anúncio dos Toasts do 202 e do 404 da rota, que pode ser cortado pela volta do foco.
@@ -2523,19 +2535,27 @@ Revisão da branch `feat/fechamento-4d-dividas` (sem commit), contra a §11.18 e
 
 **Textos para o PO:** nenhum novo nesta revisão. Só se o Tech Lead adotar o S5: "Carregando o seu código", o rótulo do QR para o leitor de tela enquanto carrega.
 
-**(2026-11-19) Pendente com o PO:** o S5 e o texto "Carregando o seu código". O Tech Lead o levou ao PO em 2026-10-31 (README do `e3191ad`, "Fechamento do MVP"), e ainda não há decisão. Com a ADR 0013 o S5 pesa mais: o QR é agora a superfície principal do Conectar, e o QR carregando é a única forma visível da espera. Até a decisão, o `QRCodeCard` continua como está.
+~~**(2026-11-19) Pendente com o PO:** o S5 e o texto "Carregando o seu código".~~ **(2026-11-20) Decidido: ver o parágrafo seguinte.** Histórico: **(2026-11-19) Pendente com o PO:** o S5 e o texto "Carregando o seu código". O Tech Lead o levou ao PO em 2026-10-31 (README do `e3191ad`, "Fechamento do MVP"), e ainda não há decisão. Com a ADR 0013 o S5 pesa mais: o QR é agora a superfície principal do Conectar, e o QR carregando é a única forma visível da espera. Até a decisão, o `QRCodeCard` continua como está.
+
+**(2026-11-20) S5 aprovado pelo PO e aplicado** (branch `feat/s5-ux-12`, PR "S5 + §12"). O PO aprovou o texto "Carregando o seu código" exatamente como proposto; ele entra no catálogo como **N29** (§11.19). Conferi o código:
+- `QRCodeCard` (`packages/ui`): a prop opcional `loadingAccessibilityLabel`. Enquanto o QR carrega (a camada atual sem código), o cartão, que continua o mesmo elemento com role `image`, recebe esse rótulo e `accessibilityState={{ busy: true }}`. Com o código, volta o "Seu código para conectar, @{handle}", com `busy` falso. Sem a prop, fica o rótulo de sempre (com `busy`), então nenhuma outra tela muda. No fade de troca de token, a camada atual já tem código: nada de "carregando" no meio da renovação (4.2 CA3). ✅
+- O texto vem do app (`COPY.qrLoading`, `apps/mobile/src/features/connect/copy.ts`) e é usado nos dois QR do Conectar: o "Mostrar meu código" e o "Aguardando". ✅ O `packages/ui` não tem texto do Conectar.
+- Foco e anúncio: **nenhum a mais**, como na tabela do item 5. O foco continua indo à introdução (N1) no "Tentar de novo". Quem chega ao QR com o leitor de tela ouve "Carregando o seu código"; quando o código chega, o rótulo troca sem anúncio, e a pessoa ouve o rótulo novo ao passar por ele de novo. Aceito: a espera costuma ser curta, e um anúncio a cada token novo atrapalharia.
+- A conferir no aparelho (§12.7, "A conferir no aparelho"): o que o VoiceOver e o TalkBack falam do `busy` e se algum deles relê o cartão sozinho quando o rótulo troca com o foco nele.
 
 ## 12. Fidelidade ao ux.md: os quatro itens do PR 6 (2026-10-31)
 
 > **Origem:** o README registra como "fora desta fase" quatro pontos em que o app difere deste documento, e o PR 6 vai tratá-los. Para cada um, esta seção diz onde o `ux.md` já especificava, o que faltava especificar e a recomendação.
 >
 > **Texto novo:** nenhum. **Dependência nova:** nenhuma. Se o PO escolher deslizar com o `react-native-pager-view`, ele passa pelo Tech Lead e pelo `seguranca` e pede dev build novo.
+>
+> **(2026-11-20) Aplicados o (b) e o (c)** (branch `feat/s5-ux-12`, PR "S5 + §12"), com as escolhas do `frontend` que aceitei registradas na §12.2 e na §12.3 e a revisão na §12.7. O (a), o (d) e a §12.5 continuam como estavam: sem decisão nova do PO.
 
 | # | Item (README) | Onde o `ux.md` falava | Recomendação |
 |---|---|---|---|
 | (a) | Deslizar entre as abas do feed (Fase 2b) | §6.13 TopTabs, "Comportamento", numa linha, sem regras | **Não fazer na v1.** Se o PO quiser, a §12.1 traz as regras |
-| (b) | O Início recarregar depois de seguir ou deixar de seguir (Fase 3b) | nada com regra de tela; a história 3.9 (CA1 e CA2) e a jornada da §2.1 | **Fazer** (§12.2), incluindo a conexão nova, que tem o mesmo problema |
-| (c) | O tile "Processando" de um reel de outra sessão se atualizar sozinho (Fase 5b) | §5.3 e §6.13 ReelTile: o estado, sem a consulta | **Fazer** (§12.3) |
+| (b) | O Início recarregar depois de seguir ou deixar de seguir (Fase 3b) | nada com regra de tela; a história 3.9 (CA1 e CA2) e a jornada da §2.1 | **Fazer** (§12.2), incluindo a conexão nova, que tem o mesmo problema. **(2026-11-20) Aplicado** (§12.7) |
+| (c) | O tile "Processando" de um reel de outra sessão se atualizar sozinho (Fase 5b) | §5.3 e §6.13 ReelTile: o estado, sem a consulta | **Fazer** (§12.3). **(2026-11-20) Aplicado** (§12.7) |
 | (d) | O "✓" depois do texto em "Conectados" (Fase 4b) | §4.9 e §6.13 ProfileHeader: "(Conectados ✓)" | **Não fazer:** o ✓ fica antes do texto, e este documento é que muda (§12.4) |
 
 ### 12.1 (a) Deslizar entre Fotos, Textos e Reels
@@ -2597,7 +2617,7 @@ Hoje, o Início fica montado, então só o puxar para atualizar busca de novo. O
 |---|---|
 | Quando recarrega | quando a tela raiz do Início volta a ficar em foco: o toque na aba Início, a volta de um perfil ou de um post empilhado no Início e o "Ir para o início" do Conectados. Nunca enquanto a pessoa está nele |
 | O que recarrega | a aba visível, na hora; as outras abas já montadas, quando ficarem visíveis. As abas nunca vistas já carregam do zero |
-| Como | a lista volta ao topo, sem animação, e a primeira página é buscada como no puxar para atualizar, mas sem o indicador do puxar: o conteúdo de antes fica na tela até a resposta chegar. Volta ao topo porque a primeira página substitui a lista, e as publicações novas entram na ordem cronológica, em qualquer ponto da janela. Ficar no meio de uma lista que mudou mostraria outro post no mesmo lugar |
+| Como | a lista volta ao topo, sem animação, e a primeira página é buscada como no puxar para atualizar, mas sem o indicador do puxar: o conteúdo de antes fica na tela até a resposta chegar. Volta ao topo porque a primeira página substitui a lista, e as publicações novas entram na ordem cronológica, em qualquer ponto da janela. Ficar no meio de uma lista que mudou mostraria outro post no mesmo lugar. **(2026-11-20) A ordem ficou: busca primeiro, volta ao topo quando a resposta chega** (escolha do `frontend`, aceita): se a busca falhar, nada se mexe, e a pessoa não é levada ao topo de uma lista que não mudou |
 | Limites | uma busca por volta ao foco, e só com a marca. Várias ações seguidas (por exemplo, seguir 3 criadores na busca) dão uma busca só. A marca sai quando a busca dá certo, ou com o puxar para atualizar |
 | Falha | silenciosa: o conteúdo de antes fica, sem Toast, porque a pessoa não pediu nada. A marca fica, e a próxima volta ao foco tenta de novo. O puxar para atualizar continua com o Toast de hoje |
 | Leitor de tela | sem anúncio: não há texto novo, e a pessoa acabou de navegar. Na volta de um perfil, o sistema devolve o foco ao elemento que o abriu (o @ do post). Se ele não existir mais (a publicação saiu ou a lista recarregou), o foco deve ir ao cabeçalho "Sussurro, início". A conferir no aparelho: o sistema costuma ir ao primeiro elemento da tela, que já é esse |
@@ -2609,6 +2629,15 @@ Implementação sugerida (indicação; o `frontend` decide):
 - para deixar de seguir, o `FeedList` filtra as publicações cujo autor é criador (`accountType: 'creator'`) e está com `false` no `FollowStore`, como o `useUnfollowed` já faz na lista "Criadores que sigo".
 
 Testes sugeridos: seguir na busca e voltar ao Início busca a primeira página uma vez só, e a lista volta ao topo; deixar de seguir tira as publicações na hora, sem buscar, e elas voltam se a API falhar; "Ir para o início" depois da 1ª conexão mostra as publicações da conexão, e não só o "Você está em dia"; a falha da busca automática não mostra Toast, e a próxima volta tenta de novo; a aba escondida busca quando fica visível.
+
+**(2026-11-20) Aplicado** (PR "S5 + §12"; `FeedScreen.tsx`, `post-store.tsx`, `usePostPages.ts`, `useFollowToggle.ts` e o `markConnected` do `useConnectSession.ts`). Escolhas do `frontend` que aceitei:
+- **A marca é uma versão** (`PostStore.feedVersion`, que sobe com o `markFeedStale`). Cada aba guarda a versão da última primeira página buscada (inclusive pelo puxar para atualizar, que assim também tira a marca). A aba que monta agora começa em dia, porque carrega do zero. Várias ações seguidas dão uma busca só. ✅
+- **Quem marca:** o `PUT` de seguir que dá certo (`useFollowToggle`) e o Conectados (`markConnected`, dos dois lados e por qualquer caminho). Deixar de seguir não marca. ✅
+- **Quando busca:** quando a aba fica em foco **e** visível com a lista pronta (o vazio "Seu início está vazio" também é lista pronta, então a jornada da §2.1 funciona). Uma busca por vez. A marca não dispara nada enquanto a pessoa está no Início, porque a busca só nasce de uma mudança de foco, de aba ou do estado da lista. ✅
+- **Silenciosa:** sem o indicador do puxar e, na falha, sem Toast e sem mexer na lista; a marca fica para a próxima volta ao foco. O puxar para atualizar continua com o Toast de sempre. ✅
+- **Volta ao topo quando a resposta chega,** sem animação, e não antes (ver a linha "Como" acima). ✅
+- **Deixar de seguir** tira na hora as publicações dos criadores que estão com `false` no `FollowStore` (o filtro `useWithoutUnfollowed`), sem buscar. Se o `DELETE` falhar, o `FollowStore` volta a `true`, as publicações voltam e o Toast de hoje aparece. Seguir de novo as traz de volta pelo mesmo filtro e marca o Início. ✅
+- **Lista com erro:** a marca não dispara busca enquanto a aba está no estado de erro; o "Tentar de novo" da tela já busca do zero. ✅
 
 ### 12.3 (c) O tile "Processando" de um reel de outra sessão
 
@@ -2640,7 +2669,15 @@ Testes sugeridos:
 - 5 falhas seguidas param a consulta, sem Toast;
 - o reel com faixa nesta sessão não é consultado duas vezes.
 
-### 12.4 (d) O "✓" de "Conectados"
+**(2026-11-20) Aplicado** (PR "S5 + §12"; o hook `apps/mobile/src/features/reels/useProcessingReelsPoll.ts`, usado no `ProfilePostsList.tsx`). Bate com a tabela acima:
+- só no próprio perfil, com a tela em foco, a aba Reels visível e o app em primeiro plano; consulta na hora quando as três passam a valer e depois a cada 10 s (`MAX_REEL_POLL_DELAY_MS`, agora exportado do `PublishingProvider`), um reel por vez;
+- os reels com faixa nesta sessão ficam de fora (o `PublishingProvider` já os consulta);
+- `published`: o tile muda no lugar e sai o Toast "Publicado." (`success`); `failed`: o tile vira "Falhou" e sai o Toast "Não foi possível publicar este reel." (`error`); 404: o tile sai, sem Toast; falha de rede: o tile fica, sem Toast; a resposta que chega depois da pausa é ignorada.
+
+Escolhas do `frontend` que aceitei:
+- **As 5 falhas seguidas** (`MAX_POLL_ERRORS`) são contadas por reel e zeram sempre que as três condições voltam a valer: trocar de aba e voltar, sair da tela e voltar, ou voltar do segundo plano. A tabela dizia "até a próxima vez que a aba ficar visível"; zerar também na volta ao foco e ao primeiro plano é o mesmo espírito (a pessoa voltou a olhar) e não gera consulta sem alguém vendo. ✅
+- **Qualquer erro que não seja 404 conta como falha de rede** (um 5xx também). ✅ Para quem vê, é igual: o tile fica.
+ (d) O "✓" de "Conectados"
 
 **Onde estava:** na §4.9 ("um único botão `(Conectados ✓)` largura total") e na §6.13 (ProfileHeader: "conexão: (Conectados ✓)"). O app desenha o ✓ antes do texto ("✓ Conectados"), porque o `Button` só tem ícone à esquerda (`Button.tsx:110-115`).
 
@@ -2675,6 +2712,42 @@ Se o PO quiser agora:
 
 **Textos:** nenhum novo. Reaproveitados: "Publicado." e "Não foi possível publicar este reel." (§12.3).
 
+(2026-11-20) O (b) e o (c) foram aplicados como indicado nesta tabela, com duas diferenças de lugar: a marca do (b) ficou no `PostStore` (`feedVersion` e `markFeedStale`), e a consulta do (c) ficou num hook em `features/reels` (`useProcessingReelsPoll.ts`), chamado pelo `ProfilePostsList.tsx`. O `usePostPages.ts` ganhou o `refresh({ silent: true })`. No `packages/ui`, a única mudança do PR é a do S5 (§11.20), no `QRCodeCard`. Nenhum texto novo da §12; o único texto novo do PR é a N29 (§11.19), aprovada pelo PO.
+
+### 12.7 Revisão da implementação: S5, (b) e (c) (2026-11-20)
+
+Revisão das mudanças no índice da branch `feat/s5-ux-12` (`git diff --cached main`), contra a §11.20 (S5), a §12.2, a §12.3 e a §12.6. Li o `QRCodeCard.tsx`, o `copy.ts` e o `ConnectScreen.tsx` do Conectar, o `markConnected` do `useConnectSession.ts`, o `FeedScreen.tsx`, o `post-store.tsx`, o `usePostPages.ts`, o `useFollowToggle.ts`, o `useProcessingReelsPoll.ts`, o `ProfilePostsList.tsx`, o `PublishingProvider.tsx`, o `ReelGridTile.tsx` e o `ToastProvider` do `packages/ui`.
+
+**Veredito: ✅ aprovado.** As três mudanças batem com a especificação, e as escolhas do `frontend` estão aceitas e registradas na §11.20, na §12.2 e na §12.3. Há uma sugestão 🟢; nada bloqueia.
+
+**Textos:** todos existem e estão aprovados.
+- "Carregando o seu código" (N29, §11.19): aprovado pelo PO em 2026-11-20.
+- "Publicado." (`PUBLISHED_MESSAGE`) e "Não foi possível publicar este reel." (`FAILED_REEL_TITLE`): reaproveitados, os mesmos da faixa e da folha do tile (§12.3).
+- O (b) não tem texto: a busca é silenciosa, e o Toast da falha do `DELETE` é o de hoje.
+
+**Acessibilidade**
+- **S5:** o rótulo e o `busy` estão no cartão, que é um elemento só com role `image`, e só enquanto não há código. Nenhum anúncio a mais (§11.20, item 5). ✅
+- **(b), foco depois do recarregamento:** sem anúncio, como especificado. O `frontend` não move o foco; a §12.2 já deixava para o aparelho o caso do elemento focado que sai da lista (a volta de um perfil com a lista recarregada). ✅ por ora; ver "A conferir no aparelho".
+- **(c), anúncio dos Toasts:** o `ToastProvider` anuncia no iOS (`announceForAccessibility`) e no Android (região viva), e nenhum foco se move junto, então nada corta o anúncio. O tile continua o mesmo elemento, e o rótulo passa a "Reel de @{handle}, {duração}" (`reelLabel`). ✅
+- **Movimento reduzido:** a volta ao topo é sem animação, e nada novo se move no (c). ✅
+
+**A volta ao topo quando a resposta chega: aceitável.** É melhor que a ordem da §12.2 (topo, depois busca): na falha, nada se mexe, o que combina com a falha silenciosa. O risco é a resposta chegar quando a pessoa já começou a rolar e a lista pular para o topo. Aceito, porque é uma requisição só (a janela é curta) e a primeira página substitui a lista de qualquer forma: ficar no lugar mostraria outro post sob o dedo. A conferir com a rede ruim.
+
+**Para o `frontend`**
+- 🟢 **Puxar para atualizar em curso + busca silenciosa que falha deixa o indicador do puxar girando.**
+  - Onde: `apps/mobile/src/features/feed/FeedScreen.tsx` (o efeito do Início desatualizado) e `apps/mobile/src/features/posts/usePostPages.ts` (`refresh`).
+  - Caso: a pessoa puxa para atualizar, troca de aba (ou abre um perfil) e volta antes da resposta, com a marca de desatualizado. A busca silenciosa nasce, sobe a geração e descarta a resposta do puxar. Se a silenciosa falhar, ela não mexe no estado (`silent`), e o `refreshing: true` do puxar fica ligado. É raro (precisa das três coisas juntas) e se resolve no próximo puxar, mas até lá a pessoa vê o indicador girando sem motivo.
+  - Correção sugerida (uma das duas): a busca silenciosa não começa com `pages.refreshing` verdadeiro (o puxar em curso já busca a primeira página e, quando chegar, tira a marca); ou, na falha silenciosa, o `refresh` põe `refreshing: false` mesmo no modo `silent`. Teste sugerido (o `testes` dá o ID): o puxar em curso, a troca de aba e a volta com a marca, e a busca silenciosa que falha não deixam o indicador do puxar ligado.
+
+**A conferir no aparelho (VoiceOver e TalkBack)**
+1. **S5:** no "Mostrar meu código" e no "Aguardando", com o QR carregando (o "Tentar de novo" depois de uma parada, C4), o leitor diz "Carregando o seu código" e o que cada um fala do `busy` (o TalkBack costuma dizer "ocupado"; o VoiceOver pode não dizer nada, e o rótulo basta). Com o foco no cartão quando o código chega: o leitor relê sozinho ou fica calado? Os dois servem; não pode ler os dois rótulos de uma vez nem repetir a cada token novo.
+2. **(b), foco na volta de um perfil:** abrir um perfil pelo @ de um post do Início, seguir (ou voltar do Conectados pelo "Ir para o início"), voltar e deixar a lista recarregar. Para onde vai o foco quando o elemento de antes sai ou a lista volta ao topo? O esperado é o cabeçalho "Sussurro, início" (§12.2); se ficar perdido (num elemento fora da tela ou em lugar nenhum), volta ao `frontend` como 🟡, com o foco no cabeçalho depois da resposta.
+3. **(b), rede ruim:** com a resposta demorando, a volta ao topo enquanto a pessoa já rola incomoda? Se incomodar, avaliar não voltar ao topo quando a pessoa rolou depois do início da busca (a lista recarregada continuaria a partir do topo da primeira página).
+4. **(b), deixar de seguir:** as publicações saem na hora; com o `DELETE` falhando (modo avião), voltam, e o Toast "Não foi possível deixar de seguir." (`UNFOLLOW_ERROR_MESSAGE`) é anunciado. Conferir também que o foco no "Seguindo" não se perde com a troca otimista e a volta.
+5. **(c), Toasts:** "Publicado." e "Não foi possível publicar este reel." anunciados nos dois sistemas, com a aba Reels do próprio perfil aberta e o foco num tile. Dois reels prontos no mesmo ciclo: o segundo Toast corta o anúncio do primeiro?
+6. **(c), 404 com o foco no tile:** o reel apagado em outro celular some da grade; para onde vai o foco do leitor de tela?
+7. **(c), parada e volta:** a consulta para no segundo plano e ao trocar de aba e volta na hora (sem consulta com a tela apagada).
+
 ---
 
 ### Arquivos
@@ -2704,4 +2777,12 @@ Se o PO quiser agora:
   - topo da §11, §11.18 (topo e "O foco no T32"), §11.4 (estado 1), §11.12 (item 15) e §6.14: os ponteiros para a §11.20 e as marcas de obsoleto pela ADR 0013.
 
   Nada foi apagado: o que mudou ficou riscado ou marcado com "(2026-11-19)".
+- Alterado em 2026-11-20 (branch `feat/s5-ux-12`, PR "S5 + §12"):
+  - §11.20: a S5 aprovada pelo PO e aplicada ("Carregando o seu código", com `busy`, nos dois QR do Conectar), com a conferência do código; o "pendente com o PO" riscado;
+  - §11.19: a N29 nova no catálogo (o `qrLoading`), a nota no topo e o item 4 das pendências;
+  - §11.12: o item 15 com a S5 aplicada;
+  - §12: o (b) e o (c) marcados como aplicados (topo e tabela), as escolhas do `frontend` aceitas na §12.2 (inclusive a volta ao topo quando a resposta chega, na linha "Como") e na §12.3, a nota na §12.6 e a §12.7 nova (veredito ✅, uma sugestão 🟢 para o `frontend` e o que fica para conferir com VoiceOver e TalkBack);
+  - §5.1 e §5.3: os ponteiros para a §12.7.
+
+  Nada foi apagado: o que mudou ficou riscado ou marcado com "(2026-11-20)".
 - Previsto para a Fase 0 (Dev): `packages/ui/theme.ts`, `packages/ui/icons/HouseFill.tsx`, `packages/ui/avatar/color.ts`, componentes da seção 6.13–6.14, `packages/ui/catalog/fixtures/*`, `apps/mobile/src/app/dev/catalog.tsx`.
