@@ -138,7 +138,7 @@ export function buildAppConfig(
     name,
     slug: 'sussurro',
     scheme: 'sussurro',
-    version: '0.0.0',
+    version: '1.0.0',
     orientation: 'portrait',
     userInterfaceStyle: 'light',
     backgroundColor: '#FFFFFF',
@@ -197,6 +197,11 @@ export function buildAppConfig(
       ['expo-video', VIDEO_PLUGIN_OPTIONS],
       PROXIMITY_PLUGIN,
       ['expo-notifications', notificationsPluginOptions(variant)],
+      // O plugin aponta `fullBackupContent` e `dataExtractionRules` do manifesto para as regras que
+      // tiram o SharedPreferences do SecureStore do Auto Backup e da transferência de aparelho: o
+      // refresh token cifrado não volta sem a chave do Keystore e não quebra o login. O app não usa
+      // `requireAuthentication`, então sem `NSFaceIDUsageDescription` (o padrão a poria, em inglês).
+      ['expo-secure-store', { configureAndroidBackup: true, faceIDPermission: false }],
       // Source maps no EAS Build (6.7 CA3). As chaves existem sempre (sem o aviso "Missing config"
       // a cada `expo start`). Sem o token, a organização ou o projeto, o upload fica desligado e o
       // build não falha (os eventos chegam sem source maps).

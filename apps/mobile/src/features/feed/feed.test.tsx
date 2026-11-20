@@ -1,6 +1,6 @@
 import { ErrorCode, feedWindowLabel } from '@sussurro/shared';
 import { userEvent } from '@testing-library/react-native';
-import { router } from 'expo-router';
+import { type Href, router } from 'expo-router';
 import { act, screen, waitFor, within } from 'expo-router/testing-library';
 import { Alert, type AlertButton, FlatList } from 'react-native';
 
@@ -363,7 +363,7 @@ describe('o Início depois de seguir e de deixar de seguir (ux.md §12.2)', () =
     return api.callsTo('GET /v1/feed').filter((call) => call.query.type === type).length;
   }
 
-  async function go(path: string) {
+  async function go(path: Href) {
     await act(async () => {
       router.push(path);
       await Promise.resolve();
