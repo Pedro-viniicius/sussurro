@@ -5,8 +5,11 @@ Rede social sem algoritmo: app Expo/React Native e API + worker NestJS, em monor
 > Em 2026-10-29 o PO aprovou o plano e autorizou executar as fases em sequência, sem parada intermediária para aprovação (`docs/equipe/PROJETO.md`, topo). As Fases 0 a 7 foram implementadas em 2026-10-30.
 > - **Estado atual:** a seção "Estado das fases" do `README.md`.
 > - **2026-11-14:** o Conectar passou para NFC + QR code, sem Bluetooth (ADR 0013; PR #12 na `main` desde 2026-11-19, com o job `native` do CI). Este clone está em Linux (Node 26.13.0 via nvm: `source ~/.nvm/nvm.sh && nvm use 26.13.0`, porque o shell padrão pode vir com o Node 22 e o `engineStrict` recusa).
-> - **Git:** os PRs #1 (Fases 0 a 7), #2 (encostar, ADR 0012), #3 (Fase 4d: R1-PO-1 e adendo A3), #4 (pendências do MVP) e #12 (Fase 4e: NFC + QR, ADR 0013) já estão na `main` (remoto `origin` = `Pedro-viniicius/sussurro`). Trabalho novo sai em branch curta a partir da `main`. Commit e push só com pedido explícito do PO.
-> - **Ambiente:** Docker/WSL2 ainda não estão instalados, então `pnpm test:e2e` só roda no modo PGlite (`TEST_DB=pglite`), de forma direcionada.
+> - **Git:** os PRs #1 (Fases 0 a 7), #2 (encostar, ADR 0012), #3 (Fase 4d: R1-PO-1 e adendo A3), #4 (pendências do MVP), #12 (Fase 4e: NFC + QR, ADR 0013), #21 (Fase 4d portada) e #22 (S5 e `ux.md` §12) já estão na `main` (remoto `origin` = `Pedro-viniicius/sussurro`). Trabalho novo sai em branch curta a partir da `main`. Commit e push só com pedido explícito do PO.
+> - **Ambiente:** no Windows, o Docker/WSL2 ainda não está instalado, então o `pnpm test:e2e` só roda no modo PGlite (`TEST_DB=pglite`), de forma direcionada.
+>   - Neste Linux há Docker, e também um emulador Android (AVD `trampo35`, Android SDK em `~/Android/Sdk`).
+>   - Outro projeto já ocupa a porta 5432. Para subir o compose, use um override que publique o Postgres na 5433 e aponte o `DATABASE_URL` para ela.
+>   - No emulador, use `adb reverse` para as portas 3000, 8333 e 8081, com `EXPO_PUBLIC_API_URL=http://localhost:3000`.
 > - **Abra o Claude Code na raiz do repositório** (`/home/ufla/Documentos/saas/SUSURRO/sussurro` neste Linux; `C:\dev\sussurro` no Windows): só assim este arquivo e os agentes de `.claude/agents/` são carregados.
 
 ## Equipe e fluxo de trabalho (desde 2026-10-30)
