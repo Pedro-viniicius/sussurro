@@ -35,6 +35,9 @@ export const COPY = {
   modeRead: 'Ler código',
   // Mostrar meu código (QR, §4.10, e o NFC da ADR 0013).
   qrHint: 'Peça para a outra pessoa ler este código. Mostre só para quem está com você.',
+  // S5 (ux.md §11.20, aprovado pelo PO em 2026-11-20): o rótulo do QR para o leitor de tela
+  // enquanto ele carrega (a espera pela vaga e o "Tentar de novo" depois da parada, C4).
+  qrLoading: 'Carregando o seu código',
   // N6: com o NFC ligado, este celular também entrega o código por NFC. Diz o que o outro faz.
   emitHint: 'Ou a outra pessoa toca em Ler código e encosta o celular nas costas deste.',
   // N7: no "Aguardando", quem lê é quem recebeu o pedido, pela folha (toca em Aceitar).

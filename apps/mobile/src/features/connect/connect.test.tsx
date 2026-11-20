@@ -23,7 +23,9 @@ import {
   proximityToken,
 } from '../../test-utils/connect-fixtures';
 import { type FakeApi, type FakeReply, personalMe } from '../../test-utils/fake-api';
+import { feedPage, photoPost } from '../../test-utils/post-fixtures';
 import { renderApp } from '../../test-utils/render-app';
+import { FEED_EMPTY_TITLE } from '../feed/FeedScreen';
 
 const SAVED_TIMING = { ...connectTiming };
 const NFC_REQUEST = connectionRequest({ method: 'nfc' });
@@ -511,6 +513,62 @@ describe('Aguardando e o fim do pedido (p13 a p15)', () => {
     await userEvent.press(screen.getByRole('button', { name: COPY.cancelRequest }));
     expect(await screen.findByTestId('conectar-ler')).toBeOnTheScreen();
     expect(api.callsTo(`DELETE /v1/connections/requests/${NFC_REQUEST.id}`)).toHaveLength(1);
+  });
+});
+
+describe('O Início depois de conectar (ux.md §12.2)', () => {
+  it('FEED-20 (ux.md §12.2, b): depois da 1ª conexão, "Ir para o início" busca o Início de novo e mostra as publicações da conexão, e não só o "Você está em dia"', async () => {
+    const nfc = createFakeNfc();
+    const caioPost = photoPost({
+      author: { handle: 'caio.r', name: 'Caio Ribeiro', avatarUrl: null, accountType: 'personal' },
+    });
+    let connected = false;
+    let status = 'pending';
+    const { api } = await renderApp({
+      signedInAs: personalMe({ counts: { posts: 0, connections: 0, creators: 0 } }),
+      initialUrl: '/',
+      nfc,
+      configure: (fake) => {
+        configureNfc(fake);
+        fake.on(`GET /v1/connections/requests/${NFC_REQUEST.id}`, () => ({
+          status: 200,
+          body: { ...NFC_REQUEST, status },
+        }));
+        fake.on('GET /v1/me', () => ({
+          status: 200,
+          body: personalMe({ counts: { posts: 0, connections: connected ? 1 : 0, creators: 0 } }),
+        }));
+        fake.on('GET /v1/feed', ({ query }) => ({
+          status: 200,
+          body: feedPage(connected && query.type === 'photo' ? [caioPost] : []),
+        }));
+      },
+    });
+    expect(await screen.findByText(FEED_EMPTY_TITLE)).toBeOnTheScreen();
+    const photoFeed = () =>
+      api.callsTo('GET /v1/feed').filter((call) => call.query.type === 'photo');
+    expect(photoFeed()).toHaveLength(1);
+
+    await userEvent.press(screen.getByRole('tab', { name: 'Conectar' }));
+    await userEvent.press(await screen.findByRole('radio', { name: COPY.modeRead }));
+    await waitFor(() => {
+      expect(nfc.reading).toBe(true);
+    });
+    await nfcRead(nfc, CAIO_TOKEN);
+    await userEvent.press(await screen.findByRole('button', { name: CAIO_LABEL }));
+    await screen.findByRole('header', { name: 'Aguardando Caio confirmar' });
+    connected = true;
+    status = 'accepted';
+    expect(
+      await screen.findByRole('header', { name: 'Você e Caio estão conectados' }),
+    ).toBeOnTheScreen();
+    // Fora do Início, nada é buscado.
+    expect(photoFeed()).toHaveLength(1);
+
+    await userEvent.press(screen.getByRole('button', { name: COPY.goHome }));
+    expect(await screen.findByTestId(`post-${caioPost.id}`)).toBeOnTheScreen();
+    expect(photoFeed()).toHaveLength(2);
+    expect(screen.getByTestId('caught-up-photo')).toBeOnTheScreen();
   });
 });
 

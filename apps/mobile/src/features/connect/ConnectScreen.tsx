@@ -107,6 +107,7 @@ function ShowMyCode({ session }: { session: ConnectSession }) {
         name={user.name}
         avatarSeed={user.id}
         avatarUri={user.avatarUrl}
+        loadingAccessibilityLabel={COPY.qrLoading}
       />
       <Text variant="bodySm" color="grey" align="center">
         {COPY.qrHint}
@@ -283,6 +284,7 @@ function Waiting({ session }: { session: ConnectSession }) {
         name={user.name}
         avatarSeed={user.id}
         avatarUri={user.avatarUrl}
+        loadingAccessibilityLabel={COPY.qrLoading}
       />
       <Text variant="bodySmStrong" align="center">
         {COPY.waitingQr(first)}

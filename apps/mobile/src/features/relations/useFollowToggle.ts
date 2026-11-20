@@ -7,6 +7,7 @@ import { useFollowStore } from './follow-store';
 import { isApiError } from '../../lib/api/errors';
 import { messageForError } from '../../lib/error-messages';
 import { useAuth } from '../auth/AuthProvider';
+import { usePostStore } from '../posts/post-store';
 
 /** Toasts da falha ao seguir (3.3 CA6). */
 export const FOLLOW_ERROR_MESSAGE = 'Não foi possível seguir.';
@@ -39,6 +40,7 @@ function errorMessage(error: unknown, follow: boolean): string {
 export function useFollowToggle() {
   const { api, patchUser, reloadUser } = useAuth();
   const follows = useFollowStore();
+  const posts = usePostStore();
   const toast = useToast();
   const pending = useRef(new Set<string>());
 
@@ -52,6 +54,9 @@ export function useFollowToggle() {
       try {
         const state = await setFollow(api, handle, next);
         follows.set(handle, state.following);
+        // Seguir deu certo: o Início busca de novo na próxima volta ao foco (ux.md §12.2). Deixar
+        // de seguir não busca: as publicações saem do Início pelo `FollowStore`, na hora.
+        if (next && state.following) posts.markFeedStale();
         void reloadUser().catch(() => undefined);
         return state.following;
       } catch (error) {
@@ -63,6 +68,6 @@ export function useFollowToggle() {
         pending.current.delete(handle);
       }
     },
-    [api, follows, patchUser, reloadUser, toast],
+    [api, follows, patchUser, posts, reloadUser, toast],
   );
 }

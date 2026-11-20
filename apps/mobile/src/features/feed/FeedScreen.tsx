@@ -12,8 +12,8 @@ import {
   TopTabs,
   useToast,
 } from '@sussurro/ui';
-import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { router, useIsFocused } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -34,6 +34,7 @@ import { isPublished, usePostStore, useVisibleIds } from '../posts/post-store';
 import { PostCard } from '../posts/PostCard';
 import { usePostPages } from '../posts/usePostPages';
 import { ReelGridTile } from '../reels/ReelGridTile';
+import { useFollowStore } from '../relations/follow-store';
 
 type FeedTab = 'photo' | 'text' | 'reel';
 
@@ -56,6 +57,30 @@ function GridSeparator() {
 }
 
 /**
+ * Tira as publicações dos criadores que a pessoa deixou de seguir nesta sessão (ux.md §12.2): saem
+ * na hora, junto com a troca otimista do "Seguindo", sem buscar de novo. Se o `DELETE` falhar, o
+ * `FollowStore` volta a `true` e elas voltam.
+ */
+function useWithoutUnfollowed(ids: readonly string[]): string[] {
+  const posts = usePostStore();
+  const follows = useFollowStore();
+  const joinedIds = ids.join('|');
+  // Uma string estável como snapshot: muda só quando alguma publicação sai ou volta.
+  const getSnapshot = useCallback(() => {
+    if (joinedIds === '') return '';
+    return joinedIds
+      .split('|')
+      .filter((postId) => {
+        const author = posts.get(postId)?.author;
+        return !(author?.accountType === 'creator' && follows.get(author.handle) === false);
+      })
+      .join('|');
+  }, [follows, joinedIds, posts]);
+  const joined = useSyncExternalStore(follows.subscribe, getSnapshot, getSnapshot);
+  return useMemo(() => (joined === '' ? [] : joined.split('|')), [joined]);
+}
+
+/**
  * Uma aba do feed: Fotos e Textos em lista; Reels em grade 3 colunas 9:16 (p08, 5.4). Paginação por
  * cursor e os estados do ux.md §5.1.
  */
@@ -65,7 +90,20 @@ function FeedList({ type, visible }: { type: FeedTab; visible: boolean }) {
   const store = usePostStore();
   const toast = useToast();
   const { width } = useWindowDimensions();
-  const fetchPage = useCallback((cursor?: string) => fetchFeedPage(api, type, cursor), [api, type]);
+  const focused = useIsFocused();
+  const listRef = useRef<FlatList<string>>(null);
+  // A versão do Início que a primeira página buscada já inclui (ux.md §12.2). A aba que monta agora
+  // carrega do zero, então começa em dia.
+  const loadedVersion = useRef(store.feedVersion);
+  const fetchPage = useCallback(
+    async (cursor?: string) => {
+      const version = store.feedVersion;
+      const page = await fetchFeedPage(api, type, cursor);
+      if (cursor === undefined) loadedVersion.current = Math.max(loadedVersion.current, version);
+      return page;
+    },
+    [api, store, type],
+  );
   const onRefreshError = useCallback(
     (error: unknown) => {
       toast.show({ message: messageForError(error), variant: 'error' });
@@ -75,8 +113,10 @@ function FeedList({ type, visible }: { type: FeedTab; visible: boolean }) {
   const pages = usePostPages(fetchPage, { onRefreshError });
   // O feed só mostra o que está publicado (o servidor já garante; um reel em processamento ou com
   // falha nunca aparece fora do perfil do autor, MID-09).
-  const ids = useVisibleIds(pages.ids, type === 'reel' ? isPublished : undefined);
-  const { prepend } = pages;
+  const ids = useWithoutUnfollowed(
+    useVisibleIds(pages.ids, type === 'reel' ? isPublished : undefined),
+  );
+  const { prepend, refresh, status } = pages;
   const reel = type === 'reel';
   const tileWidth = (width - theme.layout.gridGap * (REEL_COLUMNS - 1)) / REEL_COLUMNS;
 
@@ -88,6 +128,28 @@ function FeedList({ type, visible }: { type: FeedTab; visible: boolean }) {
       }),
     [prepend, store, type],
   );
+
+  // Início desatualizado (seguiu ou conectou, ux.md §12.2): quando a aba volta a ficar em foco e
+  // visível, busca a primeira página uma vez, sem o indicador do puxar e sem Toast na falha (a marca
+  // fica para a próxima volta). Com a página nova, a lista volta ao topo, sem animação. Nunca
+  // enquanto a pessoa está nela: só a mudança de foco, de aba ou do estado da lista dispara.
+  // Com o puxar para atualizar em voo, a busca automática não começa: ela descartaria a resposta
+  // do puxar e, se falhasse, deixaria o indicador preso. A marca fica para a próxima volta ao foco.
+  const refreshRef = useRef({ refresh, pulling: pages.refreshing });
+  useEffect(() => {
+    refreshRef.current = { refresh, pulling: pages.refreshing };
+  });
+  const staleRefreshing = useRef(false);
+  useEffect(() => {
+    if (!focused || !visible || status !== 'ready' || staleRefreshing.current) return;
+    if (refreshRef.current.pulling) return;
+    if (store.feedVersion <= loadedVersion.current) return;
+    staleRefreshing.current = true;
+    void refreshRef.current.refresh({ silent: true }).then((replaced) => {
+      staleRefreshing.current = false;
+      if (replaced) listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    });
+  }, [focused, status, store, visible]);
 
   const windowLabel = feedWindowLabel(pages.windowHours ?? FEED_WINDOW_HOURS_DEFAULT);
   const noOne =
@@ -168,6 +230,7 @@ function FeedList({ type, visible }: { type: FeedTab; visible: boolean }) {
 
   return (
     <FlatList
+      ref={listRef}
       testID={`feed-list-${type}`}
       style={[styles.flex, !visible && styles.hidden]}
       data={pages.status === 'ready' ? ids : []}

@@ -923,7 +923,17 @@ Plano do Tech Lead de 2026-10-31, a partir do inventário do `arquiteto`, aprova
   - `testes.md`: PROX-05, 20, 65 e 68, AUTH-15, MID-15, BUS-10, NOT-05 e MAN-MOD-01.
 - Revisões:
   - `testes`: aprovado (backend e dados), com mutações mortas no limite de emissões e no R25;
-  - `ux-ui`: conflito resolvido; o S5 ("Carregando o seu código" para o leitor de tela) fica com o PO;
+  - `ux-ui`: conflito resolvido; o S5 ("Carregando o seu código" para o leitor de tela) ficou com o PO, que o aprovou em 2026-11-20 (aplicado no PR seguinte);
   - `seguranca`: aprovado. O MÉDIO da 4d está fechado, e o único BAIXO foi corrigido no próprio PR.
 
-**Fidelidade ao `ux.md` §12** (planejada como "PR #6"): ainda não começou. É fazer (b), o Início recarregar depois de seguir, de deixar de seguir e de uma conexão nova, e (c), o tile "Processando" consultar sozinho.
+**S5 e fidelidade ao `ux.md` §12** (planejada como "PR #6"; branch `feat/s5-ux-12`, 2026-11-20):
+
+- S5: o QR do Conectar carregando diz "Carregando o seu código", com estado ocupado, para o leitor de tela (texto N29, aprovado pelo PO em 2026-11-20).
+- §12.2 (b): o Início recarrega uma vez, em silêncio, ao voltar ao foco depois de seguir, de deixar de seguir ou de uma conexão nova; deixar de seguir tira as publicações na hora (FEED-17 a 20).
+- §12.3 (c): o tile "Processando" de um reel de outra sessão consulta sozinho a cada 10 s, só no próprio perfil, com a aba Reels visível e o app em primeiro plano (MID-16 a 21).
+- Fora, por decisão registrada na §12: (a) deslizar entre abas e (d) o "✓". A §12.5 (abas do perfil não fixas) é só registro.
+- Revisões: `ux-ui` aprovado (a sugestão do indicador do puxar preso foi corrigida, FEED-19); `testes` aprovado, com o teste de notificações que dependia do relógio corrigido; `seguranca` aprovado, sem CRÍTICO, ALTO nem MÉDIO.
+  - BAIXO 1, corrigido no PR: testes de regressão de que a consulta do (c) não sai no perfil de outra pessoa e para ao sair da conta.
+  - BAIXO 2, dívida registrada (`frontend`): ao "Sair da conta", uma consulta em série (a do (c) ou a do `PublishingProvider`) pode sair sem token no intervalo antes de a tela trocar, e o aviso "sessão expirou" pode aparecer logo depois de um "Sair" voluntário. Nada vaza. A correção é trocar o estado antes do `clearSession` no `endLocalSession`.
+  - Fora do diff, para uma passada de hardening: a API não tem rate limit global nos GET autenticados.
+- Para conferir no aparelho: MAN-A11Y-01 (QR carregando) e MAN-A11Y-02 (foco depois do recarregamento).

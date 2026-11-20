@@ -96,10 +96,13 @@ const PublishingContext = createContext<PublishingContextValue | null>(null);
 /** Margem para não usar uma URL de upload que vence no meio do PUT. */
 const EXPIRY_MARGIN_MS = 30_000;
 const MAX_POLL_DELAY_MS = 5_000;
-/** O MediaConvert leva minutos: a consulta do reel espera até 10 s entre uma vez e outra. */
-const MAX_REEL_POLL_DELAY_MS = 10_000;
+/**
+ * O MediaConvert leva minutos: a consulta do reel espera até 10 s entre uma vez e outra. Também o
+ * intervalo do tile "Processando" de outra sessão (ux.md §12.3).
+ */
+export const MAX_REEL_POLL_DELAY_MS = 10_000;
 /** Falhas de rede seguidas na consulta antes de desistir (a faixa oferece "Tentar de novo"). */
-const MAX_POLL_ERRORS = 5;
+export const MAX_POLL_ERRORS = 5;
 
 /** `details` do `MEDIA_NOT_UPLOADED`: fotos (ou o vídeo, posição 0) e a capa que não chegaram. */
 function missingMedia(error: unknown): { positions: number[]; poster: boolean } {

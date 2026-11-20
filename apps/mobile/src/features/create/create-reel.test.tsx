@@ -248,6 +248,41 @@ describe('Criar: modo REEL (história 5.3)', () => {
     expect(api.callsTo(`GET /v1/posts/${postId}`).length).toBeGreaterThanOrEqual(2);
   });
 
+  it('MID-21 (ux.md §12.3, c): o reel com faixa nesta sessão não é consultado de novo pelo tile "Processando" da aba Reels', async () => {
+    const media = createFakeMedia();
+    const postId = uuid();
+    let hold = false;
+    const { api } = await openReelMode({
+      media,
+      configure: (fake) => {
+        reelFlow(fake, [postId], {});
+        // A faixa consulta; com `hold`, a consulta dela fica sem resposta (uma só em voo).
+        fake.on(`GET /v1/posts/${postId}`, () =>
+          hold
+            ? new Promise<never>(() => undefined)
+            : { status: 200, body: ownReel(postId, 'processing') },
+        );
+      },
+    });
+    await pickVideo(media);
+    await userEvent.press(share());
+    expect(await screen.findByText('Processando o reel…')).toBeOnTheScreen();
+    hold = true;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(20_000);
+    });
+    const key = `GET /v1/posts/${postId}`;
+    const before = api.callsTo(key).length;
+
+    await userEvent.press(screen.getByRole('tab', { name: 'Reels' }));
+    expect(await screen.findByRole('button', { name: 'Reel processando' })).toBeOnTheScreen();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+    // Só a consulta da faixa, em voo: o tile não consulta o mesmo reel.
+    expect(api.callsTo(key)).toHaveLength(before);
+  });
+
   it('MID-10/5.6: o worker falha → "Não foi possível publicar." e o tile "Falhou"; "Tentar de novo" apaga o reel e recria com o mesmo arquivo', async () => {
     const media = createFakeMedia();
     const firstId = uuid();

@@ -9,7 +9,7 @@ import {
   theme,
   TopTabs,
 } from '@sussurro/ui';
-import { router } from 'expo-router';
+import { router, useIsFocused } from 'expo-router';
 import { type ReactElement, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -29,6 +29,7 @@ import { PostCard } from '../posts/PostCard';
 import { useDeletePost } from '../posts/useDeletePost';
 import { usePostPages } from '../posts/usePostPages';
 import { ReelGridTile } from '../reels/ReelGridTile';
+import { useProcessingReelsPoll } from '../reels/useProcessingReelsPoll';
 
 export type ProfileTab = 'photos' | 'texts' | 'reels';
 
@@ -140,6 +141,10 @@ export function ProfilePostsList({
   const textIds = useVisibleIds(texts.ids);
   // Reel em processamento ou com falha nunca aparece fora do perfil do autor (MID-09, 5.3 CA3).
   const reelIds = useVisibleIds(reels.ids, own ? undefined : isPublished);
+  // O tile "Processando" de um reel de outra sessão se atualiza sozinho (ux.md §12.3): só no próprio
+  // perfil, com a tela em foco e a aba Reels visível (o app em primeiro plano, o hook confere).
+  const focused = useIsFocused();
+  useProcessingReelsPoll(reelIds, own && focused && tab === 'reels');
   const prependPhoto = photos.prepend;
   const prependText = texts.prepend;
   const prependReel = reels.prepend;

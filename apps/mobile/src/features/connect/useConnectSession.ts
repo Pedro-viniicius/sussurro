@@ -413,6 +413,8 @@ export function useConnectSession({
     (other: ConnectionRequestParty) => {
       dispatch({ type: 'view', view: { kind: 'connected', other, at: connectClock.now() } });
       posts.showPostsOf(other.handle);
+      // Conexão nova: o Início busca as publicações dela na próxima volta ao foco (ux.md §12.2).
+      posts.markFeedStale();
       vibrate('connected');
       reloadUser().catch(() => undefined);
       // Primeira conexão: o pedido contextual de notificações (6.4 CA1), uma vez só.

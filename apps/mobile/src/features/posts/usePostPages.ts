@@ -117,19 +117,33 @@ export function usePostPages(
     await fetchFirst();
   }, [fetchFirst]);
 
-  const refresh = useCallback(async () => {
-    generation.current += 1;
-    const current = generation.current;
-    setState((value) => ({ ...value, refreshing: true }));
-    try {
-      const page = await fetchPage();
-      if (current === generation.current) applyFirstPage(page);
-    } catch (error) {
-      if (current !== generation.current) return;
-      setState((value) => ({ ...value, refreshing: false }));
-      onRefreshError?.(error);
-    }
-  }, [applyFirstPage, fetchPage, onRefreshError]);
+  /**
+   * Puxar para atualizar: a primeira página substitui a lista. Com `silent` (o Início
+   * desatualizado, ux.md §12.2), sem o indicador do puxar e, na falha, sem o `onRefreshError`: o
+   * conteúdo de antes fica. Devolve `true` quando a página nova entrou na lista.
+   */
+  const refresh = useCallback(
+    async (options: { silent?: boolean } = {}): Promise<boolean> => {
+      const silent = options.silent === true;
+      generation.current += 1;
+      const current = generation.current;
+      if (!silent) setState((value) => ({ ...value, refreshing: true }));
+      try {
+        const page = await fetchPage();
+        if (current !== generation.current) return false;
+        applyFirstPage(page);
+        return true;
+      } catch (error) {
+        if (current !== generation.current) return false;
+        if (!silent) {
+          setState((value) => ({ ...value, refreshing: false }));
+          onRefreshError?.(error);
+        }
+        return false;
+      }
+    },
+    [applyFirstPage, fetchPage, onRefreshError],
+  );
 
   const loadMore = useCallback(async () => {
     const next = cursor.current;
