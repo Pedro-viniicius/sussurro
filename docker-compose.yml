@@ -74,7 +74,7 @@ services:
   s3-init:
     # Cria o bucket de mídia de forma idempotente e termina com código 0.
     # Tenta por até ~20 s caso o filer ainda esteja terminando de subir.
-    image: amazon/aws-cli:2.39.5@sha256:0cea63506f28774b70b1a3dd1934f49bc202d9784dee23370acc81438e8d0292
+    image: amazon/aws-cli:2.40.2@sha256:acc32af784911165a8e78b63950625d174ba79b800a66a436c974689c87cd755
     depends_on:
       seaweedfs:
         condition: service_healthy
